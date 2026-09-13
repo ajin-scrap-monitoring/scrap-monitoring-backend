@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+
+# Environments (보안 및 로컬 환경)
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python & Build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Testing & Quality
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+
+# 기타 파일들
+downloads/
