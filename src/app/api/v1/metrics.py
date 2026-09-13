@@ -1,9 +1,9 @@
 """Metric ingestion and historical query endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
@@ -11,7 +11,9 @@ from src.app.core.security import verify_edge_api_key
 from src.app.db.session import get_db_session
 from src.app.models.config import PitConfig
 from src.app.models.metric import ScrapMetric
-from src.app.schemas.metric import MetricIngestRequest, MetricResponse
+from src.app.schemas.metric import MetricIngestRequest, MetricResponse, MetricStatsSummary
+from src.app.schemas.state import RealtimeStatePayload
+from src.app.services.broadcaster import broadcaster
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
@@ -67,6 +69,21 @@ async def ingest_metric(
     await db.flush()
     await db.refresh(metric_record)
 
+    # 5. Broadcast to real-time clients (WebSocket / SSE)
+    realtime_payload = RealtimeStatePayload(
+        pit_id=payload.pit_id,
+        fill_ratio_percent=payload.fill_ratio_percent,
+        calculated_height_cm=payload.calculated_height_cm,
+        state=state,
+        measured_at=payload.measured_at,
+        warning_threshold_percent=warn_th,
+        critical_threshold_percent=crit_th,
+        sensor1_status=payload.sensor1_status,
+        sensor2_status=payload.sensor2_status,
+        is_valid=is_valid,
+    )
+    await broadcaster.broadcast(realtime_payload)
+
     return MetricResponse.model_validate(metric_record)
 
 
@@ -117,3 +134,43 @@ async def get_metric_history(
     result = await db.execute(stmt)
     records = result.scalars().all()
     return [MetricResponse.model_validate(record) for record in records]
+
+
+@router.get(
+    "/stats",
+    response_model=MetricStatsSummary | None,
+    summary="Query aggregated metric statistics",
+)
+async def get_metric_stats(
+    pit_id: str = Query(default="pit-01"),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    db: AsyncSession = Depends(get_db_session),
+) -> MetricStatsSummary | None:
+    """Query aggregated statistical summary for a given pit and time range."""
+    stmt = select(
+        func.avg(ScrapMetric.fill_ratio_percent),
+        func.max(ScrapMetric.fill_ratio_percent),
+        func.min(ScrapMetric.fill_ratio_percent),
+        func.avg(ScrapMetric.calculated_height_cm),
+        func.count(ScrapMetric.id),
+    ).where(ScrapMetric.pit_id == pit_id)
+
+    if start_time:
+        stmt = stmt.where(ScrapMetric.measured_at >= start_time)
+    if end_time:
+        stmt = stmt.where(ScrapMetric.measured_at <= end_time)
+
+    result = await db.execute(stmt)
+    avg_fill, max_fill, min_fill, avg_h, count = result.one()
+    if not count or count == 0:
+        return None
+
+    return MetricStatsSummary(
+        timestamp=datetime.now(UTC),
+        avg_fill_ratio=round(float(avg_fill), 2),
+        max_fill_ratio=round(float(max_fill), 2),
+        min_fill_ratio=round(float(min_fill), 2),
+        avg_height_cm=round(float(avg_h), 2),
+        sample_count=count,
+    )
