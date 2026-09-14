@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Development and demo files
+demo_sensor.py
+demo_dashboard.html
+proposal/
+
+# Editor and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+htmlcov/
+.coverage
+coverage.xml
+
+# Database files (dev only)
+*.db
+*.sqlite3
