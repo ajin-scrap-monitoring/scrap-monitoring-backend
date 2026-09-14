@@ -1,6 +1,16 @@
 """Pydantic schemas export."""
 
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
+from src.app.schemas.log import (
+    AlertLogResponse,
+    CollectionConfirmRequest,
+    CollectionLogResponse,
+)
+from src.app.schemas.media import (
+    MediaIndexResponse,
+    MediaRecordingCompleteRequest,
+    MediaSessionVerifyResponse,
+)
 from src.app.schemas.metric import (
     MetricIngestRequest,
     MetricResponse,
@@ -15,4 +25,10 @@ __all__ = [
     "RealtimeStatePayload",
     "PitConfigResponse",
     "PitConfigUpdateRequest",
+    "AlertLogResponse",
+    "CollectionConfirmRequest",
+    "CollectionLogResponse",
+    "MediaRecordingCompleteRequest",
+    "MediaIndexResponse",
+    "MediaSessionVerifyResponse",
 ]

@@ -6,14 +6,11 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core.config import get_settings
 from src.app.core.security import verify_edge_api_key
 from src.app.db.session import get_db_session
-from src.app.models.config import PitConfig
 from src.app.models.metric import ScrapMetric
 from src.app.schemas.metric import MetricIngestRequest, MetricResponse, MetricStatsSummary
-from src.app.schemas.state import RealtimeStatePayload
-from src.app.services.broadcaster import broadcaster
+from src.app.services.metric_service import metric_service
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
@@ -30,61 +27,7 @@ async def ingest_metric(
     _edge_auth: str = Depends(verify_edge_api_key),
 ) -> MetricResponse:
     """Receive processed scrap level metrics from Raspberry Pi Edge."""
-    settings = get_settings()
-
-    # 1. Fetch pit configuration for custom thresholds if available
-    stmt = select(PitConfig).where(PitConfig.id == payload.pit_id)
-    result = await db.execute(stmt)
-    pit_cfg = result.scalar_one_or_none()
-
-    warn_th = pit_cfg.warning_threshold_percent if pit_cfg else settings.DEFAULT_WARNING_THRESHOLD
-    crit_th = pit_cfg.critical_threshold_percent if pit_cfg else settings.DEFAULT_CRITICAL_THRESHOLD
-
-    # 2. Evaluate state
-    state = "NORMAL"
-    if payload.fill_ratio_percent >= crit_th:
-        state = "CRITICAL"
-    elif payload.fill_ratio_percent >= warn_th:
-        state = "WARNING"
-
-    # 3. Sensor diagnostic quality check
-    is_valid = True
-    if payload.sensor1_status != "OK" and payload.sensor2_status != "OK":
-        is_valid = False
-
-    # 4. Persist ScrapMetric in Database
-    metric_record = ScrapMetric(
-        pit_id=payload.pit_id,
-        measured_at=payload.measured_at,
-        lidar1_distance_cm=payload.lidar1_distance_cm,
-        lidar2_distance_cm=payload.lidar2_distance_cm,
-        calculated_height_cm=payload.calculated_height_cm,
-        fill_ratio_percent=payload.fill_ratio_percent,
-        state=state,
-        sensor1_status=payload.sensor1_status,
-        sensor2_status=payload.sensor2_status,
-        is_valid=is_valid,
-    )
-    db.add(metric_record)
-    await db.flush()
-    await db.refresh(metric_record)
-
-    # 5. Broadcast to real-time clients (WebSocket / SSE)
-    realtime_payload = RealtimeStatePayload(
-        pit_id=payload.pit_id,
-        fill_ratio_percent=payload.fill_ratio_percent,
-        calculated_height_cm=payload.calculated_height_cm,
-        state=state,
-        measured_at=payload.measured_at,
-        warning_threshold_percent=warn_th,
-        critical_threshold_percent=crit_th,
-        sensor1_status=payload.sensor1_status,
-        sensor2_status=payload.sensor2_status,
-        is_valid=is_valid,
-    )
-    await broadcaster.broadcast(realtime_payload)
-
-    return MetricResponse.model_validate(metric_record)
+    return await metric_service.ingest_metric(payload, db)
 
 
 @router.get(
