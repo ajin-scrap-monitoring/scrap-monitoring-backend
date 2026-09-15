@@ -44,6 +44,7 @@ from src.app.schemas.monitoring import (
     MonitoringSummary,
     PreCollectionAlert,
 )
+from src.app.schemas.notification import Notification, NotificationPage, NotificationUpdate
 from src.app.schemas.recording import Recording, RecordingPage
 from src.app.schemas.session import LoginRequest, Session, User
 from src.app.schemas.state import RealtimeStatePayload
@@ -52,6 +53,9 @@ __all__ = [
     "LoginRequest",
     "Session",
     "User",
+    "Notification",
+    "NotificationPage",
+    "NotificationUpdate",
     "MetricIngestRequest",
     "MetricResponse",
     "MetricStatsSummary",
