@@ -1,6 +1,14 @@
 """Pydantic schemas export."""
 
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
+from src.app.schemas.history import (
+    CollectionThresholdSample,
+    Event,
+    EventPage,
+    HistoryEventMarker,
+    LoadHistory,
+    PageMetadata,
+)
 from src.app.schemas.log import (
     AlertLogResponse,
     CollectionConfirmRequest,
@@ -51,4 +59,10 @@ __all__ = [
     "LidarProfile",
     "LidarProfileSample",
     "LiveVideo",
+    "CollectionThresholdSample",
+    "HistoryEventMarker",
+    "LoadHistory",
+    "Event",
+    "PageMetadata",
+    "EventPage",
 ]
