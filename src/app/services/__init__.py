@@ -1,5 +1,6 @@
 """Services package export."""
 
+from src.app.services.admin_service import admin_service
 from src.app.services.alert_engine import alert_engine
 from src.app.services.broadcaster import broadcaster
 from src.app.services.history_service import history_service
@@ -16,4 +17,5 @@ __all__ = [
     "snapshot_service",
     "history_service",
     "recording_service",
+    "admin_service",
 ]
