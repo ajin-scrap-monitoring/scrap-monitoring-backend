@@ -22,6 +22,13 @@ class AlertLog(Base):
     channel: Mapped[str] = mapped_column(String(30), nullable=False, default="LOG")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="SENT")
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="collection_required"
+    )
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="warning")
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
 
 class CollectionLog(Base):
