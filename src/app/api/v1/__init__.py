@@ -15,9 +15,12 @@ from src.app.api.v1.media import router as media_router
 from src.app.api.v1.metrics import router as metrics_router
 from src.app.api.v1.monitoring import router as monitoring_router
 from src.app.api.v1.recordings import router as recordings_router
+from src.app.api.v1.session import router as session_router
 from src.app.api.v1.stream import router as stream_router
 
 api_v1_router = APIRouter()
+api_v1_router.include_router(session_router)
+
 api_v1_router.include_router(health_router)
 api_v1_router.include_router(metrics_router)
 api_v1_router.include_router(config_router)

@@ -6,6 +6,7 @@ from src.app.services.broadcaster import broadcaster
 from src.app.services.history_service import history_service
 from src.app.services.metric_service import metric_service
 from src.app.services.recording_service import recording_service
+from src.app.services.session_service import session_service
 from src.app.services.snapshot_service import snapshot_service
 from src.app.services.state_engine import state_engine
 
@@ -18,4 +19,5 @@ __all__ = [
     "history_service",
     "recording_service",
     "admin_service",
+    "session_service",
 ]
