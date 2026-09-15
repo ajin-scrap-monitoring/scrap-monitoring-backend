@@ -1,5 +1,14 @@
 """Pydantic schemas export."""
 
+from src.app.schemas.admin import (
+    AlertSettings,
+    AlertSettingsUpdate,
+    NotificationRecipient,
+    NotificationRecipientCreate,
+    NotificationRecipientPage,
+    NotificationRecipientPatch,
+    TestNotificationRequest,
+)
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
 from src.app.schemas.history import (
     CollectionThresholdSample,
@@ -68,4 +77,11 @@ __all__ = [
     "EventPage",
     "Recording",
     "RecordingPage",
+    "AlertSettings",
+    "AlertSettingsUpdate",
+    "NotificationRecipient",
+    "NotificationRecipientCreate",
+    "NotificationRecipientPatch",
+    "NotificationRecipientPage",
+    "TestNotificationRequest",
 ]

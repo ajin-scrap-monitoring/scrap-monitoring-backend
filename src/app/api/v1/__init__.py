@@ -2,6 +2,11 @@
 
 from fastapi import APIRouter
 
+from src.app.api.v1.admin import (
+    notifications_admin_router,
+    recipients_router,
+    settings_router,
+)
 from src.app.api.v1.collections import router as collections_router
 from src.app.api.v1.config import router as config_router
 from src.app.api.v1.health import router as health_router
@@ -23,3 +28,6 @@ api_v1_router.include_router(monitoring_router)
 api_v1_router.include_router(history_router)
 api_v1_router.include_router(events_router)
 api_v1_router.include_router(recordings_router)
+api_v1_router.include_router(settings_router)
+api_v1_router.include_router(recipients_router)
+api_v1_router.include_router(notifications_admin_router)
