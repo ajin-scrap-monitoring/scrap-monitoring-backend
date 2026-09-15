@@ -35,6 +35,7 @@ from src.app.schemas.monitoring import (
     MonitoringSummary,
     PreCollectionAlert,
 )
+from src.app.schemas.recording import Recording, RecordingPage
 from src.app.schemas.state import RealtimeStatePayload
 
 __all__ = [
@@ -65,4 +66,6 @@ __all__ = [
     "Event",
     "PageMetadata",
     "EventPage",
+    "Recording",
+    "RecordingPage",
 ]
