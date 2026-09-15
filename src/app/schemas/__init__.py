@@ -16,6 +16,17 @@ from src.app.schemas.metric import (
     MetricResponse,
     MetricStatsSummary,
 )
+from src.app.schemas.monitoring import (
+    Alert,
+    DeviceStatus,
+    LidarProfile,
+    LidarProfileSample,
+    LiveVideo,
+    LoadSample,
+    MonitoringSnapshot,
+    MonitoringSummary,
+    PreCollectionAlert,
+)
 from src.app.schemas.state import RealtimeStatePayload
 
 __all__ = [
@@ -31,4 +42,13 @@ __all__ = [
     "MediaRecordingCompleteRequest",
     "MediaIndexResponse",
     "MediaSessionVerifyResponse",
+    "MonitoringSnapshot",
+    "MonitoringSummary",
+    "PreCollectionAlert",
+    "DeviceStatus",
+    "Alert",
+    "LoadSample",
+    "LidarProfile",
+    "LidarProfileSample",
+    "LiveVideo",
 ]
