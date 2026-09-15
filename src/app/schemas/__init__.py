@@ -45,9 +45,13 @@ from src.app.schemas.monitoring import (
     PreCollectionAlert,
 )
 from src.app.schemas.recording import Recording, RecordingPage
+from src.app.schemas.session import LoginRequest, Session, User
 from src.app.schemas.state import RealtimeStatePayload
 
 __all__ = [
+    "LoginRequest",
+    "Session",
+    "User",
     "MetricIngestRequest",
     "MetricResponse",
     "MetricStatsSummary",
