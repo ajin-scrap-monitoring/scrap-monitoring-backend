@@ -69,7 +69,9 @@ class HistoryService:
         samples = [
             LoadSample(
                 measuredAt=_ensure_utc(m.measured_at),
-                valuePercent=round(m.fill_ratio_percent, 1),
+                valuePercent=round(m.fill_ratio_percent, 1)
+                if m.fill_ratio_percent is not None
+                else 0.0,
                 valid=m.is_valid,
             )
             for m in metrics
@@ -158,7 +160,9 @@ class HistoryService:
                             title="측정 오류",
                             detail="센서 데이터 측정 이상",
                             occurredAt=_ensure_utc(m.measured_at),
-                            valuePercent=round(m.fill_ratio_percent, 1),
+                            valuePercent=round(m.fill_ratio_percent, 1)
+                            if m.fill_ratio_percent is not None
+                            else 0.0,
                         )
                     )
 

@@ -9,6 +9,7 @@ from src.app.api.v1.admin import (
 )
 from src.app.api.v1.collections import router as collections_router
 from src.app.api.v1.config import router as config_router
+from src.app.api.v1.edge import router as edge_router
 from src.app.api.v1.health import router as health_router
 from src.app.api.v1.history import events_router, history_router
 from src.app.api.v1.media import router as media_router
@@ -24,7 +25,9 @@ api_v1_router.include_router(session_router)
 
 api_v1_router.include_router(health_router)
 api_v1_router.include_router(metrics_router)
+api_v1_router.include_router(edge_router)
 api_v1_router.include_router(config_router)
+
 api_v1_router.include_router(stream_router)
 api_v1_router.include_router(collections_router)
 api_v1_router.include_router(media_router)
