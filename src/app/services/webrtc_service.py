@@ -124,11 +124,11 @@ class WebRTCSessionService:
                 )
                 raise RuntimeError(msg)
             sdp_answer = MOCK_SDP_ANSWER
-            hash_suffix = hashlib.md5(f"{session_id}:{stream_id}".encode()).hexdigest()[:8]
+            hash_suffix = hashlib.sha256(f"{session_id}:{stream_id}".encode()).hexdigest()[:16]
             etag = f'"whep-{hash_suffix}"'
 
         if not etag:
-            etag = f'"whep-{hashlib.md5(sdp_answer.encode()).hexdigest()[:8]}"'
+            etag = f'"whep-{hashlib.sha256(sdp_answer.encode()).hexdigest()[:16]}"'
 
         session = WebRTCSession(
             session_id=session_id,
