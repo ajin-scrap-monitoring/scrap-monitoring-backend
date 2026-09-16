@@ -3,6 +3,7 @@
 from src.app.services.admin_service import admin_service
 from src.app.services.alert_engine import alert_engine
 from src.app.services.broadcaster import broadcaster
+from src.app.services.edge_service import edge_service
 from src.app.services.history_service import history_service
 from src.app.services.metric_service import metric_service
 from src.app.services.notification_service import notification_service
@@ -22,4 +23,5 @@ __all__ = [
     "admin_service",
     "session_service",
     "notification_service",
+    "edge_service",
 ]

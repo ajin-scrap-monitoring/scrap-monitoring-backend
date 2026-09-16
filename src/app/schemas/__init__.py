@@ -10,6 +10,13 @@ from src.app.schemas.admin import (
     TestNotificationRequest,
 )
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
+from src.app.schemas.edge import (
+    EdgeHeartbeatRequest,
+    EdgeHeartbeatResponse,
+    EdgeMetricIngestRequest,
+    EdgeMetricIngestResponse,
+    EdgeSensorDetail,
+)
 from src.app.schemas.history import (
     CollectionThresholdSample,
     Event,
@@ -60,6 +67,11 @@ __all__ = [
     "MetricResponse",
     "MetricStatsSummary",
     "RealtimeStatePayload",
+    "EdgeMetricIngestRequest",
+    "EdgeMetricIngestResponse",
+    "EdgeSensorDetail",
+    "EdgeHeartbeatRequest",
+    "EdgeHeartbeatResponse",
     "PitConfigResponse",
     "PitConfigUpdateRequest",
     "AlertLogResponse",

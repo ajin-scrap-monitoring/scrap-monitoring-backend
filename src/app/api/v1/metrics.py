@@ -1,14 +1,16 @@
 """Metric ingestion and historical query endpoints."""
 
 from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.security import verify_edge_api_key
 from src.app.db.session import get_db_session
 from src.app.models.metric import ScrapMetric
+from src.app.schemas.edge import EdgeMetricIngestRequest, EdgeMetricIngestResponse
 from src.app.schemas.metric import MetricIngestRequest, MetricResponse, MetricStatsSummary
 from src.app.services.metric_service import metric_service
 
@@ -17,17 +19,26 @@ router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
 @router.post(
     "/ingest",
-    response_model=MetricResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=EdgeMetricIngestResponse | MetricResponse,
+    status_code=status.HTTP_200_OK,
     summary="Ingest LiDAR sensor metrics",
 )
 async def ingest_metric(
-    payload: MetricIngestRequest,
+    payload: dict[str, Any],
+    response: Response,
     db: AsyncSession = Depends(get_db_session),
     _edge_auth: str = Depends(verify_edge_api_key),
-) -> MetricResponse:
-    """Receive processed scrap level metrics from Raspberry Pi Edge."""
-    return await metric_service.ingest_metric(payload, db)
+) -> EdgeMetricIngestResponse | MetricResponse:
+    """Receive processed scrap level metrics from Edge Platform (contract v1.0 or legacy)."""
+    if "measurement_id" in payload:
+        edge_req = EdgeMetricIngestRequest.model_validate(payload)
+        res = await metric_service.ingest_edge_metric(edge_req, db)
+        response.status_code = status.HTTP_200_OK
+        return res
+
+    legacy_req = MetricIngestRequest.model_validate(payload)
+    response.status_code = status.HTTP_201_CREATED
+    return await metric_service.ingest_metric(legacy_req, db)
 
 
 @router.get(

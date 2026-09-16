@@ -89,7 +89,9 @@ class SnapshotService:
         recent_load = [
             LoadSample(
                 measuredAt=_ensure_utc(r.measured_at),
-                valuePercent=round(r.fill_ratio_percent, 1),
+                valuePercent=round(r.fill_ratio_percent, 1)
+                if r.fill_ratio_percent is not None
+                else 0.0,
                 valid=r.is_valid,
             )
             for r in recent_records
@@ -112,16 +114,28 @@ class SnapshotService:
 
         # 6. Compute Load change in last hour
         load_change = 0.0
-        if latest_metric and len(recent_records) > 1:
+        if (
+            latest_metric
+            and latest_metric.fill_ratio_percent is not None
+            and len(recent_records) > 1
+        ):
             one_hour_ago = now - timedelta(hours=1)
-            past_samples = [r for r in recent_records if _ensure_utc(r.measured_at) <= one_hour_ago]
+            past_samples = [
+                r
+                for r in recent_records
+                if _ensure_utc(r.measured_at) <= one_hour_ago and r.fill_ratio_percent is not None
+            ]
             if past_samples:
-                load_change = round(
-                    latest_metric.fill_ratio_percent - past_samples[-1].fill_ratio_percent, 1
-                )
+                past_fill = past_samples[-1].fill_ratio_percent
+                if past_fill is not None:
+                    load_change = round(latest_metric.fill_ratio_percent - past_fill, 1)
 
         measured_at = _ensure_utc(latest_metric.measured_at) if latest_metric else now
-        current_fill = round(latest_metric.fill_ratio_percent, 1) if latest_metric else 0.0
+        current_fill = (
+            round(latest_metric.fill_ratio_percent, 1)
+            if (latest_metric and latest_metric.fill_ratio_percent is not None)
+            else 0.0
+        )
 
         last_coll_at = (
             _ensure_utc(last_coll.completed_at) if (last_coll and last_coll.completed_at) else None
@@ -201,7 +215,12 @@ class SnapshotService:
             )
 
         # 9. LiDAR surface profiles (in meters)
-        height_m = round((latest_metric.calculated_height_cm if latest_metric else 0.0) / 100.0, 2)
+        raw_height = (
+            latest_metric.calculated_height_cm
+            if (latest_metric and latest_metric.calculated_height_cm is not None)
+            else 0.0
+        )
+        height_m = round(raw_height / 100.0, 2)
         ratios = [0.0, 0.25, 0.5, 0.75, 1.0]
 
         lidar1_samples = [
