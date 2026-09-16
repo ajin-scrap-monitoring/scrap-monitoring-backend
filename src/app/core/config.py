@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     ALERT_SMTP_PASSWORD: str | None = None
     ALERT_RECIPIENT_EMAIL: str | None = None
 
+    # WebRTC / WHEP Media Server Integration
+    MEDIA_SERVER_WHEP_URL: str | None = Field(
+        default=None,
+        description="Upstream Media Server WHEP endpoint base URL (e.g. http://scrap-server-01.tail2e96c5.ts.net:8889)",
+    )
+    WHEP_SESSION_TTL_SECONDS: int = Field(
+        default=1800,
+        description="WebRTC playback session time-to-live in seconds (default 30m)",
+    )
+    WHEP_MOCK_FALLBACK: bool = Field(
+        default=True,
+        description="Allow fallback to mock SDP answer when upstream media server is unavailable",
+    )
+
     @field_validator("CORS_ORIGINS")
     @classmethod
     def validate_cors_origins(cls, v: str) -> str:
