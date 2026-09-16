@@ -25,16 +25,22 @@ build/
 .coverage
 htmlcov/
 
-# Local databases
+# Local databases & volumes
 *.db
 *.sqlite3
+data/
 
 # IDE
 .vscode/
 .idea/
 
-# 기타 파일들
+# Logs
+logs/
+*.log
+
+# 기타 로컬 참고 및 테스트 파일들
 downloads/
+proposal/
 HANDOFF.md
 test_edge_client.py
 demo_dashboard.html
