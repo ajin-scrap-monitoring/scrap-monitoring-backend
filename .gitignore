@@ -35,3 +35,7 @@ htmlcov/
 
 # 기타 파일들
 downloads/
+HANDOFF.md
+test_edge_client.py
+demo_dashboard.html
+demo_sensor.py
