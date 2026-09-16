@@ -30,13 +30,15 @@ RUN uv sync --frozen --no-dev
 # ==============================================================================
 FROM python:3.13-slim AS runner
 
-# Create non-root system user
-RUN groupadd -r appgroup && useradd -r -g appgroup -u 1000 appuser
+# Create non-root system user and data persistence directory
+RUN groupadd -r appgroup && useradd -r -g appgroup -u 1000 appuser && \
+    mkdir -p /app/data && chown -R appuser:appgroup /app/data
 
 WORKDIR /app
 
 # Copy virtual environment and app code
 COPY --from=builder --chown=appuser:appgroup /app /app
+RUN chown -R appuser:appgroup /app/data
 
 # Switch to non-root user
 USER appuser

@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scrap-monitoring-backend:latest
+    container_name: scrap-monitoring-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - PORT=8000
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/scrap_monitoring.db}
+      - EDGE_API_KEY=${EDGE_API_KEY:-dev-edge-secret-key-12345}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - DEFAULT_WARNING_THRESHOLD=${DEFAULT_WARNING_THRESHOLD:-75.0}
+      - DEFAULT_CRITICAL_THRESHOLD=${DEFAULT_CRITICAL_THRESHOLD:-85.0}
+      - MEDIA_SERVER_WHEP_URL=${MEDIA_SERVER_WHEP_URL:-}
+      - WHEP_MOCK_FALLBACK=${WHEP_MOCK_FALLBACK:-true}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
