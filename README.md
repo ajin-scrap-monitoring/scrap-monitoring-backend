@@ -61,15 +61,23 @@ uv run mypy src
 uv run pytest -v
 ```
 
-## 배포
+## 배포 및 Docker Compose 실행
 
-GitHub Container Registry (GHCR)의 Public OCI 컨테이너 이미지로 배포합니다.
-
-* 이미지 경로: `ghcr.io/ajin-scrap-monitoring/monitoring-backend-service`
-* 컨테이너 빌드:
+Docker Compose를 사용하여 백엔드 서비스를 컨테이너로 손쉽게 실행할 수 있습니다. 수집된 측정치와 데이터베이스는 `./data` 디렉토리에 안전하게 영구 보존됩니다.
 
 ```bash
-docker build -t monitoring-backend-service:local .
+# 1. 환경 설정 파일 준비
+cp .env.example .env
+
+# 2. 컨테이너 빌드 및 백그라운드 실행
+docker compose up -d --build
+
+# 3. 서비스 상태 및 로그 확인
+docker compose ps
+docker compose logs -f
+
+# 4. 서비스 종료
+docker compose down
 ```
 
 ## 문서
