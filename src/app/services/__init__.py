@@ -11,6 +11,7 @@ from src.app.services.recording_service import recording_service
 from src.app.services.session_service import session_service
 from src.app.services.snapshot_service import snapshot_service
 from src.app.services.state_engine import state_engine
+from src.app.services.webrtc_service import webrtc_service
 
 __all__ = [
     "broadcaster",
@@ -24,4 +25,5 @@ __all__ = [
     "session_service",
     "notification_service",
     "edge_service",
+    "webrtc_service",
 ]

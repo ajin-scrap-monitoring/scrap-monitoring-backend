@@ -19,6 +19,7 @@ from src.app.api.v1.notifications import router as notifications_router
 from src.app.api.v1.recordings import router as recordings_router
 from src.app.api.v1.session import router as session_router
 from src.app.api.v1.stream import router as stream_router
+from src.app.api.v1.webrtc import router as webrtc_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(session_router)
@@ -31,6 +32,7 @@ api_v1_router.include_router(config_router)
 api_v1_router.include_router(stream_router)
 api_v1_router.include_router(collections_router)
 api_v1_router.include_router(media_router)
+api_v1_router.include_router(webrtc_router)
 api_v1_router.include_router(monitoring_router)
 api_v1_router.include_router(history_router)
 api_v1_router.include_router(events_router)
