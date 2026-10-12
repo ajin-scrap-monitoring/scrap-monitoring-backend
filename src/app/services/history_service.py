@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.config import get_settings
 from src.app.models.config import PitConfig
 from src.app.models.log import AlertLog, CollectionLog
+from src.app.models.media_job import MediaClipJob
 from src.app.models.metric import ScrapMetric
 from src.app.schemas.history import (
     CollectionThresholdSample,
@@ -270,6 +271,18 @@ class HistoryService:
                         recordingId=None,
                     )
                 )
+
+        # Event IDs explicitly link recordings; overlapping time windows are not evidence.
+        jobs = (
+            await db.scalars(
+                select(MediaClipJob).where(
+                    MediaClipJob.pit_id == pit_id, MediaClipJob.clip_id.is_not(None)
+                )
+            )
+        ).all()
+        recordings_by_event = {job.event_id: job.clip_id for job in jobs}
+        for event in events:
+            event.recordingId = recordings_by_event.get(event.id)
 
         # Sort all events by occurredAt descending
         events.sort(key=lambda e: e.occurredAt, reverse=True)

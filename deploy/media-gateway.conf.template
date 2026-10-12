@@ -1,0 +1,51 @@
+# Rendered by the Nginx image entrypoint. Never publish the rendered token.
+upstream monitoring_backend {
+    server backend:8000;
+}
+
+upstream camera_media {
+    server ${MEDIA_PROXY_UPSTREAM};
+}
+
+server {
+    listen 8080;
+    server_tokens off;
+
+    # Same-origin dashboard login and JSON APIs share the session cookie.
+    location /api/ {
+        proxy_pass http://monitoring_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /_media_auth {
+        internal;
+        proxy_pass http://monitoring_backend/api/v1/media/access;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization "";
+    }
+
+    # Only read access to these two media resources is exposed to browsers.
+    location ~ "^/media/(cameras/[A-Za-z0-9][A-Za-z0-9._~-]*/live|clips/[0-9a-fA-F-]{36}/content)$" {
+        if ($request_method != GET) { return 405; }
+        auth_request /_media_auth;
+        rewrite ^/media/(.*)$ /api/v1/$1 break;
+        proxy_pass http://camera_media;
+        proxy_set_header Authorization "Bearer ${MEDIA_API_TOKEN}";
+        proxy_set_header Cookie "";
+        proxy_set_header Range $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_hide_header Set-Cookie;
+        proxy_hide_header X-Powered-By;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 10s;
+        proxy_redirect off;
+        add_header Cache-Control "no-store" always;
+        add_header X-Accel-Buffering "no" always;
+    }
+
+    location / { return 404; }
+}

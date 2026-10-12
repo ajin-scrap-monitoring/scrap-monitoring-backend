@@ -82,6 +82,7 @@ docker compose down
 
 ## 문서
 
+* [docs/MEDIA_INTEGRATION.md](docs/MEDIA_INTEGRATION.md): 카메라 미디어 API, 이벤트 녹화 및 인증된 영상 접근 경로 설정
 * [docs/GLOBAL_CONSTRAINTS.md](docs/GLOBAL_CONSTRAINTS.md): 백엔드 개발 시 반드시 준수해야 하는 전역 제약조건 정의서
 
 ## 이용 조건

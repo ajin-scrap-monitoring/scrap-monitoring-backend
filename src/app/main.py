@@ -8,9 +8,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.api.router import root_api_router
+from src.app.api.v1.media_control import media_error_response
 from src.app.core.config import get_settings
 from src.app.core.logging import setup_logging
 from src.app.db.session import close_db, init_db
+from src.app.services.media_client import MediaServiceError
+from src.app.services.media_job_service import media_job_worker
 
 logger = logging.getLogger("app.main")
 
@@ -30,11 +33,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await init_db()
     logger.info("Application initialized successfully.")
 
-    yield
-
-    # 4. Graceful shutdown
-    logger.info("Shutting down Scrap Monitoring Backend...")
-    await close_db()
+    # Event recording requests and polling recover from the persistent outbox.
+    media_job_worker.start()
+    try:
+        yield
+    finally:
+        await media_job_worker.stop()
+        # 4. Graceful shutdown
+        logger.info("Shutting down Scrap Monitoring Backend...")
+        await close_db()
 
 
 def create_app() -> FastAPI:
@@ -49,6 +56,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+    app.add_exception_handler(MediaServiceError, media_error_response)
 
     # CORS configuration
     app.add_middleware(

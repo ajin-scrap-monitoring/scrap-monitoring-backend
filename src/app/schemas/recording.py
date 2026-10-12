@@ -18,22 +18,27 @@ class Recording(BaseModel):
     id: str
     startedAt: datetime
     endedAt: datetime
-    durationSeconds: int = Field(ge=0)
+    durationSeconds: int | None = Field(ge=0)
     eventCategory: EventCategory
     title: str
     detail: str
     containerFormat: str = "mp4"
     videoCodec: str = "h264"
-    widthPixels: int = Field(ge=1, default=640)
-    heightPixels: int = Field(ge=1, default=480)
-    frameRate: float = Field(gt=0.0, default=30.0)
-    sizeBytes: int = Field(ge=0)
-    retainedFrom: datetime
-    retainedUntil: datetime
+    widthPixels: int | None = Field(ge=1, default=640)
+    heightPixels: int | None = Field(ge=1, default=480)
+    frameRate: float | None = Field(gt=0.0, default=30.0)
+    sizeBytes: int | None = Field(ge=0)
+    retainedFrom: datetime | None
+    retainedUntil: datetime | None
     status: RecordingStatus = "available"
     thumbnailPath: str | None = None
     contentPath: str | None = None
     downloadPath: str | None = None
+    # Media v1 does not report dimensions, FPS, thumbnails or file sizes.
+    mediaStatus: str | None = None
+    coverage: str | None = None
+    gaps: list[dict[str, datetime]] = Field(default_factory=list)
+    errorCode: str | None = None
 
 
 class RecordingPage(BaseModel):
