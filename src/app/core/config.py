@@ -7,6 +7,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.app.core.edge_v2_security import EdgeV2Device
+from src.app.schemas.monitoring_v2 import MonitoringSource
 
 
 class Settings(BaseSettings):
@@ -44,6 +45,25 @@ class Settings(BaseSettings):
 
     # V2 device-scoped credentials: JSON list supplied only through private configuration.
     EDGE_V2_DEVICES: list[EdgeV2Device] = Field(default_factory=list, repr=False)
+
+    # Opt-in dashboard assignments; v1 keeps its existing data source and contract.
+    EDGE_V2_MONITORING_SOURCES: list[MonitoringSource] = Field(default_factory=list)
+    EDGE_V2_ASSESSMENT_TTL_SECONDS: int = Field(default=30, ge=1, le=3600)
+
+    @model_validator(mode="after")
+    def validate_monitoring_sources(self) -> "Settings":
+        devices = {(device.site_id, device.edge_id) for device in self.EDGE_V2_DEVICES}
+        pits: set[str] = set()
+        assigned: set[tuple[str, str]] = set()
+        for source in self.EDGE_V2_MONITORING_SOURCES:
+            device = (source.site_id, source.edge_id)
+            if source.pit_id in pits or device in assigned:
+                raise ValueError("Dashboard assignments must be one-to-one")
+            if device not in devices:
+                raise ValueError("Dashboard source must reference a configured v2 device")
+            pits.add(source.pit_id)
+            assigned.add(device)
+        return self
 
     @field_validator("EDGE_V2_DEVICES")
     @classmethod
