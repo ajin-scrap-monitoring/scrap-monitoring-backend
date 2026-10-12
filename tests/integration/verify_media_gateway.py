@@ -1,7 +1,10 @@
 """Run explicitly with uv; Docker is needed for real Nginx authentication/byte-path checks."""
 
+import argparse
 import asyncio
+import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +14,74 @@ ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "scrap-backend-issue25:local"
 CLIP_ID = "550e8400-e29b-41d4-a716-446655440000"
 CONTENT = b"synthetic-mp4-content-for-range-verification"
+EDGE_TOKEN = "synthetic-v2-gateway-token"
+
+
+async def probe_edge_v2(client: httpx.AsyncClient) -> None:
+    """Exercise v2 auth and a >1MiB scan through real Nginx and the built backend."""
+    now = datetime.now(UTC).isoformat()
+    observation = {
+        "sensor_id": "lidar-a",
+        "availability": "PRESENT",
+        "calibration_version": None,
+        "transform_state": "UNAVAILABLE",
+        "transform_reason_codes": ["NO_CALIBRATION"],
+        "angle_intervals_mdeg": [{"start_inclusive": 0, "end_exclusive": 180000}],
+        "scan": {
+            "scan_id": "gateway-scan-1",
+            "stream_instance_id": "gateway-stream-1",
+            "sequence": 1,
+            "acquired_at": now,
+            "timestamp_source": "EDGE_SCAN_RECEIVED",
+            "clock_domain_id": "gateway-boot-1",
+            "acquired_monotonic_ns": "1000000000",
+            "clock_state": "SYNCED",
+            "clock_offset_ms": 0,
+            "source_point_count": 12000,
+            "selected_point_count": 12000,
+            "points": [
+                {
+                    "index": i,
+                    "angle_mdeg": i * 10,
+                    "distance_mm": 1000,
+                    "quality": 47,
+                    "position_mm": None,
+                    "calculation_reason_codes": [],
+                }
+                for i in range(12000)
+            ],
+        },
+    }
+    payload = {
+        "schema_version": "2.0",
+        "message_type": "lidar_measurement",
+        "message_id": "gateway-m-1",
+        "site_id": "site-demo",
+        "edge_id": "edge-demo",
+        "generated_at": now,
+        "config_revision": "gateway-cfg-1",
+        "delivery_kind": "PERIODIC",
+        "report_interval_ms": 1000,
+        "selection_policy": "LATEST_TIME_MATCHED_PAIR",
+        "coordinate_frame_id": "gateway-frame",
+        "pair_state": "PARTIAL",
+        "pair_delta_ms": None,
+        "sensors": [
+            observation,
+            {**observation, "sensor_id": "lidar-b", "availability": "NO_NEW_SCAN", "scan": None},
+        ],
+    }
+    path = "/api/edge/v2/measurements"
+    encoded = json.dumps(payload).encode()
+    assert len(encoded) > 1024 * 1024
+    headers = {"Idempotency-Key": "gateway-m-1", "Content-Type": "application/json"}
+    assert (await client.post(path, content=encoded, headers=headers)).status_code == 401
+    headers["Authorization"] = "Bearer " + EDGE_TOKEN
+    first = await client.post(path, content=encoded, headers=headers)
+    assert first.status_code == 201, first.text
+    replay = await client.post(path, content=encoded, headers=headers)
+    assert replay.status_code == 200
+    assert replay.json() == {**first.json(), "duplicate": True}
 
 
 def docker(*args: str) -> str:
@@ -32,6 +103,7 @@ async def probe(base_url: str) -> None:
                 except httpx.RequestError:
                     pass
                 await asyncio.sleep(0.25)
+        await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"
         assert (await client.get(content)).status_code == 401
         session = await client.post(
@@ -79,10 +151,15 @@ async def probe(base_url: str) -> None:
         )
         assert logout.status_code == 204
         assert (await client.get(content)).status_code == 401
-    print("Gateway checks passed: session auth, MJPEG, Range, download, errors and logout")
+    print("Gateway checks passed: edge v2 large scan/ACK, session auth, MJPEG, Range and logout")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--image", default=IMAGE, help="Backend image built from the current source"
+    )
+    args = parser.parse_args()
     prefix = f"media-probe-{uuid4().hex[:8]}"
     network = f"{prefix}-network"
     containers: list[str] = []
@@ -105,7 +182,19 @@ def main() -> None:
             "MEDIA_SERVICE_URL=http://media:8889/api/v1",
             "-e",
             "MEDIA_API_TOKEN=synthetic-media-token",
-            IMAGE,
+            "-e",
+            "EDGE_V2_DEVICES="
+            + json.dumps(
+                [
+                    {
+                        "site_id": "site-demo",
+                        "edge_id": "edge-demo",
+                        "sensor_ids": ["lidar-a", "lidar-b"],
+                        "token": EDGE_TOKEN,
+                    }
+                ]
+            ),
+            args.image,
         )
         containers.append(backend)
         media = docker(

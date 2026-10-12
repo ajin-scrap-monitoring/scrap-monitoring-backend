@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.app.core.edge_v2_security import EdgeV2Device
+
 
 class Settings(BaseSettings):
     """Application settings with fail-fast validation."""
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Server basic settings
@@ -38,6 +41,25 @@ class Settings(BaseSettings):
         default="dev-edge-secret-key-12345",
         description="Edge device shared authentication secret",
     )
+
+    # V2 device-scoped credentials: JSON list supplied only through private configuration.
+    EDGE_V2_DEVICES: list[EdgeV2Device] = Field(default_factory=list, repr=False)
+
+    @field_validator("EDGE_V2_DEVICES")
+    @classmethod
+    def validate_v2_devices(cls, devices: list[EdgeV2Device]) -> list[EdgeV2Device]:
+        seen: set[str] = set()
+        sensors: dict[tuple[str, str], tuple[str, str]] = {}
+        for device in devices:
+            token = device.token.get_secret_value()
+            if token in seen:
+                raise ValueError("Each v2 token must identify exactly one device")
+            seen.add(token)
+            key = (device.site_id, device.edge_id)
+            if key in sensors and sensors[key] != device.sensor_ids:
+                raise ValueError("Rotated tokens must use the same sensor IDs")
+            sensors[key] = device.sensor_ids
+        return devices
 
     # Scrap Pit & Thresholds
     DEFAULT_WARNING_THRESHOLD: float = Field(

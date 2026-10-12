@@ -11,6 +11,15 @@ server {
     listen 8080;
     server_tokens off;
 
+    # Edge v2 point-array limits are finalized after payload size measurements.
+    # Keep this receiver separate from the ordinary dashboard JSON locations.
+    location /api/edge/v2/ {
+        client_max_body_size 0;
+        proxy_pass http://monitoring_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Same-origin dashboard login and JSON APIs share the session cookie.
     location /api/ {
         proxy_pass http://monitoring_backend;
