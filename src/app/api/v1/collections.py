@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.v1.media_control import require_collection_media_admin
 from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.config import PitConfig
@@ -13,6 +14,7 @@ from src.app.models.log import CollectionLog
 from src.app.schemas.log import CollectionConfirmRequest, CollectionLogResponse
 from src.app.schemas.state import RealtimeStatePayload
 from src.app.services.broadcaster import broadcaster
+from src.app.services.media_job_service import enqueue_event_clip
 from src.app.services.state_engine import state_engine
 
 router = APIRouter(prefix="/collections", tags=["Collections"])
@@ -23,6 +25,7 @@ router = APIRouter(prefix="/collections", tags=["Collections"])
     response_model=CollectionLogResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Confirm scrap collection completion and reset pit status",
+    dependencies=[Depends(require_collection_media_admin)],
 )
 async def confirm_collection(
     payload: CollectionConfirmRequest,
@@ -49,6 +52,8 @@ async def confirm_collection(
         notes=payload.notes,
     )
     db.add(collection_log)
+    await db.flush()
+    await enqueue_event_clip(db, f"evt-col-{collection_log.id}", payload.pit_id, "collection", now)
     await db.commit()
     await db.refresh(collection_log)
 

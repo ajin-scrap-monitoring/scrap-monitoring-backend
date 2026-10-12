@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from src.app.core.config import get_settings
 from src.app.db.session import get_sessionmaker
 from src.app.models.log import AlertLog
+from src.app.services.media_job_service import enqueue_event_clip
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ class AlertEngine:
                     message=message,
                 )
                 session.add(alert_log)
+                await session.flush()
+                await enqueue_event_clip(session, f"evt-alt-{alert_log.id}", pit_id, "alert", now)
                 await session.commit()
             except Exception as exc:
                 logger.error("Failed to persist alert log to database: %s", exc)

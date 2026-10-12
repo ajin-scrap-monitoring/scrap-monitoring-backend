@@ -1,14 +1,20 @@
 """Service for querying recorded media segments metadata."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.config import get_settings
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media import MediaIndex
+from src.app.models.media_job import MediaClipJob
 from src.app.schemas.history import EventCategory, PageMetadata
-from src.app.schemas.recording import Recording, RecordingPage
+from src.app.schemas.media_service import ClipDetail
+from src.app.schemas.recording import Recording, RecordingPage, RecordingStatus
+from src.app.services.media_client import media_client
+from src.app.services.media_job_service import apply_snapshot, job_snapshot, media_job_worker
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -40,7 +46,8 @@ class RecordingService:
 
         stmt = stmt.order_by(desc(MediaIndex.start_time))
         res = await db.execute(stmt)
-        records = res.scalars().all()
+        # Legacy indices have no media-v1 clip identity; keep them in standalone mode only.
+        records = res.scalars().all() if not get_settings().MEDIA_SERVICE_URL else []
 
         recordings: list[Recording] = []
         for r in records:
@@ -80,6 +87,20 @@ class RecordingService:
                 )
             )
 
+        # Locally indexed event clips use the existing dashboard's page contract.
+        # The separate /media/clips endpoint preserves the remote opaque cursor.
+        job_stmt = select(MediaClipJob).where(MediaClipJob.pit_id == pit_id)
+        for job in (await db.scalars(job_stmt)).all():
+            if job.clip_id is None or (category != "all" and job.category != category):
+                continue
+            recording = self._format_media_job(job)
+            if from_time and recording.endedAt < _ensure_utc(from_time):
+                continue
+            if to_time and recording.startedAt >= _ensure_utc(to_time):
+                continue
+            recordings.append(recording)
+        recordings.sort(key=lambda recording: (recording.startedAt, recording.id), reverse=True)
+
         total_items = len(recordings)
         total_pages = (total_items + pageSize - 1) // pageSize if total_items > 0 else 0
 
@@ -101,9 +122,19 @@ class RecordingService:
         """Get single recording metadata by segment identifier."""
         stmt = select(MediaIndex).where(MediaIndex.segment_id == recording_id)
         res = await db.execute(stmt)
-        r = res.scalar_one_or_none()
+        r = res.scalar_one_or_none() if not get_settings().MEDIA_SERVICE_URL else None
         if not r:
-            return None
+            async with media_job_worker.lock:
+                job = await db.scalar(
+                    select(MediaClipJob).where(MediaClipJob.clip_id == recording_id)
+                )
+                if job is None:
+                    return None
+                # Recheck ready files to reflect deletion or expiry outside the backend.
+                detail = await media_client.get_clip(UUID(recording_id))
+                apply_snapshot(job, detail)
+                await db.commit()
+                return self._format_media_job(job)
 
         event_cat = await self._resolve_event_category(r.pit_id, r.start_time, r.end_time, db)
         started_at = _ensure_utc(r.start_time)
@@ -129,6 +160,73 @@ class RecordingService:
             thumbnailPath=f"/media/thumbnails/{r.segment_id}.jpg",
             contentPath=f"/media/recordings/{r.segment_id}.mp4",
             downloadPath=f"/media/downloads/{r.segment_id}.mp4",
+        )
+
+    def _format_media_job(self, job: MediaClipJob) -> Recording:
+        """Do not invent resolution, file size, thumbnails or a retention deadline."""
+        snapshot = job_snapshot(job)
+        detail = snapshot if isinstance(snapshot, ClipDetail) else None
+        started_at = _ensure_utc(
+            detail.actual_start_at
+            if detail and detail.actual_start_at
+            else snapshot.requested_start_at
+            if snapshot
+            else job.occurred_at
+        )
+        ended_at = _ensure_utc(
+            detail.actual_end_at
+            if detail and detail.actual_end_at
+            else snapshot.requested_end_at
+            if snapshot
+            else job.occurred_at
+        )
+        expires_at = detail.expires_at if detail else None
+        remote_status = job.status
+        if remote_status == "ready" and expires_at and expires_at <= datetime.now(UTC):
+            remote_status = "expired"
+        statuses: dict[str, RecordingStatus] = {
+            "ready": "available",
+            "expired": "expired",
+            "failed": "unavailable",
+            "deleted": "unavailable",
+            "blocked": "unavailable",
+        }
+        status = statuses.get(remote_status, "processing")
+        path = (
+            f"/media/clips/{job.clip_id}/content"
+            if status == "available" and detail and detail.content_path
+            else None
+        )
+        duration = (
+            max(0, int((detail.actual_end_at - detail.actual_start_at).total_seconds()))
+            if detail and detail.actual_start_at and detail.actual_end_at
+            else None
+        )
+        category: EventCategory = "alert" if job.category == "alert" else "collection"
+        return Recording(
+            id=job.clip_id or job.event_id,
+            startedAt=started_at,
+            endedAt=ended_at,
+            durationSeconds=duration,
+            eventCategory=category,
+            title=f"이벤트 녹화 {started_at.strftime('%Y-%m-%d')}",
+            detail=job.event_id,
+            widthPixels=None,
+            heightPixels=None,
+            frameRate=None,
+            sizeBytes=None,
+            retainedFrom=detail.completed_at if detail else None,
+            retainedUntil=expires_at,
+            status=status,
+            thumbnailPath=None,
+            contentPath=path,
+            downloadPath=f"{path}?download=true" if path else None,
+            mediaStatus=remote_status,
+            coverage=detail.coverage if detail else None,
+            gaps=[{"start_at": gap.start_at, "end_at": gap.end_at} for gap in detail.gaps]
+            if detail
+            else [],
+            errorCode=detail.error.code if detail and detail.error else job.error_code,
         )
 
     async def _resolve_event_category(

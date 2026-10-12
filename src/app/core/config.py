@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,6 +80,45 @@ class Settings(BaseSettings):
         default=True,
         description="Allow fallback to mock SDP answer when upstream media server is unavailable",
     )
+
+    # Camera media v1 control API; credentials never appear in browser responses.
+    MEDIA_SERVICE_URL: str | None = None
+    MEDIA_API_TOKEN: SecretStr | None = None
+    MEDIA_CAMERA_ID: str = Field(
+        default="camera-main", max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._~-]*$"
+    )
+    MEDIA_PIT_ID: str = Field(default="pit-01", min_length=1, max_length=50)
+    MEDIA_REQUEST_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0.0, le=30.0)
+    MEDIA_POLL_INTERVAL_SECONDS: float = Field(default=2.0, ge=1.0, le=60.0)
+
+    @model_validator(mode="after")
+    def validate_media_configuration(self) -> "Settings":
+        import re
+        from urllib.parse import urlsplit
+
+        if self.MEDIA_SERVICE_URL == "":
+            self.MEDIA_SERVICE_URL = None
+        if self.MEDIA_API_TOKEN and not self.MEDIA_API_TOKEN.get_secret_value():
+            self.MEDIA_API_TOKEN = None
+        if bool(self.MEDIA_SERVICE_URL) != bool(self.MEDIA_API_TOKEN):
+            raise ValueError("MEDIA_SERVICE_URL and MEDIA_API_TOKEN must be configured together")
+        if self.MEDIA_SERVICE_URL:
+            parsed = urlsplit(self.MEDIA_SERVICE_URL)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or parsed.path.rstrip("/") != "/api/v1"
+                or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+            ):
+                raise ValueError("MEDIA_SERVICE_URL must be an HTTP(S) base URL ending in /api/v1")
+            token = self.MEDIA_API_TOKEN.get_secret_value() if self.MEDIA_API_TOKEN else ""
+            if not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
+                raise ValueError("MEDIA_API_TOKEN must use the Bearer token character set")
+        return self
 
     @field_validator("CORS_ORIGINS")
     @classmethod

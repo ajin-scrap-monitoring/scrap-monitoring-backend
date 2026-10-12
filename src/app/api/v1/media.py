@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.v1.media_control import require_recording_session
+from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.media import MediaIndex
 from src.app.schemas.media import (
@@ -31,6 +33,8 @@ async def recording_complete_webhook(
 
     Note: Backend only indexes metadata; video bytes are stored in Media Service.
     """
+    if get_settings().MEDIA_SERVICE_URL:
+        raise HTTPException(410, "Media v1 uses clip polling, not completion callbacks")
     media_entry = MediaIndex(
         segment_id=payload.segment_id,
         pit_id=payload.pit_id,
@@ -50,6 +54,7 @@ async def recording_complete_webhook(
     "/recordings",
     response_model=list[MediaIndexResponse],
     summary="Query recorded media segment indices",
+    dependencies=[Depends(require_recording_session)],
 )
 async def list_recordings(
     pit_id: str = Query(default="pit-01"),
@@ -75,14 +80,20 @@ async def list_recordings(
     "/session/verify",
     response_model=MediaSessionVerifyResponse,
     summary="Verify client session permission for live video viewing",
+    dependencies=[Depends(require_recording_session)],
 )
 async def verify_media_session(
     pit_id: str = Query(default="pit-01"),
 ) -> MediaSessionVerifyResponse:
     """Verify whether a client is authorized to connect to the Camera Media Service stream."""
-    # Production: check user JWT token or role. Dev: grant authorization
+    # Configured media verifies the browser session; standalone demos retain dev access.
+    settings = get_settings()
     return MediaSessionVerifyResponse(
         authorized=True,
-        stream_url=f"/media/live/{pit_id}.m3u8",
+        stream_url=(
+            f"/media/cameras/{settings.MEDIA_CAMERA_ID}/live"
+            if settings.MEDIA_SERVICE_URL and pit_id == settings.MEDIA_PIT_ID
+            else None
+        ),
         message="Session verified for live camera stream access",
     )
