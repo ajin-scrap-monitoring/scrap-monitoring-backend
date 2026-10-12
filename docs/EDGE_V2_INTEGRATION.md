@@ -54,6 +54,8 @@ EDGE_V2_DEVICES='[{"site_id":"site-demo","edge_id":"edge-demo","sensor_ids":["li
 
 ## 장비 상태 조회
 
+현재 STATE 판정과 장비 상태를 함께 조회하는 대시보드 v2 API 및 SSE는 [MONITORING_V2.md](MONITORING_V2.md)를 참고한다. 피트·장비 연결을 명시적으로 설정하며 기존 v1 메트릭·경보 엔진은 호출하지 않는다.
+
 조회 API에는 기존 대시보드 세션 쿠키가 필요하다. `snapshot`은 마지막 판단된 원본 상태이며, `effective_state`는 백엔드가 연결 상태까지 반영한 값이다.
 
 최신 신규 status의 **서버 수신 시각**에서 30초가 지나면 `connection_state: UNKNOWN`, `effective_state: UNKNOWN`, `reason_codes: ["STATUS_NOT_RECEIVED"]`을 반환한다. 과거 snapshot을 유지하되 센서 고장이나 수거 완료로 확정하지 않는다. 같은 메시지의 재전송은 최초 수신 시각을 갱신하지 않는다.
