@@ -4,6 +4,8 @@
 
 ## 활성화와 기준
 
+실제 수정할 파일과 컨테이너 적용 명령은 [V2_ALERT_DEPLOYMENT.md](V2_ALERT_DEPLOYMENT.md)에 정리되어 있다. 기본 배포의 `.env`와 별도 테스트 백엔드의 환경 설정 파일을 구분한다.
+
 먼저 [MONITORING_V2.md](MONITORING_V2.md)에 따라 장치와 피트를 연결한다. 경보 처리는 기본적으로 꺼져 있으며 비공개 `.env`에서 다음과 같이 켠 뒤 백엔드를 재시작한다.
 
 ```dotenv
