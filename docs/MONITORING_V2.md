@@ -33,9 +33,10 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | `assessmentReceivedAt` | 선택한 STATE의 서버 수신 시각. 신선도 기준으로 사용하지 않음 |
 | `dataState`, `reasonCodes` | 화면 표시 가능 여부와 이유 |
 | `summary.loadPercent` | 검증된 `fill_estimate.ratio × 100` 또는 null |
-| `summary.warningThresholdPercent`, `summary.collectionThresholdPercent` | 화면 참고용 임계치 |
+| `summary.warningThresholdPercent`, `summary.collectionThresholdPercent`, `summary.recoveryThresholdPercent` | 경고·위험 진입·위험 복귀 임계치 |
 | `assessment` | 선택한 STATE의 원본 판정·기능 상태·근거 참조. 없으면 null |
 | `deviceStatus` | 기존 v2 장비 상태 조회와 동일한 연결 상태·원본 snapshot |
+| `operations` | 선택적으로 활성화한 경보 처리 상태. 자세한 설정은 [V2_OPERATIONS.md](V2_OPERATIONS.md) 참고 |
 
 `assessment`에는 점 배열이나 영상이 없다. 보정 좌표를 높이로 간주하거나 점으로 적재율을 계산하지 않는다. 임의의 `fill_state` 문자열을 기존 NORMAL/WARNING/CRITICAL로 추정하지 않고 그대로 제공한다. 유효한 0%는 `0`, 판정 불가는 `null`이므로 프론트엔드는 둘을 구분해야 한다.
 
@@ -48,7 +49,7 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 - 장비가 `MEASUREMENT_UNAVAILABLE`, `CONFIG_ERROR`, `UNKNOWN`이면 표시 적재율은 null이다. 현재 장비 상태와 판정의 설정 버전이 다르면 UNKNOWN이다. `HEALTHY`·`DEGRADED`에서는 검증된 판정 값이 있으면 표시할 수 있으며 원본 센서 상태와 reason을 함께 제공한다.
 - STATE가 없으면 NO_DATA, 오래됐으면 STALE, 장비 연결·시각·설정 일치 여부를 확인할 수 없으면 UNKNOWN, 기능 미검증 또는 판정 불가는 UNAVAILABLE이다. 표시 가능한 값은 FRESH다. 여러 문제가 겹치면 시각 이상 → 관측 신선도 → 장비 연결 → 장비 판정 → 설정 버전 → 적재 판단 순서로 `dataState`를 정한다. 상세 장비 상태는 별도로 유지한다.
 
-FRESH 이외의 상태에서는 `summary.loadPercent`가 null이다. 과거 `assessment.fill_estimate`는 근거 확인을 위해 남아 있으므로 현재 수치 게이지에 직접 사용하지 않는다. 자동 알림, 수거 확정, 히스테리시스 상태 전이 및 카메라 녹화 요청은 이 조회 기능에서 수행하지 않는다. 추이·표면 높이·카메라 상태도 추정하지 않으며 후속 계약으로 연결한다.
+FRESH 이외의 상태에서는 `summary.loadPercent`가 null이다. 과거 `assessment.fill_estimate`는 근거 확인을 위해 남아 있으므로 현재 수치 게이지에 직접 사용하지 않는다. 알림 기록과 히스테리시스는 별도로 활성화하는 작업자가 담당하며 이 조회 기능에서 실행하지 않는다. 수거 완료 확정과 카메라 녹화 요청도 이 조회 기능에서 수행하지 않는다. 추이·표면 높이·카메라 상태도 추정하지 않으며 후속 계약으로 연결한다.
 
 ## SSE 연결
 

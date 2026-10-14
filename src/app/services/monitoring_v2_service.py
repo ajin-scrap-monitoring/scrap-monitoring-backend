@@ -1,6 +1,7 @@
 """Read-only v2 dashboard projection; no legacy metrics, alerts or recording jobs."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal, cast
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -9,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.config import get_settings
 from src.app.models.config import PitConfig
 from src.app.models.edge_v2 import EdgeV2Message
+from src.app.models.edge_v2_operations import EdgeV2Operation
 from src.app.schemas.edge_v2 import Assessment
 from src.app.schemas.monitoring_v2 import (
     DashboardDataState,
     MonitoringSnapshotV2,
     MonitoringSource,
     MonitoringSummaryV2,
+    OperationalState,
+    OperationStatus,
 )
 from src.app.services.edge_v2_service import device_status, digest, utc
 
@@ -79,6 +83,29 @@ async def build_snapshot(
             percent = round(assessment.fill_estimate.ratio * 100, 6)
     else:
         reasons.append("ASSESSMENT_NOT_RECEIVED")
+    operations: OperationStatus | None = None
+    if settings.EDGE_V2_OPERATIONS_ENABLED:
+        row = await db.get(EdgeV2Operation, source.pit_id)
+        if row and (row.site_id, row.edge_id) != (source.site_id, source.edge_id):
+            row = None
+        evaluated = (
+            row is not None and assessment is not None and row.message_id == assessment.message_id
+        )
+        effective = (
+            row.state
+            if evaluated and row and state == "FRESH"
+            else ("ERROR" if state == "UNAVAILABLE" else "UNKNOWN")
+        )
+        operations = OperationStatus(
+            lastKnownState=cast(OperationalState, row.state) if row else None,
+            effectiveState=cast(OperationalState | Literal["ERROR", "UNKNOWN"], effective),
+            lastEvaluatedAt=utc(row.observed_at) if row else None,
+            lastAlertAt=utc(row.last_alert_at) if row and row.last_alert_at else None,
+            notificationId=f"notif-{row.last_alert_id}" if row and row.last_alert_id else None,
+        )
+    critical_threshold = (
+        config.critical_threshold_percent if config else settings.EDGE_V2_CRITICAL_THRESHOLD
+    )
     snapshot = MonitoringSnapshotV2(
         snapshotId="",
         serverTime=now,
@@ -93,12 +120,12 @@ async def build_snapshot(
             warningThresholdPercent=config.warning_threshold_percent
             if config
             else settings.DEFAULT_WARNING_THRESHOLD,
-            collectionThresholdPercent=config.critical_threshold_percent
-            if config
-            else settings.DEFAULT_CRITICAL_THRESHOLD,
+            collectionThresholdPercent=critical_threshold,
+            recoveryThresholdPercent=max(0.0, critical_threshold - 5.0),
         ),
         assessment=assessment,
         deviceStatus=device,
+        operations=operations,
     )
     # Stable identity suppresses unchanged SSE frames while timeout transitions remain visible.
     snapshot.snapshotId = digest(

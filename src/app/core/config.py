@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Opt-in dashboard assignments; v1 keeps its existing data source and contract.
     EDGE_V2_MONITORING_SOURCES: list[MonitoringSource] = Field(default_factory=list)
     EDGE_V2_ASSESSMENT_TTL_SECONDS: int = Field(default=30, ge=1, le=3600)
+    # V2 operational rules are opt-in; explicit pit thresholds still take precedence.
+    EDGE_V2_OPERATIONS_ENABLED: bool = False
+    EDGE_V2_CRITICAL_THRESHOLD: float = Field(default=90.0, gt=5.0, le=100.0)
 
     @model_validator(mode="after")
     def validate_monitoring_sources(self) -> "Settings":

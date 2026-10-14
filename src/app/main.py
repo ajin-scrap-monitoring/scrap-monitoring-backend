@@ -12,6 +12,7 @@ from src.app.api.v1.media_control import media_error_response
 from src.app.core.config import get_settings
 from src.app.core.logging import setup_logging
 from src.app.db.session import close_db, init_db
+from src.app.services.edge_v2_operations import edge_v2_operations_worker
 from src.app.services.media_client import MediaServiceError
 from src.app.services.media_job_service import media_job_worker
 
@@ -35,9 +36,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Event recording requests and polling recover from the persistent outbox.
     media_job_worker.start()
+    edge_v2_operations_worker.start()
     try:
         yield
     finally:
+        await edge_v2_operations_worker.stop()
         await media_job_worker.stop()
         # 4. Graceful shutdown
         logger.info("Shutting down Scrap Monitoring Backend...")

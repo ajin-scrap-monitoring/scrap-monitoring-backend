@@ -10,8 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
-from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
+from src.app.schemas.monitoring_v2 import (
+    CollectionEventPage,
+    MonitoringSnapshotV2,
+    MonitoringSource,
+    V2AlertPage,
+)
 from src.app.schemas.session import Session
+from src.app.services.edge_v2_history import alerts, collection_events
 from src.app.services.monitoring_v2_service import build_snapshot, monitoring_source
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
@@ -27,6 +33,48 @@ def get_source(
 
 
 Source = Annotated[MonitoringSource, Depends(get_source)]
+Limit = Annotated[int, Query(ge=1, le=100)]
+Offset = Annotated[int, Query(ge=0, le=10000)]
+
+
+@router.get("/alerts", response_model=V2AlertPage)
+async def alert_history(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> V2AlertPage:
+    response.headers["Cache-Control"] = "no-store"
+    return await alerts(db, source, limit, offset)
+
+
+@router.get("/collection-events", response_model=CollectionEventPage)
+async def collection_history(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> CollectionEventPage:
+    response.headers["Cache-Control"] = "no-store"
+    return await collection_events(db, source, limit, offset)
+
+
+@router.get("/collection-events/{assessment_id}/revisions", response_model=CollectionEventPage)
+async def collection_revisions(
+    response: Response,
+    assessment_id: str,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> CollectionEventPage:
+    response.headers["Cache-Control"] = "no-store"
+    return await collection_events(db, source, limit, offset, assessment_id)
 
 
 async def read_snapshot(db: AsyncSession, source: MonitoringSource) -> MonitoringSnapshotV2:
