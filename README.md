@@ -84,6 +84,7 @@ docker compose down
 
 * [docs/EDGE_V2_INTEGRATION.md](docs/EDGE_V2_INTEGRATION.md): 엣지 v2 수신 API, 장치별 인증 및 저장 ACK 계약
 * [docs/MONITORING_V2.md](docs/MONITORING_V2.md): v2 판정·장비 상태 조회, 피트 연결 설정 및 대시보드 SSE 계약
+* [docs/V2_OPERATIONS.md](docs/V2_OPERATIONS.md): v2 경보 기록, 영속 쿨다운 및 수거 사건 개정 이력
 * [docs/MEDIA_INTEGRATION.md](docs/MEDIA_INTEGRATION.md): 카메라 미디어 API, 이벤트 녹화 및 인증된 영상 접근 경로 설정
 * [docs/GLOBAL_CONSTRAINTS.md](docs/GLOBAL_CONSTRAINTS.md): 백엔드 개발 시 반드시 준수해야 하는 전역 제약조건 정의서
 
