@@ -102,7 +102,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
 
 
 class EdgeV2OperationsWorker:
-    """One process/worker, matching the existing media worker and in-memory sessions."""
+    """One process/worker, matching the existing media worker's process-local lock."""
 
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None

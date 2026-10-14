@@ -1,5 +1,6 @@
 """Domain models export."""
 
+from src.app.models.auth import AuthSession, AuthUser
 from src.app.models.config import PitConfig
 from src.app.models.edge import EdgeHeartbeatModel
 from src.app.models.edge_v2 import EdgeV2Artifact, EdgeV2Message
@@ -11,6 +12,8 @@ from src.app.models.metric import ScrapMetric
 from src.app.models.recipient import NotificationRecipientModel
 
 __all__ = [
+    "AuthUser",
+    "AuthSession",
     "ScrapMetric",
     "PitConfig",
     "AlertLog",

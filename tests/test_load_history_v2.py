@@ -38,7 +38,7 @@ async def test_authentication_and_explicit_source(client):
         BASE, params={"pit_id": "pit-demo"}, headers={"Authorization": "Bearer " + TOKEN}
     )
     assert r.status_code == 401
-    login(client)
+    await login(client)
     r = await client.get(BASE, params={"pit_id": "pit-other"})
     assert r.status_code == 404
     r = await client.get(BASE, params={"pit_id": "pit-demo"})
@@ -172,7 +172,7 @@ async def test_half_open_microsecond_range_and_partial_buckets(client, test_db_s
     ],
 )
 async def test_invalid_query_is_rejected(client, params):
-    login(client)
+    await login(client)
     r = await client.get(BASE, params={"pit_id": "pit-demo", **params})
     assert r.status_code == 422
 
@@ -236,7 +236,7 @@ async def test_v1_history_is_unchanged_and_v2_has_no_threshold_history(client):
     await send(client, assessment("v2-only", 0.6, START))
     r = await client.get("/api/v1/history/load", params={"pit_id": "pit-demo"})
     assert r.status_code == 200 and r.json()["samples"] == []
-    login(client)
+    await login(client)
     r = await client.get(
         BASE,
         params={

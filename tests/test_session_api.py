@@ -3,13 +3,7 @@
 import pytest
 from httpx import AsyncClient
 
-from src.app.services.session_service import SESSION_COOKIE_NAME, session_service
-
-
-@pytest.fixture(autouse=True)
-def _clear_sessions() -> None:
-    """Clear in-memory sessions before each test."""
-    session_service.clear_all()
+from src.app.services.session_service import SESSION_COOKIE_NAME
 
 
 @pytest.mark.asyncio

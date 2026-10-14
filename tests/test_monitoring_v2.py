@@ -17,7 +17,7 @@ from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
 from src.app.models.metric import ScrapMetric
-from src.app.schemas.session import User
+from src.app.schemas.session import Session
 from src.app.services.monitoring_v2_service import build_snapshot, monitoring_source
 from src.app.services.session_service import session_service
 
@@ -125,12 +125,12 @@ async def send(client, payload):
     return result
 
 
-def login(client):
-    session_id, session = session_service.create_session(
-        User(id="dashboard-test", displayName="Test viewer", role="viewer")
+async def login(client):
+    response = await client.post(
+        "/api/v1/session", json={"username": "operator", "password": "operator1234"}
     )
-    client.cookies.set("scrap_session", session_id)
-    return session_id, session
+    assert response.status_code == 200
+    return response.cookies["scrap_session"], Session.model_validate(response.json())
 
 
 async def snap(db, now=NOW):
@@ -146,7 +146,7 @@ async def test_dashboard_requires_browser_session(client, path):
 
 
 async def test_empty_dashboard_and_unmapped_pit(client):
-    login(client)
+    await login(client)
     r = await client.get(BASE + "/snapshot", params={"pit_id": "pit-demo"})
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
@@ -323,7 +323,7 @@ async def test_sse_initial_update_keepalive_logout_and_cleanup(
         await real_sleep(0)
 
     monkeypatch.setattr(route.asyncio, "sleep", quick_sleep)
-    session_id, session = login(client)
+    session_id, session = await login(client)
     response = await events(
         ConnectedRequest(), session, monitoring_source("pit-demo"), test_db_session, session_id
     )
@@ -338,7 +338,7 @@ async def test_sse_initial_update_keepalive_logout_and_cleanup(
     updated = await anext(generator)
     assert '"loadPercent":72.5' in updated
     assert await anext(generator) == ": keepalive\n\n"
-    session_service.delete_session(session_id)
+    await session_service.delete_session(test_db_session, session_id)
     assert await anext(generator) == "event: session.expired\ndata: {}\n\n"
     with pytest.raises(StopAsyncIteration):
         await anext(generator)
@@ -350,7 +350,7 @@ async def test_sse_timeout_transition_without_new_messages(client, test_db_sessi
 
     await send(client, status())
     await send(client, assessment())
-    session_id, session = login(client)
+    session_id, session = await login(client)
     response = await events(
         ConnectedRequest(), session, monitoring_source("pit-demo"), test_db_session, session_id
     )
@@ -412,7 +412,7 @@ async def test_dashboard_reads_committed_data_from_independent_session(client, t
 
     app.dependency_overrides[get_db_session] = fresh_db
     async with AsyncClient(transport=ASGITransport(app), base_url="http://testserver") as reader:
-        login(reader)
+        await login(reader)
         r = await reader.get(BASE + "/snapshot", params={"pit_id": "pit-demo"})
     assert r.status_code == 200
     assert r.json()["summary"]["loadPercent"] == 72.5

@@ -110,7 +110,7 @@ async def probe(base_url: str) -> None:
             "/api/v1/session",
             json={
                 "username": "admin",
-                "password": "admin1234",
+                "password": "synthetic-gateway-admin-password",
             },
         )
         assert session.status_code == 200
@@ -176,6 +176,8 @@ def main() -> None:
             "backend",
             "-e",
             "APP_ENV=test",
+            "-e",
+            "ADMIN_PASSWORD=synthetic-gateway-admin-password",
             "-e",
             "DATABASE_URL=sqlite+aiosqlite:////app/data/gateway-test.db",
             "-e",

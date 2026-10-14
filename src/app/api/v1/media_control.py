@@ -52,20 +52,22 @@ CameraPath = Annotated[str, Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
 
 
 async def require_recording_session(
+    db: Database,
     scrap_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
 ) -> None:
     """Keep legacy standalone demos compatible; configured media requires a session."""
     if get_settings().MEDIA_SERVICE_URL:
-        await get_session(scrap_session)
+        await get_session(db, scrap_session)
 
 
 async def require_collection_media_admin(
+    db: Database,
     scrap_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
     csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
 ) -> None:
     """Recording-enabled collection confirmation uses the media mutation permissions."""
     if get_settings().MEDIA_SERVICE_URL:
-        session = await get_session(scrap_session)
+        session = await get_session(db, scrap_session)
         await require_media_admin(session, csrf_token)
 
 
