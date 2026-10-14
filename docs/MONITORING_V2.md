@@ -20,6 +20,8 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | GET | `/api/v2/monitoring/snapshot?pit_id=pit-demo` | 현재 판정·적재율·장비 상태 |
 | GET | `/api/v2/monitoring/events?pit_id=pit-demo` | 동일한 스냅샷의 SSE |
 
+최근 24시간 적재율 그래프용 `/api/v2/monitoring/load-history`는 [V2_LOAD_HISTORY.md](V2_LOAD_HISTORY.md)를 참고한다. 과거 STATE 판정을 조회하며 현재 장비 상태로 과거 값을 지우지 않는다.
+
 두 API 모두 `/api/v1/session`으로 발급한 `scrap_session` 쿠키가 필요하다. 관리자와 조회 사용자 모두 이용할 수 있다. 장치 Bearer 토큰으로 브라우저 세션을 대체하지 않는다. 세션이 없거나 만료되면 `401`, 연결 설정이 없는 피트는 `404 MONITORING_SOURCE_NOT_CONFIGURED`다. 응답은 캐시하지 않는다. 전체 스키마는 `/docs`에서 확인한다.
 
 핵심 응답 필드:

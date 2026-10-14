@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
+from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
     MonitoringSnapshotV2,
@@ -18,6 +20,7 @@ from src.app.schemas.monitoring_v2 import (
 )
 from src.app.schemas.session import Session
 from src.app.services.edge_v2_history import alerts, collection_events
+from src.app.services.load_history_v2_service import load_history
 from src.app.services.monitoring_v2_service import build_snapshot, monitoring_source
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
@@ -35,6 +38,20 @@ def get_source(
 Source = Annotated[MonitoringSource, Depends(get_source)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=10000)]
+
+
+@router.get("/load-history", response_model=LoadHistoryV2)
+async def get_load_history(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    from_time: Annotated[datetime | None, Query(alias="from")] = None,
+    to_time: Annotated[datetime | None, Query(alias="to")] = None,
+    bucket_seconds: Annotated[HistoryInterval | None, Query()] = None,
+) -> LoadHistoryV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await load_history(db, source, from_time, to_time, bucket_seconds)
 
 
 @router.get("/alerts", response_model=V2AlertPage)
