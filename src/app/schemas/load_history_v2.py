@@ -21,6 +21,12 @@ class HistorySampleV2(BaseModel):
     valid: bool = False
     dataState: HistoryDataState = "NO_DATA"
     reasonCodes: list[str] = Field(default_factory=lambda: ["STATE_NOT_RECEIVED"])
+    averagePercent: float | None = None
+    minimumPercent: float | None = None
+    maximumPercent: float | None = None
+    validSamples: int = 0
+    invalidSamples: int = 0
+    valuePolicy: Literal["RAW_STATE", "MEDIAN_MINUTE"] = "RAW_STATE"
 
 
 class LoadHistoryV2(BaseModel):

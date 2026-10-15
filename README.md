@@ -84,6 +84,8 @@ docker compose down
 
 ## 문서
 
+* [docs/COMPACT_LIDAR_STORAGE.md](docs/COMPACT_LIDAR_STORAGE.md): 최신 라이다 관측·중앙값·분 요약·상태 사건과 활성화 설정
+
 * [docs/SCHEDULED_BACKUPS.md](docs/SCHEDULED_BACKUPS.md): 정기 백업·성공본 보관·실패 상태 확인과 SQLite WAL 백업
 * [docs/POSTGRESQL_DEPLOYMENT.md](docs/POSTGRESQL_DEPLOYMENT.md): PostgreSQL 전용 계정·권한·볼륨·내부 연결과 배포 검증
 * [docs/DB_BACKUP_RECOVERY.md](docs/DB_BACKUP_RECOVERY.md): PostgreSQL 백업·격리 복원 검증과 운영 복구 절차

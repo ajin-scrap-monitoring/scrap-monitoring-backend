@@ -5,16 +5,43 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_operations import EdgeV2AlertLink
+from src.app.models.edge_v2_projection import EdgeV2Transition
 from src.app.models.log import AlertLog
 from src.app.models.notification_read import NotificationRead
 from src.app.schemas.edge_v2 import Assessment
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
     MonitoringSource,
+    StateEventPageV2,
+    StateEventV2,
     V2Alert,
     V2AlertPage,
 )
 from src.app.services.edge_v2_service import utc
+
+
+async def state_events(
+    db: AsyncSession, source: MonitoringSource, limit: int, offset: int
+) -> StateEventPageV2:
+    query = select(EdgeV2Transition).where(
+        EdgeV2Transition.site_id == source.site_id,
+        EdgeV2Transition.edge_id == source.edge_id,
+    )
+    total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = await db.scalars(
+        query.order_by(EdgeV2Transition.occurred_at.desc(), EdgeV2Transition.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return StateEventPageV2(
+        items=[
+            StateEventV2(id=r.id, occurredAt=utc(r.occurred_at), kind=r.kind, detail=r.payload)
+            for r in rows
+        ],
+        totalItems=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 async def collection_events(

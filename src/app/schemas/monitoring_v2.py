@@ -1,7 +1,7 @@
 """Dashboard v2 contract: unknown values stay null and source judgments remain visible."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +23,8 @@ class MonitoringSource(BaseModel):
 
 class MonitoringSummaryV2(BaseModel):
     loadPercent: float | None = Field(default=None, ge=0, le=100)
+    rawLoadPercent: float | None = Field(default=None, ge=0, le=100)
+    filterState: Literal["DISABLED", "WARMING", "READY", "UNAVAILABLE"] = "DISABLED"
     warningThresholdPercent: float
     collectionThresholdPercent: float
     recoveryThresholdPercent: float
@@ -54,6 +56,42 @@ class MonitoringSnapshotV2(BaseModel):
 
 class CollectionEventPage(BaseModel):
     items: list[Assessment]
+    totalItems: int
+    limit: int
+    offset: int
+
+
+class LidarProfileV2(BaseModel):
+    """No height is inferred from a reflection coordinate or an unverified floor distance."""
+
+    sensorId: str
+    measuredAt: datetime | None = None
+    configRevision: str | None = None
+    calibrationVersion: str | None = None
+    unit: Literal["cm"] = "cm"
+    referenceDistanceCm: float
+    calibrationState: Literal["UNVERIFIED"] = "UNVERIFIED"
+    average: float | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    samples: list[dict[str, float | bool | None]] = Field(default_factory=list)
+    reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
+
+
+class LidarProfilePageV2(BaseModel):
+    pitId: str
+    profiles: list[LidarProfileV2]
+
+
+class StateEventV2(BaseModel):
+    id: int
+    occurredAt: datetime
+    kind: str
+    detail: dict[str, Any]
+
+
+class StateEventPageV2(BaseModel):
+    items: list[StateEventV2]
     totalItems: int
     limit: int
     offset: int

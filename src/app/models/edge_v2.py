@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, DateTime, Index, String, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Index, String, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.app.db.base import Base
@@ -22,6 +22,7 @@ class EdgeV2Message(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     body_hash: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    compact: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     instance_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     sequence: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
@@ -29,6 +30,18 @@ class EdgeV2Message(Base):
         UniqueConstraint("site_id", "edge_id", "message_id", name="uq_edge_v2_message"),
         Index("ix_edge_v2_latest", "site_id", "edge_id", "message_type", "generated_at"),
         Index("ix_edge_v2_receipt", "site_id", "edge_id", "message_type", "received_at"),
+        Index(
+            "ix_v2_legacy_history", "site_id", "edge_id", "message_type", "compact", "generated_at"
+        ),
+        Index(
+            "ix_v2_status_sequence",
+            "site_id",
+            "edge_id",
+            "message_type",
+            "instance_id",
+            "sequence",
+            "id",
+        ),
     )
 
 
@@ -48,6 +61,7 @@ class EdgeV2Artifact(Base):
     key_hash: Mapped[str] = mapped_column(String(64))
     artifact_key: Mapped[list[Any]] = mapped_column(JSON)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("site_id", "edge_id", "kind", "key_hash", name="uq_edge_v2_artifact"),

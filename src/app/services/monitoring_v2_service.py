@@ -11,15 +11,19 @@ from src.app.core.config import get_settings
 from src.app.models.config import PitConfig
 from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_operations import EdgeV2Operation
+from src.app.models.edge_v2_projection import EdgeV2Filter
 from src.app.schemas.edge_v2 import Assessment
 from src.app.schemas.monitoring_v2 import (
     DashboardDataState,
+    LidarProfilePageV2,
+    LidarProfileV2,
     MonitoringSnapshotV2,
     MonitoringSource,
     MonitoringSummaryV2,
     OperationalState,
     OperationStatus,
 )
+from src.app.services.edge_v2_projection import latest_message
 from src.app.services.edge_v2_service import device_status, digest, utc
 
 
@@ -47,6 +51,8 @@ async def build_snapshot(
         .order_by(EdgeV2Message.generated_at.desc(), EdgeV2Message.id.asc())
         .limit(1)
     )
+    if message is not None and message.compact:
+        message = await latest_message(db, source.site_id, source.edge_id, "state")
     assessment = Assessment.model_validate(message.payload) if message else None
     device = await device_status(db, source.site_id, source.edge_id, now)
     config = await db.get(PitConfig, source.pit_id)
@@ -83,6 +89,32 @@ async def build_snapshot(
             percent = round(assessment.fill_estimate.ratio * 100, 6)
     else:
         reasons.append("ASSESSMENT_NOT_RECEIVED")
+    raw_percent = percent
+    filter_state: Literal["DISABLED", "WARMING", "READY", "UNAVAILABLE"] = "DISABLED"
+    if message is not None and message.compact:
+        filtered = await db.get(EdgeV2Filter, (source.site_id, source.edge_id))
+        filter_state = "UNAVAILABLE"
+        if (
+            state == "FRESH"
+            and filtered
+            and filtered.payload.get("message_id") == message.message_id
+        ):
+            value = filtered.payload.get("value")
+            if filtered.payload.get("state") == "READY" and value is not None:
+                percent = value
+                filter_state = "READY"
+            else:
+                percent = None
+                state = "UNKNOWN"
+                filter_state = (
+                    "WARMING" if filtered.payload.get("state") == "WARMING" else "UNAVAILABLE"
+                )
+                reasons.append("FILTER_" + filter_state)
+        else:
+            percent = None
+            if state == "FRESH":
+                state = "UNKNOWN"
+                reasons.append("FILTER_UNAVAILABLE")
     operations: OperationStatus | None = None
     if settings.EDGE_V2_OPERATIONS_ENABLED:
         row = await db.get(EdgeV2Operation, source.pit_id)
@@ -117,6 +149,8 @@ async def build_snapshot(
         reasonCodes=list(dict.fromkeys(reasons)),
         summary=MonitoringSummaryV2(
             loadPercent=percent,
+            rawLoadPercent=raw_percent,
+            filterState=filter_state,
             warningThresholdPercent=config.warning_threshold_percent
             if config
             else settings.DEFAULT_WARNING_THRESHOLD,
@@ -132,3 +166,28 @@ async def build_snapshot(
         snapshot.model_dump(mode="json", exclude={"serverTime", "snapshotId"})
     )
     return snapshot
+
+
+async def lidar_profiles(db: AsyncSession, source: MonitoringSource) -> LidarProfilePageV2:
+    settings = get_settings()
+    device = next(
+        d
+        for d in settings.EDGE_V2_DEVICES
+        if (d.site_id, d.edge_id) == (source.site_id, source.edge_id)
+    )
+    message = await latest_message(db, source.site_id, source.edge_id, "measurement")
+    sensors = {s["sensor_id"]: s for s in message.payload["sensors"]} if message else {}
+    profiles = []
+    for sensor_id in device.sensor_ids:
+        sensor = sensors.get(sensor_id, {})
+        scan = sensor.get("scan")
+        profiles.append(
+            LidarProfileV2(
+                sensorId=sensor_id,
+                measuredAt=datetime.fromisoformat(scan["acquired_at"]) if scan else None,
+                configRevision=message.config_revision if message else None,
+                calibrationVersion=sensor.get("calibration_version"),
+                referenceDistanceCm=settings.EDGE_V2_EMPTY_FLOOR_DISTANCE_CM,
+            )
+        )
+    return LidarProfilePageV2(pitId=source.pit_id, profiles=profiles)

@@ -18,6 +18,7 @@ from src.app.db.migration import (
     require_current_schema,
     upgrade_schema,
 )
+from src.app.db.migrations.baseline import metadata as initial_metadata
 from src.app.db.schema_guard import SchemaStateError, application_tables
 from src.app.models.alert_policy import AlertPolicy
 from src.app.models.auth import AuthSession, AuthUser
@@ -38,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0001_initial",)
+        assert await connection.run_sync(current_revisions) == ("0002_compact_observations",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -53,7 +54,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
 async def legacy_db(engine, modern=False):
     tables = [
         table
-        for table in Base.metadata.sorted_tables
+        for table in initial_metadata.sorted_tables
         if modern
         or table.name
         not in (
@@ -62,7 +63,7 @@ async def legacy_db(engine, modern=False):
         )
     ]
     async with engine.begin() as connection:
-        await connection.run_sync(lambda conn: Base.metadata.create_all(conn, tables=tables))
+        await connection.run_sync(lambda conn: initial_metadata.create_all(conn, tables=tables))
     factory = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime.now(UTC)
     async with factory() as db:
@@ -93,8 +94,10 @@ async def legacy_db(engine, modern=False):
                 read_at=now,
             )
         )
-        db.add(
-            EdgeV2Message(
+        await db.execute(
+            initial_metadata.tables["edge_v2_messages"]
+            .insert()
+            .values(
                 site_id="site-demo",
                 edge_id="edge-demo",
                 message_id="synthetic-id",
@@ -102,6 +105,7 @@ async def legacy_db(engine, modern=False):
                 config_revision="cfg-synthetic",
                 generated_at=now,
                 received_at=now,
+                created_at=now,
                 body_hash="a" * 64,
                 payload={"synthetic": True},
             )
@@ -316,7 +320,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0001_initial" in (await cli(url, "current"))[1]
+    assert "0002_compact_observations" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 

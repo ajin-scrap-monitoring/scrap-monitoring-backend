@@ -18,6 +18,7 @@ class EdgeV2Operation(Base):
     message_id: Mapped[str] = mapped_column(String(128))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    critical_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_alert_id: Mapped[int | None] = mapped_column(ForeignKey("alert_logs.id"), nullable=True)
 

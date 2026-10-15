@@ -2,6 +2,7 @@
 
 import math
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import extract, func, select
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
 from src.app.models.edge_v2 import EdgeV2Message
+from src.app.models.edge_v2_projection import EdgeV2Minute
 from src.app.schemas.edge_v2 import Assessment
 from src.app.schemas.load_history_v2 import (
     HistoryDataState,
@@ -102,6 +104,7 @@ async def load_history(
             message.site_id == source.site_id,
             message.edge_id == source.edge_id,
             message.message_type == "edge_assessment",
+            message.compact.is_(False),
             message.generated_at >= start,
             message.generated_at < end,
             message.payload["assessment_type"].as_string() == "STATE",
@@ -116,6 +119,7 @@ async def load_history(
         .order_by(ranked.c.bucket)
     )
     states = {int(row.bucket): Assessment.model_validate(row.payload) for row in rows}
+    compact = await compact_samples(db, source, start, end, seconds)
     first = math.floor(start.timestamp() / seconds)
     stop = math.ceil(end.timestamp() / seconds)
     samples: list[HistorySampleV2] = []
@@ -135,6 +139,13 @@ async def load_history(
             sample.valid = value is not None
             sample.dataState = state
             sample.reasonCodes = reasons
+        retained = compact.get(index)
+        if retained and (sample.generatedAt is None or retained[0] > sample.generatedAt):
+            sample = HistorySampleV2(
+                bucketStartAt=sample.bucketStartAt,
+                bucketEndAt=sample.bucketEndAt,
+                **retained[1],
+            )
         samples.append(sample)
     return LoadHistoryV2(
         pitId=source.pit_id,
@@ -144,3 +155,64 @@ async def load_history(
         bucketSeconds=seconds,
         samples=samples,
     )
+
+
+async def compact_samples(
+    db: AsyncSession, source: MonitoringSource, start: datetime, end: datetime, seconds: int
+) -> dict[int, tuple[datetime, dict[str, Any]]]:
+    """Bounded seven-day query of minute rows; no periodic STATE or point arrays needed."""
+    rows = await db.scalars(
+        select(EdgeV2Minute)
+        .where(
+            EdgeV2Minute.site_id == source.site_id,
+            EdgeV2Minute.edge_id == source.edge_id,
+            EdgeV2Minute.bucket_start >= start.replace(second=0, microsecond=0),
+            EdgeV2Minute.bucket_start < end,
+        )
+        .order_by(EdgeV2Minute.bucket_start)
+    )
+    grouped: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        for stamp, value in row.payload.get("values", {}).items():
+            timestamp = datetime.fromtimestamp(int(stamp), UTC)
+            # Scalar slots have only second resolution; do not invent subsecond metadata.
+            if not start <= timestamp < end:
+                continue
+            key = int(timestamp.timestamp() // seconds)
+            group = grouped.setdefault(key, {"values": [], "invalid": 0})
+            if value is not None:
+                group["values"].append(value)
+            else:
+                group["invalid"] += 1
+            if "last_time" not in group or timestamp >= group["last_time"]:
+                group.update(last_time=timestamp, value=value, last=row.payload["last"])
+    result: dict[int, tuple[datetime, dict[str, Any]]] = {}
+    for key, group in grouped.items():
+        last = group["last"]
+        generated = datetime.fromisoformat(last["generatedAt"])
+        metadata_retained = start <= generated < end and int(generated.timestamp()) == int(
+            group["last_time"].timestamp()
+        )
+        values = group["values"]
+        value = group["value"]
+        data = {
+            "generatedAt": generated if metadata_retained else None,
+            "observedAt": last["observedAt"] if metadata_retained else None,
+            "assessmentId": last["assessmentId"] if metadata_retained else None,
+            "valuePercent": value,
+            "valid": value is not None,
+            "dataState": last["dataState"]
+            if metadata_retained
+            else ("AVAILABLE" if value is not None else "UNKNOWN"),
+            "reasonCodes": last["reasonCodes"]
+            if metadata_retained
+            else ["COMPACT_SUBMINUTE_METADATA_NOT_RETAINED"],
+            "averagePercent": sum(values) / len(values) if values else None,
+            "minimumPercent": min(values) if values else None,
+            "maximumPercent": max(values) if values else None,
+            "validSamples": len(values),
+            "invalidSamples": group["invalid"],
+            "valuePolicy": "MEDIAN_MINUTE",
+        }
+        result[key] = (generated if metadata_retained else group["last_time"], data)
+    return result
