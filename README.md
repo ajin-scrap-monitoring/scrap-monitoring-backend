@@ -84,6 +84,7 @@ docker compose down
 
 ## 문서
 
+* [docs/ALERT_POLICY_STORAGE.md](docs/ALERT_POLICY_STORAGE.md): 알림 정책 영속 저장·재시작 유지·ETag 동시 변경 검사
 * [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 

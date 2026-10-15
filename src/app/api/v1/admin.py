@@ -35,7 +35,9 @@ notifications_admin_router = APIRouter(
 )
 async def get_alert_settings(
     response: Response,
-    pit_id: str = Query(default="pit-01", description="Pit identifier"),
+    pit_id: str = Query(
+        default="pit-01", min_length=1, max_length=50, description="Pit identifier"
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> AlertSettings:
     """Get current threshold and alert policy settings."""
@@ -53,20 +55,17 @@ async def get_alert_settings(
 async def replace_alert_settings(
     payload: AlertSettingsUpdate,
     response: Response,
-    pit_id: str = Query(default="pit-01", description="Pit identifier"),
+    pit_id: str = Query(
+        default="pit-01", min_length=1, max_length=50, description="Pit identifier"
+    ),
     if_match: str | None = Header(default=None, alias="If-Match"),
     db: AsyncSession = Depends(get_db_session),
 ) -> AlertSettings:
     """Replace threshold and alert policy settings."""
-    current, current_etag = await admin_service.get_alert_settings(pit_id=pit_id, db=db)
-    if if_match and if_match != current_etag:
-        raise HTTPException(
-            status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail="Precondition failed: ETag does not match current version",
-        )
-
+    if if_match is None:
+        raise HTTPException(428, "If-Match is required; retrieve the current settings first")
     updated, new_etag = await admin_service.replace_alert_settings(
-        pit_id=pit_id, payload=payload, db=db
+        pit_id=pit_id, payload=payload, db=db, if_match=if_match
     )
     response.headers["ETag"] = new_etag
     return updated

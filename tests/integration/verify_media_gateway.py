@@ -93,7 +93,7 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
-async def probe(base_url: str) -> None:
+async def probe(base_url: str, backend: str) -> None:
     async with httpx.AsyncClient(base_url=base_url, timeout=5) as client:
         async with asyncio.timeout(20):
             while True:
@@ -120,6 +120,44 @@ async def probe(base_url: str) -> None:
         settings = await client.get("/api/v1/settings/alerts")
         assert settings.status_code == 200
         assert settings.headers["cache-control"] == "no-store"
+        policy_payload = settings.json()
+        policy_payload.pop("version")
+        policy_payload.update(
+            preCollectionAlert={"enabled": False, "thresholdPercent": 70},
+            sendDelayMinutes=4,
+            repeatIntervalMinutes=45,
+            maximumRepeatCount=7,
+            recoveryNotificationEnabled=False,
+            eventTypes=["device_error"],
+        )
+        settings_path = "/api/v1/settings/alerts"
+        assert (
+            await client.put(settings_path, json=policy_payload, headers=admin_csrf)
+        ).status_code == 428
+        saved = await client.put(
+            settings_path,
+            json=policy_payload,
+            headers={**admin_csrf, "If-Match": settings.headers["etag"]},
+        )
+        assert saved.status_code == 200, saved.text
+        stale = await client.put(
+            settings_path,
+            json=policy_payload,
+            headers={**admin_csrf, "If-Match": settings.headers["etag"]},
+        )
+        assert stale.status_code == 412
+        docker("restart", backend)
+        async with asyncio.timeout(20):
+            while True:
+                try:
+                    if (await client.get("/api/v1/healthz")).status_code == 200:
+                        break
+                except httpx.RequestError:
+                    pass
+                await asyncio.sleep(0.25)
+        restored = await client.get(settings_path)
+        assert restored.status_code == 200 and restored.json() == saved.json()
+        assert restored.headers["etag"] == saved.headers["etag"]
         pit_path = "/api/v1/config/pits/gateway-synthetic"
         pit_payload = {"name": "Synthetic gateway pit"}
         assert (await client.put(pit_path, json=pit_payload)).status_code == 403
@@ -202,7 +240,7 @@ async def probe(base_url: str) -> None:
         assert (await client.get(daily + "/content")).status_code == 401
     print(
         "Gateway checks passed: edge v2 large scan/ACK, session auth, "
-        "admin permissions, MJPEG, daily HLS/export, Range and logout"
+        "admin permissions, policy restart, MJPEG, daily HLS/export, Range and logout"
     )
 
 
@@ -300,7 +338,7 @@ def main() -> None:
         )
         containers.append(gateway)
         address = docker("port", gateway, "8080/tcp").splitlines()[0]
-        asyncio.run(probe(f"http://{address}"))
+        asyncio.run(probe(f"http://{address}", backend))
         docker("exec", gateway, "nginx", "-t")
     except Exception:
         for container in containers:
