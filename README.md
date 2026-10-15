@@ -84,6 +84,7 @@ docker compose down
 
 ## 문서
 
+* [docs/DB_TRANSFER.md](docs/DB_TRANSFER.md): SQLite→PostgreSQL 시험 이전·적용·전체 비교
 * [docs/DB_MIGRATIONS.md](docs/DB_MIGRATIONS.md): DB 버전 관리·기존 DB 등록·적용 명령·시작 전 검사
 * [docs/POSTGRESQL_TESTING.md](docs/POSTGRESQL_TESTING.md): 실제 PostgreSQL에서 API 저장·조회 검증
 * [docs/NOTIFICATION_READS.md](docs/NOTIFICATION_READS.md): 계정별 알림 읽음·미확인 개수·로그인 및 CSRF 검사
