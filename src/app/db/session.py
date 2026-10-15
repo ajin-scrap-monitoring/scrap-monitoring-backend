@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.app.core.config import get_settings
-from src.app.db.base import Base
+from src.app.db.migration import initialize_schema
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +64,14 @@ async def get_db_session() -> AsyncGenerator[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Initialize database schemas (useful for development and tests)."""
+    """Initialize database schemas (useful for development and tests).
+
+    Only an empty nonproduction DB is initialized automatically. Existing and
+    production databases must be migrated explicitly before startup.
+    """
     engine = get_engine()
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(initialize_schema, allow_empty=get_settings().APP_ENV != "production")
     logger.info("Database schemas initialized.")
 
 
