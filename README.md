@@ -85,6 +85,7 @@ docker compose down
 ## 문서
 
 * [docs/DB_MIGRATIONS.md](docs/DB_MIGRATIONS.md): DB 버전 관리·기존 DB 등록·적용 명령·시작 전 검사
+* [docs/POSTGRESQL_TESTING.md](docs/POSTGRESQL_TESTING.md): 실제 PostgreSQL에서 API 저장·조회 검증
 * [docs/NOTIFICATION_READS.md](docs/NOTIFICATION_READS.md): 계정별 알림 읽음·미확인 개수·로그인 및 CSRF 검사
 * [docs/ALERT_POLICY_STORAGE.md](docs/ALERT_POLICY_STORAGE.md): 알림 정책 영속 저장·재시작 유지·ETag 동시 변경 검사
 * [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
