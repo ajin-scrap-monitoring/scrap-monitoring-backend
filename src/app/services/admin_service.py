@@ -1,6 +1,5 @@
 """Service for managing alert settings, recipients, and test notifications."""
 
-import hashlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -10,8 +9,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core.config import get_settings
-from src.app.models.config import PitConfig
 from src.app.models.log import AlertLog
 from src.app.models.recipient import NotificationRecipientModel
 from src.app.schemas.admin import (
@@ -27,19 +24,9 @@ from src.app.schemas.admin import (
     TestNotificationRequest,
 )
 from src.app.schemas.history import PageMetadata
-from src.app.schemas.monitoring import PreCollectionAlert
+from src.app.services.alert_policy_service import get_settings_snapshot, replace_settings
 
 logger = logging.getLogger(__name__)
-
-
-def _generate_alert_etag(pit_cfg: PitConfig) -> str:
-    """Generate consistent ETag for alert settings from configuration state."""
-    content = (
-        f"{pit_cfg.id}:{pit_cfg.critical_threshold_percent}:"
-        f"{pit_cfg.warning_threshold_percent}:{pit_cfg.updated_at.isoformat()}"
-    )
-    digest = hashlib.sha256(content.encode()).hexdigest()[:12]
-    return f'"{pit_cfg.id}-{digest}"'
 
 
 class AdminService:
@@ -51,78 +38,17 @@ class AdminService:
         db: AsyncSession,
     ) -> tuple[AlertSettings, str]:
         """Fetch alert settings and generate ETag version."""
-        settings = get_settings()
-        cfg_stmt = select(PitConfig).where(PitConfig.id == pit_id)
-        res = await db.execute(cfg_stmt)
-        pit_cfg = res.scalar_one_or_none()
-
-        if not pit_cfg:
-            pit_cfg = PitConfig(
-                id=pit_id,
-                name=f"스크랩 구덩이 {pit_id}",
-                total_depth_cm=300.0,
-                warning_threshold_percent=settings.DEFAULT_WARNING_THRESHOLD,
-                critical_threshold_percent=settings.DEFAULT_CRITICAL_THRESHOLD,
-            )
-            db.add(pit_cfg)
-            await db.commit()
-            await db.refresh(pit_cfg)
-
-        etag = _generate_alert_etag(pit_cfg)
-
-        alert_settings = AlertSettings(
-            version=etag,
-            collectionThresholdPercent=pit_cfg.critical_threshold_percent,
-            preCollectionAlert=PreCollectionAlert(
-                enabled=True,
-                thresholdPercent=pit_cfg.warning_threshold_percent,
-            ),
-            sendDelayMinutes=0,
-            repeatIntervalMinutes=30,
-            maximumRepeatCount=3,
-            recoveryNotificationEnabled=True,
-            eventTypes=["collection_required", "measurement_error", "device_error"],
-        )
-        return alert_settings, etag
+        return await get_settings_snapshot(db, pit_id)
 
     async def replace_alert_settings(
         self,
         pit_id: str,
         payload: AlertSettingsUpdate,
         db: AsyncSession,
+        if_match: str,
     ) -> tuple[AlertSettings, str]:
         """Replace alert settings and return updated model with new ETag."""
-        cfg_stmt = select(PitConfig).where(PitConfig.id == pit_id)
-        res = await db.execute(cfg_stmt)
-        pit_cfg = res.scalar_one_or_none()
-
-        if not pit_cfg:
-            pit_cfg = PitConfig(id=pit_id, name=f"스크랩 구덩이 {pit_id}")
-            db.add(pit_cfg)
-
-        pit_cfg.critical_threshold_percent = payload.collectionThresholdPercent
-        pit_cfg.warning_threshold_percent = payload.preCollectionAlert.thresholdPercent
-        pit_cfg.updated_at = datetime.now(UTC)
-
-        await db.commit()
-        await db.refresh(pit_cfg)
-
-        etag = _generate_alert_etag(pit_cfg)
-
-        updated = AlertSettings(
-            version=etag,
-            collectionThresholdPercent=pit_cfg.critical_threshold_percent,
-            preCollectionAlert=PreCollectionAlert(
-                enabled=True,
-                thresholdPercent=pit_cfg.warning_threshold_percent,
-            ),
-            sendDelayMinutes=payload.sendDelayMinutes,
-            repeatIntervalMinutes=payload.repeatIntervalMinutes,
-            maximumRepeatCount=payload.maximumRepeatCount,
-            recoveryNotificationEnabled=payload.recoveryNotificationEnabled,
-            eventTypes=payload.eventTypes,
-        )
-        return updated, etag
+        return await replace_settings(db, pit_id, payload, if_match)
 
     async def list_recipients(
         self,

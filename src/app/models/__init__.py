@@ -1,5 +1,6 @@
 """Domain models export."""
 
+from src.app.models.alert_policy import AlertPolicy
 from src.app.models.auth import AuthSession, AuthUser
 from src.app.models.config import PitConfig
 from src.app.models.edge import EdgeHeartbeatModel
@@ -12,6 +13,7 @@ from src.app.models.metric import ScrapMetric
 from src.app.models.recipient import NotificationRecipientModel
 
 __all__ = [
+    "AlertPolicy",
     "AuthUser",
     "AuthSession",
     "ScrapMetric",
