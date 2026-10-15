@@ -61,3 +61,5 @@ docker build -t scrap-backend-issue31:local .
 ```
 
 합성 데이터로 임계치 복귀, 30분 쿨다운, 재시작·중복·장애 복구, 오래된 관측, 사건 개정·철회, 장치 격리와 API 인증을 검증한다. 실제 장비 송신·프론트엔드 표시·외부 알림 전달 검증은 별도로 진행한다.
+
+경보 목록의 `readAt`은 로그인 계정의 읽음 시각이며, 개인 알림함과 같은 `notification_reads` 기록을 사용한다. 자세한 내용은 [사용자별 읽음 안내](NOTIFICATION_READS.md)를 따른다.

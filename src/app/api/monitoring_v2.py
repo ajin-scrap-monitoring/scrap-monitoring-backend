@@ -64,7 +64,7 @@ async def alert_history(
     offset: Offset = 0,
 ) -> V2AlertPage:
     response.headers["Cache-Control"] = "no-store"
-    return await alerts(db, source, limit, offset)
+    return await alerts(db, source, limit, offset, session.user.id)
 
 
 @router.get("/collection-events", response_model=CollectionEventPage)

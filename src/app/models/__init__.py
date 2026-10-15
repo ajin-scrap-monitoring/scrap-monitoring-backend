@@ -10,9 +10,11 @@ from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media import MediaIndex
 from src.app.models.media_job import MediaClipJob
 from src.app.models.metric import ScrapMetric
+from src.app.models.notification_read import NotificationRead
 from src.app.models.recipient import NotificationRecipientModel
 
 __all__ = [
+    "NotificationRead",
     "AlertPolicy",
     "AuthUser",
     "AuthSession",

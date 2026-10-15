@@ -207,7 +207,7 @@ async def test_commit_failure_rolls_back_cursor_and_alert_then_recovers(
 async def test_alert_history_notification_and_pending_snapshot(client, test_db_session):
     db = test_db_session
     initial = await tick(client, db, 0.99, 0)
-    await login(client)
+    _, session = await login(client)
     r = await client.get(BASE + "/alerts", params={"pit_id": "pit-demo"})
     assert r.status_code == 200
     item = r.json()["items"][0]
@@ -216,7 +216,11 @@ async def test_alert_history_notification_and_pending_snapshot(client, test_db_s
     notifications = (await client.get("/api/v1/notifications")).json()
     assert notifications["items"][0]["id"] == item["notificationId"]
     assert notifications["items"][0]["severity"] == "error"
-    r = await client.patch("/api/v1/notifications/" + item["notificationId"], json={"read": True})
+    r = await client.patch(
+        "/api/v1/notifications/" + item["notificationId"],
+        json={"read": True},
+        headers={"X-CSRF-Token": session.csrfToken},
+    )
     assert r.status_code == 200
     r = await client.get(BASE + "/alerts", params={"pit_id": "pit-demo"})
     assert r.json()["items"][0]["readAt"] is not None
