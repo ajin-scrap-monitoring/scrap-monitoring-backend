@@ -14,14 +14,16 @@ from src.app.db.session import get_db_session
 from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
+    LidarProfilePageV2,
     MonitoringSnapshotV2,
     MonitoringSource,
+    StateEventPageV2,
     V2AlertPage,
 )
 from src.app.schemas.session import Session
-from src.app.services.edge_v2_history import alerts, collection_events
+from src.app.services.edge_v2_history import alerts, collection_events, state_events
 from src.app.services.load_history_v2_service import load_history
-from src.app.services.monitoring_v2_service import build_snapshot, monitoring_source
+from src.app.services.monitoring_v2_service import build_snapshot, lidar_profiles, monitoring_source
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
 router = APIRouter(prefix="/api/v2/monitoring", tags=["Monitoring v2"])
@@ -38,6 +40,27 @@ def get_source(
 Source = Annotated[MonitoringSource, Depends(get_source)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=10000)]
+
+
+@router.get("/profiles", response_model=LidarProfilePageV2)
+async def profiles(
+    response: Response, session: CurrentSession, source: Source, db: Database
+) -> LidarProfilePageV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await lidar_profiles(db, source)
+
+
+@router.get("/state-events", response_model=StateEventPageV2)
+async def state_event_history(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> StateEventPageV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await state_events(db, source, limit, offset)
 
 
 @router.get("/load-history", response_model=LoadHistoryV2)

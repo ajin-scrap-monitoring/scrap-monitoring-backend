@@ -15,13 +15,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from src.app.db.base import Base
 from src.app.db.migration import (
     current_revisions,
     migration_config,
     require_current_schema,
     upgrade_schema,
 )
+from src.app.db.migrations.baseline import metadata as initial_metadata
 from src.app.db.schema_guard import SchemaStateError
 from src.app.models.alert_policy import AlertPolicy
 from src.app.models.auth import AuthSession, AuthUser
@@ -108,7 +108,7 @@ async def verify(port: int, password: str) -> None:
     try:
         tables = [
             t
-            for t in Base.metadata.sorted_tables
+            for t in initial_metadata.sorted_tables
             if t.name
             not in (
                 "alert_policies",
@@ -116,7 +116,7 @@ async def verify(port: int, password: str) -> None:
             )
         ]
         async with legacy.begin() as connection:
-            await connection.run_sync(lambda conn: Base.metadata.create_all(conn, tables=tables))
+            await connection.run_sync(lambda conn: initial_metadata.create_all(conn, tables=tables))
         factory = async_sessionmaker(legacy, expire_on_commit=False)
         now = datetime.now(UTC)
         async with factory() as db:
@@ -166,7 +166,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0001_initial",)
+            assert await connection.run_sync(current_revisions) == ("0002_compact_observations",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"

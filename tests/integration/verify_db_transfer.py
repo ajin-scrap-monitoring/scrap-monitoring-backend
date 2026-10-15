@@ -86,7 +86,9 @@ async def verify(url, directory):
         await empty(engine)
         await transfer_database(source, target, mode="apply", batch_size=1)
         summaries = await transfer_database(source, target, mode="verify", batch_size=2)
-        assert len(summaries) == 16 and summaries["media_clip_jobs"].rows == 2
+        assert (
+            len(summaries) == len(Base.metadata.tables) and summaries["media_clip_jobs"].rows == 2
+        )
         async with engine.connect() as db:
             assert await db.scalar(text("SELECT password_hash FROM auth_users")) == preserved_hash
             assert await db.scalar(text("SELECT sequence FROM edge_v2_messages")) == 2**54 + 9

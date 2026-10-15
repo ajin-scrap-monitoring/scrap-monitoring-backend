@@ -273,8 +273,9 @@ async def grant_runtime(url):
 
 async def verify_restored(url, expected):
     assert await snapshot(url) == expected, "Restored schema, data or sequences differ"
-    assert len(expected[1]) == 16 and all(summary.rows for summary in expected[1].values())
-    print("Alembic, all 16 tables/columns and exact sequence state restored", flush=True)
+    assert len(expected[1]) == len(Base.metadata.tables)
+    assert all(summary.rows for summary in expected[1].values())
+    print("Alembic, all tables/columns and exact sequence state restored", flush=True)
     engine = create_async_engine(url, hide_parameters=True)
     try:
         factory = async_sessionmaker(engine, expire_on_commit=False)

@@ -152,7 +152,7 @@ async def probe(base_url: str, backend: str) -> None:
                     pass
                 await asyncio.sleep(0.25)
         revision = docker("exec", backend, "python", "-m", "src.app.cli.db", "current")
-        assert revision.endswith("0001_initial"), revision
+        assert revision.endswith("0002_compact_observations"), revision
         docker("exec", backend, "python", "-m", "src.app.cli.db", "check")
         await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"

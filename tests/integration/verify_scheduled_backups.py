@@ -320,7 +320,7 @@ exec bash /opt/scrap-backup/worker.sh once
             env=restored_env,
         )
         print(
-            "Periodic execution and isolated restore match every column in all 16 tables",
+            "Periodic execution and isolated restore match every column in all application tables",
             flush=True,
         )
     finally:

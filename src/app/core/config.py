@@ -56,6 +56,19 @@ class Settings(BaseSettings):
     # V2 operational rules are opt-in; explicit pit thresholds still take precedence.
     EDGE_V2_OPERATIONS_ENABLED: bool = False
     EDGE_V2_CRITICAL_THRESHOLD: float = Field(default=90.0, gt=5.0, le=100.0)
+    # Explicit activation preserves legacy installations until migration/deployment review.
+    EDGE_V2_COMPACT_STORAGE_ENABLED: bool = False
+    EDGE_V2_MEDIAN_WINDOW_SECONDS: int = Field(default=5, ge=3, le=31)
+    EDGE_V2_CRITICAL_CONFIRM_SECONDS: int = Field(default=3, ge=0, le=60)
+    # Sensor-to-empty-floor distance, separate from the pit's total depth.
+    EDGE_V2_EMPTY_FLOOR_DISTANCE_CM: float = Field(default=1000.0, gt=0, le=100000)
+
+    @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")
+    @classmethod
+    def odd_median_window(cls, value: int) -> int:
+        if value % 2 == 0:
+            raise ValueError("Median window must contain an odd number of seconds")
+        return value
 
     @model_validator(mode="after")
     def validate_monitoring_sources(self) -> "Settings":

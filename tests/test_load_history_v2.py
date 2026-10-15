@@ -208,9 +208,7 @@ async def test_scope_isolation_even_when_assessment_id_matches(
     assert (await history(test_db_session)).samples[0].valuePercent == 30
 
 
-async def test_one_bounded_sql_select_uses_time_range_and_rank(
-    client, test_db_session, test_engine
-):
+async def test_bounded_sql_selects_use_time_range_and_rank(client, test_db_session, test_engine):
     for second in range(120):
         await send(
             client, assessment(f"s-{second}", second / 120, START + timedelta(seconds=second))
@@ -225,9 +223,11 @@ async def test_one_bounded_sql_select_uses_time_range_and_rank(
         result = await history(test_db_session, end=START + timedelta(minutes=2))
     finally:
         event.remove(test_engine.sync_engine, "before_cursor_execute", capture)
-    assert len(statements) == 1
+    assert len(statements) == 2
     assert "row_number() OVER" in statements[0]
     assert "generated_at >=" in statements[0] and "generated_at <" in statements[0]
+    assert "edge_v2_minutes.bucket_start >=" in statements[1]
+    assert "edge_v2_minutes.bucket_start <" in statements[1]
     assert len(result.samples) == 2
     assert [p.assessmentId for p in result.samples] == ["s-59", "s-119"]
 

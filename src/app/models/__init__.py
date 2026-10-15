@@ -6,6 +6,12 @@ from src.app.models.config import PitConfig
 from src.app.models.edge import EdgeHeartbeatModel
 from src.app.models.edge_v2 import EdgeV2Artifact, EdgeV2Message
 from src.app.models.edge_v2_operations import EdgeV2AlertLink, EdgeV2Operation
+from src.app.models.edge_v2_projection import (
+    EdgeV2Filter,
+    EdgeV2Latest,
+    EdgeV2Minute,
+    EdgeV2Transition,
+)
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media import MediaIndex
 from src.app.models.media_job import MediaClipJob
@@ -30,4 +36,8 @@ __all__ = [
     "EdgeV2Artifact",
     "EdgeV2Operation",
     "EdgeV2AlertLink",
+    "EdgeV2Latest",
+    "EdgeV2Filter",
+    "EdgeV2Minute",
+    "EdgeV2Transition",
 ]

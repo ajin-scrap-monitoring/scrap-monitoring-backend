@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.config import get_settings
 from src.app.db.session import get_sessionmaker
 from src.app.models.edge_v2_operations import EdgeV2AlertLink, EdgeV2Operation
+from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Transition
 from src.app.models.log import AlertLog
 from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.services.edge_v2_service import utc
@@ -30,12 +31,16 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
     assessment = snapshot.assessment
     fill = snapshot.summary.loadPercent
     if snapshot.dataState != "FRESH" or assessment is None or fill is None:
+        if row and row.critical_since is not None:
+            row.critical_since = None
+            await db.commit()
         return
     observed_at = assessment.observed_to
     assert observed_at is not None
     assert assessment.fill_estimate is not None
     # Display rounding must not move a value across an alarm/recovery threshold.
-    fill = assessment.fill_estimate.ratio * 100.0
+    if snapshot.summary.filterState == "DISABLED":
+        fill = assessment.fill_estimate.ratio * 100.0
     same_source = row is not None and (row.site_id, row.edge_id) == (source.site_id, source.edge_id)
     if (
         row
@@ -52,10 +57,33 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         # Bad settings never create a notification or reset an existing alarm.
         logger.error("Invalid v2 operational thresholds; source evaluation skipped")
         return
-    previous = row.state if row else "NORMAL"
+    previous = row.state if row and same_source else "NORMAL"
+    pending = None
+    if snapshot.summary.filterState == "READY" and previous != "CRITICAL":
+        # The receiver observes every distinct input even when a worker sweep is delayed.
+        # Its timer resets on gaps/invalidity/source changes, not on wall-clock polling.
+        filtered = await db.get(EdgeV2Filter, (source.site_id, source.edge_id))
+        if (
+            filtered
+            and filtered.payload.get("message_id") == assessment.message_id
+            and filtered.payload.get("threshold") == critical
+        ):
+            stamp = filtered.payload.get("above_since")
+            pending = datetime.fromisoformat(stamp) if stamp else None
+        if fill >= critical:
+            pending = pending or observed_at
+            confirmed = observed_at - pending >= timedelta(
+                seconds=get_settings().EDGE_V2_CRITICAL_CONFIRM_SECONDS
+            )
+        else:
+            pending = None
+            confirmed = False
+    else:
+        pending = None
+        confirmed = fill >= critical
     if previous == "CRITICAL" and fill > recovery:
         current = "CRITICAL"
-    elif fill >= critical:
+    elif fill >= critical and confirmed:
         current = "CRITICAL"
     elif fill >= warn:
         current = "WARNING"
@@ -69,6 +97,23 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
     row.message_id = assessment.message_id
     row.generated_at = assessment.generated_at
     row.observed_at = observed_at
+    row.critical_since = pending
+    if snapshot.summary.filterState == "READY" and previous != current:
+        db.add(
+            EdgeV2Transition(
+                site_id=source.site_id,
+                edge_id=source.edge_id,
+                occurred_at=observed_at,
+                kind="FILL_STATE_CHANGED",
+                payload={
+                    "previous": previous,
+                    "current": current,
+                    "valuePercent": fill,
+                    "assessmentId": assessment.assessment_id,
+                    "messageId": assessment.message_id,
+                },
+            )
+        )
     cooldown = timedelta(seconds=get_settings().ALERT_COOLDOWN_SECONDS)
     if current == "CRITICAL" and (
         row.last_alert_at is None or now - utc(row.last_alert_at) >= cooldown

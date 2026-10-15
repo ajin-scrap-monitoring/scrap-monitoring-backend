@@ -9,6 +9,7 @@ from sqlalchemy import Select, select, tuple_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.config import get_settings
 from src.app.core.edge_v2_security import EdgeV2Device, EdgeV2Error
 from src.app.models.edge_v2 import EdgeV2Artifact, EdgeV2Message
 from src.app.schemas.edge_v2 import (
@@ -119,7 +120,8 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
         for identity, (key, content, field) in artifacts.items():
             if identity in found:
                 existing = found[identity]
-                if existing.artifact_key != key or existing.payload != content:
+                stored_hash = existing.content_hash or digest(existing.payload)
+                if existing.artifact_key != key or stored_hash != digest(content):
                     raise EdgeV2Error(409, "ARTIFACT_CONFLICT", field)
             else:
                 missing.append(
@@ -129,7 +131,21 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
                         kind=identity[0],
                         key_hash=identity[1],
                         artifact_key=key,
-                        payload=content,
+                        payload=(
+                            {"retention": "LATEST_ONLY"}
+                            if get_settings().EDGE_V2_COMPACT_STORAGE_ENABLED
+                            and (
+                                identity[0] == "scan_result"
+                                or identity[0] == "status_sequence"
+                                or (
+                                    identity[0] == "assessment_revision"
+                                    and isinstance(payload, Assessment)
+                                    and payload.assessment_type == "STATE"
+                                )
+                            )
+                            else content
+                        ),
+                        content_hash=digest(content),
                     )
                 )
         if not missing:
@@ -178,6 +194,10 @@ async def accept_message(
             if existing.body_hash != body_hash:
                 raise EdgeV2Error(409, "IDEMPOTENCY_CONFLICT")
             return receipt(existing, True)
+        from src.app.services.edge_v2_projection import lock_projection, project, receipt_payload
+
+        compact = get_settings().EDGE_V2_COMPACT_STORAGE_ENABLED
+        filter_row = await lock_projection(db, payload) if compact else None
         message = EdgeV2Message(
             site_id=payload.site_id,
             edge_id=payload.edge_id,
@@ -187,7 +207,8 @@ async def accept_message(
             generated_at=payload.generated_at,
             received_at=datetime.now(UTC),
             body_hash=body_hash,
-            payload=original,
+            payload=receipt_payload(payload) if compact else original,
+            compact=compact,
             instance_id=payload.orchestrator_instance_id
             if isinstance(payload, StatusReport)
             else None,
@@ -205,6 +226,9 @@ async def accept_message(
                 raise EdgeV2Error(409, "IDEMPOTENCY_CONFLICT") from None
             return receipt(existing, True)
         await store_artifacts(db, payload)
+        if filter_row is not None:
+            await project(db, payload, original, message, filter_row)
+        await db.flush()
         await db.commit()
         return receipt(message, False)
     except EdgeV2Error:
@@ -236,7 +260,18 @@ async def device_status(
             .limit(1)
         )
         if latest:
-            snapshot = StatusReport.model_validate(latest.payload)
+            if latest.compact:
+                from src.app.services.edge_v2_projection import latest_message
+
+                retained = await latest_message(db, site_id, edge_id, "status")
+                if (
+                    retained is not None
+                    and retained.instance_id == latest.instance_id
+                    and retained.sequence == latest.sequence
+                ):
+                    snapshot = StatusReport.model_validate(retained.payload)
+            else:
+                snapshot = StatusReport.model_validate(latest.payload)
     received_at = utc(last_receipt.received_at) if last_receipt else None
     reporting = received_at is not None and (
         (now or datetime.now(UTC)) - received_at < timedelta(seconds=30)
