@@ -56,5 +56,31 @@ server {
         add_header X-Accel-Buffering "no" always;
     }
 
+    # HLS manifests contain absolute /api/v2 segment URIs. Rewrite them to the
+    # same authenticated gateway prefix; FastAPI never receives video bytes.
+    location ~ "^/media/daily-recordings/[0-9a-fA-F-]{36}/(hls/index\.m3u8|media/[A-Za-z0-9][A-Za-z0-9._~-]{0,127}\.ts|content)$" {
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        auth_request /_media_auth;
+        rewrite ^/media/(.*)$ /api/v2/$1 break;
+        proxy_pass http://camera_media;
+        proxy_set_header Authorization "";
+        proxy_set_header Cookie "";
+        proxy_set_header Range $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_set_header Accept-Encoding "";
+        proxy_hide_header Set-Cookie;
+        proxy_hide_header X-Powered-By;
+        proxy_hide_header Cache-Control;
+        sub_filter_types application/vnd.apple.mpegurl;
+        sub_filter_once off;
+        sub_filter '/api/v2/daily-recordings/' '/media/daily-recordings/';
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 30s;
+        proxy_redirect off;
+        add_header Cache-Control "no-store" always;
+        add_header X-Accel-Buffering "no" always;
+    }
+
     location / { return 404; }
 }

@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     # Camera media v1 control API; credentials never appear in browser responses.
     MEDIA_SERVICE_URL: str | None = None
     MEDIA_API_TOKEN: SecretStr | None = None
+    # Optional independent v2 JSON endpoint; the camera contract needs no bearer token.
+    MEDIA_DAILY_SERVICE_URL: str | None = None
     MEDIA_CAMERA_ID: str = Field(
         default="camera-main", max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._~-]*$"
     )
@@ -145,6 +147,21 @@ class Settings(BaseSettings):
         import re
         from urllib.parse import urlsplit
 
+        if self.MEDIA_DAILY_SERVICE_URL == "":
+            self.MEDIA_DAILY_SERVICE_URL = None
+        if self.MEDIA_DAILY_SERVICE_URL:
+            daily = urlsplit(self.MEDIA_DAILY_SERVICE_URL)
+            if (
+                daily.scheme not in ("http", "https")
+                or not daily.hostname
+                or daily.username is not None
+                or daily.password is not None
+                or daily.query
+                or daily.fragment
+                or daily.path.rstrip("/") != "/api/v2"
+                or (daily.port is not None and not 1 <= daily.port <= 65535)
+            ):
+                raise ValueError("MEDIA_DAILY_SERVICE_URL must end in /api/v2 without credentials")
         if self.MEDIA_SERVICE_URL == "":
             self.MEDIA_SERVICE_URL = None
         if self.MEDIA_API_TOKEN and not self.MEDIA_API_TOKEN.get_secret_value():

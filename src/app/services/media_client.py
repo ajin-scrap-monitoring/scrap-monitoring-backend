@@ -47,9 +47,19 @@ class MediaClient:
         expected: tuple[int, ...],
         payload: BaseModel | None = None,
         params: dict[str, str | int] | None = None,
+        *,
+        daily: bool = False,
     ) -> httpx.Response:
         settings = get_settings()
-        if not settings.MEDIA_SERVICE_URL or not settings.MEDIA_API_TOKEN:
+        base_url = settings.MEDIA_SERVICE_URL
+        headers = {}
+        if daily:
+            base_url = settings.MEDIA_DAILY_SERVICE_URL or (
+                base_url.rstrip("/")[:-2] + "v2" if base_url else None
+            )
+        elif settings.MEDIA_API_TOKEN:
+            headers["Authorization"] = f"Bearer {settings.MEDIA_API_TOKEN.get_secret_value()}"
+        if not base_url or (not daily and not settings.MEDIA_API_TOKEN):
             raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -59,8 +69,8 @@ class MediaClient:
         try:
             response = await self._client.request(
                 method,
-                f"{settings.MEDIA_SERVICE_URL.rstrip('/')}/{path.lstrip('/')}",
-                headers={"Authorization": f"Bearer {settings.MEDIA_API_TOKEN.get_secret_value()}"},
+                f"{base_url.rstrip('/')}/{path.lstrip('/')}",
+                headers=headers,
                 json=payload.model_dump(mode="json") if payload else None,
                 params=params,
             )
@@ -71,6 +81,19 @@ class MediaClient:
         if response.status_code not in expected:
             # Only contract codes are forwarded; arbitrary error text may contain secrets.
             known_codes = {
+                "DAILY_RECORDING_NOT_FOUND",
+                "DAY_NOT_CLOSED",
+                "DAY_FINALIZING",
+                "NO_RECORDING_DATA",
+                "PLAYBACK_NOT_READY",
+                "EXPORT_NOT_READY",
+                "RECORDING_ACTIVE",
+                "EXPORT_IN_PROGRESS",
+                "DAILY_RECORDING_DELETED",
+                "DAILY_RECORDING_EXPIRED",
+                "INSUFFICIENT_STORAGE",
+                "EXPORT_CAPACITY_EXCEEDED",
+                "RECORDING_STORAGE_ERROR",
                 "INVALID_ARGUMENT",
                 "INVALID_CURSOR",
                 "CAMERA_NOT_FOUND",
