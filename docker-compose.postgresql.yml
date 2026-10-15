@@ -1,0 +1,113 @@
+# Standalone PostgreSQL deployment. Do not merge with the SQLite development Compose.
+# Supply private settings and pinned image references before running any service.
+x-backend: &backend
+  image: ${BACKEND_IMAGE:?Set the reviewed backend image reference}
+  env_file:
+    - path: ${BACKEND_ENV_FILE:?Set the private backend settings file}
+      required: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - database
+    - application
+  depends_on:
+    postgres:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Set a reviewed PostgreSQL 17 image reference}
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 512m
+    shm_size: 128m
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: scrap_monitoring
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_PASSWORD: ${DB_ADMIN_SCRAM:?Set the admin SCRAM verifier}
+      DB_OWNER_SCRAM: ${DB_OWNER_SCRAM:?Set the migration owner SCRAM verifier}
+      DB_APP_SCRAM: ${DB_APP_SCRAM:?Set the application SCRAM verifier}
+      DB_BACKUP_SCRAM: ${DB_BACKUP_SCRAM:?Set the backup reader SCRAM verifier}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-local=peer --auth-host=scram-sha-256
+    command: [postgres, -c, max_connections=40, -c, shared_buffers=128MB]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgresql/init.sh:/docker-entrypoint-initdb.d/10-scrap.sh:ro
+      - ./deploy/postgresql:/opt/scrap-postgresql:ro
+    networks:
+      - database
+    healthcheck:
+      # The marker prevents a failed first initialization from appearing ready after restart.
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d scrap_monitoring && test -f "$$PGDATA/.scrap-initialized"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    <<: *backend
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 512m
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: postgresql+asyncpg://scrap_app:${DB_APP_PASSWORD_URLENCODED:?Set the encoded runtime password}@postgres:5432/scrap_monitoring
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    # One worker is required by the current background-worker ownership model.
+    entrypoint: [uvicorn, src.app.main:app, --host, "0.0.0.0", --port, "8000", --workers, "1"]
+    ports:
+      - target: 8000
+        published: ${BACKEND_PORT:-8000}
+        host_ip: 127.0.0.1
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  manage:
+    <<: *backend
+    profiles: [management]
+    restart: "no"
+    cpus: 1
+    mem_limit: 512m
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: postgresql+asyncpg://scrap_owner:${DB_OWNER_PASSWORD_URLENCODED:?Set the encoded migration password}@postgres:5432/scrap_monitoring
+    entrypoint: [python]
+    command: [-m, src.app.cli.db, current]
+    healthcheck:
+      disable: true
+
+volumes:
+  postgres_data:
+
+networks:
+  database:
+    internal: true
+  application:
