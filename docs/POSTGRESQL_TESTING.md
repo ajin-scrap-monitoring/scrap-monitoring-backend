@@ -1,0 +1,33 @@
+# PostgreSQL API 검증
+
+배포 전에 실제 PostgreSQL 17에서 API와 저장 기능을 검사한다. SQLite에서의 전체 테스트도 별도로 유지한다.
+
+## 실행
+
+Docker와 `uv`가 설치된 로컬 환경에서 실행한다.
+
+```bash
+uv run python -m tests.integration.verify_postgresql_api
+```
+
+검증 도구는 임시 컨테이너를 만들고 호스트의 임의 포트를 `127.0.0.1`에만 연결한다. CPU 1개·메모리 512MiB로 제한하며, 종료 시 컨테이너와 임시 DB 볼륨을 제거한다. 운영 서버나 기존 DB에 접속하지 않는다. 비밀번호는 실행 중 메모리에만 유지하며 Docker에는 SCRAM-SHA-256 검증값만 전달한다. 비밀번호 파일이나 비밀번호가 들어간 명령행 인자를 만들지 않는다.
+
+각 테스트는 무작위 이름의 별도 PostgreSQL 스키마를 사용한다. Alembic으로 테이블을 만들고 현재 버전·구조를 확인한 뒤 합성 계정을 넣는다. 테스트 종료 시 해당 스키마만 삭제한다. `--postgresql` 옵션에서 `test_engine`을 사용하는 테스트만 선택하며, SQLite 파일 전용 테스트나 DB를 사용하지 않는 테스트는 선택에서 제외한다. 실행 결과의 `deselected`는 이 구분을 뜻한다. 실패한 테스트를 제외하는 기능은 아니다.
+
+일부 항목만 확인할 때도 같은 검증 도구를 사용한다.
+
+```bash
+uv run python -m tests.integration.verify_postgresql_api tests/test_auth_storage.py
+```
+
+GitHub CI는 SQLite 전체 테스트 이후 동일한 PostgreSQL 검증 명령을 실행한다. 실패하면 PR 검증도 실패한다. 직접 실행하는 `pytest --postgresql`은 전용 테스트 DB의 `TEST_POSTGRES_URL`이 필요하므로, 일상적인 검증에는 위 도구를 사용한다. 실제 계정·현장 데이터·운영 DB 주소를 테스트에 넣지 않는다.
+
+## 확인 범위
+
+- 계정 비밀번호 해시, 세션 만료·비활성화·권한·비밀번호 변경 후 세션 해제
+- 관리자 권한·CSRF 검사, 설정 저장과 ETag 충돌 검사, 사용자별 알림 읽음 상태
+- 라이다 v2 원문·판정·장비 상태 저장, 중복 수신 처리, 실시간 조회·이력·수거 및 알림 기록
+- 앱과 DB 세션을 새로 만들고 PostgreSQL 연결 풀을 닫은 뒤에도 로그인·설정 유지
+- 기존 미디어 API의 인증·JSON 연동 동작. 외부 미디어 응답은 테스트 대체 응답이며 실제 영상 파일 저장 검증은 아니다.
+
+주요 API 테스트는 ASGI 클라이언트로 실행하므로 실제 TCP·Nginx·브라우저 화면은 별도 검증 대상이다. SQLite 데이터의 PostgreSQL 이전, 운영 백업·복구, 실제 라이다·카메라 연결, 서버 배포는 이 검증에 포함하지 않는다. 스키마 등록 자체의 신규/기존 DB 검증은 [DB_MIGRATIONS.md](DB_MIGRATIONS.md)의 별도 도구를 사용한다.

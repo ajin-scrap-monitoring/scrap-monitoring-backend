@@ -39,5 +39,8 @@ jobs:
       - name: Run test suite (pytest)
         run: uv run pytest -v
 
+      - name: Verify PostgreSQL API and storage
+        run: uv run python -m tests.integration.verify_postgresql_api
+
       - name: Verify Docker image build
         run: docker build -t test-backend:latest .
