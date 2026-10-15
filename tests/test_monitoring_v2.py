@@ -38,6 +38,17 @@ def monitoring_config(monkeypatch):
     monkeypatch.setenv("EDGE_V2_DEVICES", json.dumps([DEVICE]))
     monkeypatch.setenv("EDGE_V2_MONITORING_SOURCES", json.dumps([SOURCE]))
     get_settings.cache_clear()
+
+    class MonitoringClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz) if tz is not None else NOW.replace(tzinfo=None)
+
+    # Payload defaults use the collection-time NOW. Keep receiver timestamps and
+    # snapshot freshness on that same clock so CI duration cannot expire fixtures.
+    # Timeout tests advance time explicitly through build_snapshot(..., now=...).
+    monkeypatch.setattr("src.app.services.edge_v2_service.datetime", MonitoringClock)
+    monkeypatch.setattr("src.app.services.monitoring_v2_service.datetime", MonitoringClock)
     yield
     get_settings.cache_clear()
 

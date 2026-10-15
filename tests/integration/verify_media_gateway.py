@@ -143,6 +143,40 @@ async def probe(base_url: str) -> None:
         assert (await client.post(content)).status_code == 405
         assert (await client.get("/media/clips")).status_code == 404
         assert "synthetic-media-token" not in str(video.headers)
+        daily_api = "/api/v2/recordings/daily"
+        daily = f"/media/daily-recordings/{CLIP_ID}"
+        csrf = {"X-CSRF-Token": session.json()["csrfToken"]}
+        page = await client.get(daily_api)
+        assert page.status_code == 200, page.text
+        assert page.json()["items"][0]["playback_path"] == daily + "/hls/index.m3u8"
+        assert (await client.post(f"{daily_api}/{CLIP_ID}/exports")).status_code == 403
+        prepared = await client.post(f"{daily_api}/{CLIP_ID}/exports", headers=csrf)
+        assert prepared.status_code == 202, prepared.text
+        detail = await client.get(prepared.headers["location"])
+        assert detail.json()["export_state"] == "ready"
+        manifest = await client.get(daily + "/hls/index.m3u8")
+        assert manifest.status_code == 200, manifest.text
+        assert "/api/v2/daily-recordings/" not in manifest.text
+        assert "#EXT-X-DISCONTINUITY" in manifest.text
+        segment_path = next(
+            line for line in manifest.text.splitlines() if line.startswith("/media/")
+        )
+        segment = await client.get(segment_path)
+        assert segment.status_code == 200 and segment.content == CONTENT
+        assert segment.headers["content-type"] == "video/mp2t"
+        partial = await client.get(segment_path, headers={"Range": "bytes=0-3"})
+        assert partial.status_code == 206 and partial.content == CONTENT[:4]
+        assert (await client.head(segment_path)).headers["content-length"] == str(len(CONTENT))
+        download = await client.get(detail.json()["download_path"], headers={"Range": "bytes=0-3"})
+        assert download.status_code == 206 and download.content == CONTENT[:4]
+        assert download.headers["content-disposition"].startswith("attachment;")
+        assert download.headers["cache-control"] == "no-store"
+        assert (await client.head(daily + "/content")).status_code == 200
+        assert (await client.post(daily + "/content")).status_code == 405
+        assert (await client.get(daily + "/private-file")).status_code == 404
+        deleted = await client.delete(f"{daily_api}/{CLIP_ID}", headers=csrf)
+        assert deleted.status_code == 204, deleted.text
+        assert (await client.get(daily + "/content")).status_code == 410
         logout = await client.delete(
             "/api/v1/session",
             headers={
@@ -151,7 +185,13 @@ async def probe(base_url: str) -> None:
         )
         assert logout.status_code == 204
         assert (await client.get(content)).status_code == 401
-    print("Gateway checks passed: edge v2 large scan/ACK, session auth, MJPEG, Range and logout")
+        assert (await client.get(daily + "/hls/index.m3u8")).status_code == 401
+        assert (await client.get(segment_path)).status_code == 401
+        assert (await client.get(daily + "/content")).status_code == 401
+    print(
+        "Gateway checks passed: edge v2 large scan/ACK, session auth, "
+        "MJPEG, daily HLS/export, Range and logout"
+    )
 
 
 def main() -> None:

@@ -90,6 +90,7 @@ docker compose down
 * [docs/MONITORING_V2.md](docs/MONITORING_V2.md): v2 판정·장비 상태 조회, 피트 연결 설정 및 대시보드 SSE 계약
 * [docs/V2_LOAD_HISTORY.md](docs/V2_LOAD_HISTORY.md): 최근 24시간 적재율 추이, 시간 구간과 판정 불가·누락 처리
 * [docs/V2_OPERATIONS.md](docs/V2_OPERATIONS.md): v2 경보 기록, 영속 쿨다운 및 수거 사건 개정 이력
+* [docs/DAILY_RECORDINGS.md](docs/DAILY_RECORDINGS.md): 날짜별 상시 녹화 조회·HLS 재생·하루 MP4 다운로드 연동
 * [docs/MEDIA_INTEGRATION.md](docs/MEDIA_INTEGRATION.md): 카메라 미디어 API, 이벤트 녹화 및 인증된 영상 접근 경로 설정
 * [docs/GLOBAL_CONSTRAINTS.md](docs/GLOBAL_CONSTRAINTS.md): 백엔드 개발 시 반드시 준수해야 하는 전역 제약조건 정의서
 
