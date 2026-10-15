@@ -123,7 +123,7 @@ async def snapshot_events(
     while not await request.is_disconnected():
         await asyncio.sleep(1)
         try:
-            await get_session(session_id)
+            await get_session(db, session_id)
         except HTTPException:
             yield "event: session.expired\ndata: {}\n\n"
             return

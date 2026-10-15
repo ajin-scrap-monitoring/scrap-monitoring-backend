@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     DEBUG: bool = False
 
+    # Initial account passwords are used only when the auth user table is empty.
+    ADMIN_PASSWORD: SecretStr | None = Field(default=None, repr=False)
+    OPERATOR_PASSWORD: SecretStr | None = Field(default=None, repr=False)
+
     # CORS settings
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 

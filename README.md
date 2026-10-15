@@ -21,6 +21,8 @@
 
 ### 설치 및 첫 실행
 
+최초 실행 전에 비공개 `.env`에 `ADMIN_PASSWORD`를 12~1024자로 설정한다. 조회 계정이 필요하면 `OPERATOR_PASSWORD`도 별도로 설정한다. 로컬 실행에서는 `.env.example`의 로컬용 `DATABASE_URL` 예시를 사용한다. 초기화·재설정 방법은 [AUTH_STORAGE.md](docs/AUTH_STORAGE.md)를 참고한다.
+
 ```bash
 # 1. 의존성 동기화 및 가상환경 생성
 uv sync
@@ -81,6 +83,8 @@ docker compose down
 ```
 
 ## 문서
+
+* [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 
 * [docs/EDGE_V2_INTEGRATION.md](docs/EDGE_V2_INTEGRATION.md): 엣지 v2 수신 API, 장치별 인증 및 저장 ACK 계약
 * [docs/MONITORING_V2.md](docs/MONITORING_V2.md): v2 판정·장비 상태 조회, 피트 연결 설정 및 대시보드 SSE 계약

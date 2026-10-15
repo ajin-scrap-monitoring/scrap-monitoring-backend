@@ -207,7 +207,7 @@ async def test_commit_failure_rolls_back_cursor_and_alert_then_recovers(
 async def test_alert_history_notification_and_pending_snapshot(client, test_db_session):
     db = test_db_session
     initial = await tick(client, db, 0.99, 0)
-    login(client)
+    await login(client)
     r = await client.get(BASE + "/alerts", params={"pit_id": "pit-demo"})
     assert r.status_code == 200
     item = r.json()["items"][0]
@@ -248,7 +248,7 @@ async def test_collection_latest_revision_and_complete_audit_history(client, tes
     replay["message_id"] = "new-envelope-same-revision"
     await send(client, replay)
     await send(client, collection("grapple-1", 1, "CONFIRMED", "GRAPPLE_PRESENT"))
-    login(client)
+    await login(client)
     r = await client.get(BASE + "/collection-events", params={"pit_id": "pit-demo"})
     assert r.status_code == 200
     assert r.json()["totalItems"] == 1
@@ -269,7 +269,7 @@ async def test_collection_pagination_and_latest_kind_change(client):
         await send(client, collection(f"collection-{i}", 1, "CONFIRMED"))
     # The newest judgment is not COLLECTION; the older COLLECTION must not resurface.
     await send(client, collection("collection-0", 2, "RETRACTED", "GRAPPLE_PRESENT"))
-    login(client)
+    await login(client)
     r = await client.get(
         BASE + "/collection-events", params={"pit_id": "pit-demo", "limit": 1, "offset": 1}
     )
@@ -287,7 +287,7 @@ async def test_collection_pagination_and_latest_kind_change(client):
 async def test_history_requires_session_and_explicit_source(client, path):
     r = await client.get(BASE + path, params={"pit_id": "pit-demo"})
     assert r.status_code == 401
-    login(client)
+    await login(client)
     r = await client.get(BASE + path, params={"pit_id": "unmapped-pit"})
     assert r.status_code == 404
 
@@ -308,7 +308,7 @@ async def test_history_isolates_devices_and_assessment_ids(client, monkeypatch):
     )
     assert r.status_code == 201
     await send(client, collection("same-id", 1, "RETRACTED"))
-    login(client)
+    await login(client)
     r = await client.get(BASE + "/collection-events", params={"pit_id": "pit-demo"})
     assert r.json()["totalItems"] == 1
     assert r.json()["items"][0]["revision"] == 1

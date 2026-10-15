@@ -32,7 +32,7 @@ DB 초기화 시 `edge_v2_operations`와 `edge_v2_alert_links` 두 테이블을 
 
 스냅샷과 SSE의 `operations`는 비활성화 시 null이다. 활성화 시 `lastKnownState`, `lastEvaluatedAt`, `lastAlertAt`, `notificationId`를 제공한다. 현재 STATE의 평가가 끝나고 신선할 때만 `effectiveState`에 NORMAL/WARNING/CRITICAL을 표시한다. 처리 대기나 데이터 지연·연결 불명은 UNKNOWN, 판정 불가는 ERROR다. 마지막 정상 판정과 마지막 알림은 근거 확인을 위해 유지한다. 원본 적재율과 경보 평가 상태는 별개이므로 화면에서 둘을 구분한다.
 
-현재 배포는 Uvicorn 단일 worker다. 프로세스 내 잠금과 DB 트랜잭션으로 처리하며 작업자 종료 시 태스크를 취소·회수한다. 다중 worker·복제 배포에는 공유 세션뿐 아니라 DB 기반 분산 작업 선점이 추가로 필요하다. 피트에 다른 장치를 다시 연결하면 기존 피트의 위험 상태와 쿨다운을 보존하고 새 장치의 신선한 STATE부터 평가한다.
+현재 배포는 Uvicorn 단일 worker다. 프로세스 내 잠금과 DB 트랜잭션으로 처리하며 작업자 종료 시 태스크를 취소·회수한다. 사용자 세션은 DB에서 공유하지만 다중 worker·복제 배포에는 DB 기반 분산 작업 선점이 추가로 필요하다. 피트에 다른 장치를 다시 연결하면 기존 피트의 위험 상태와 쿨다운을 보존하고 새 장치의 신선한 STATE부터 평가한다.
 
 ## 이력 API
 

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 UserRole = Literal["viewer", "administrator"]
 
@@ -25,8 +25,8 @@ class LoginRequest(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    username: str = Field(min_length=1, description="Username/ID")
-    password: str = Field(min_length=1, description="Password")
+    username: str = Field(min_length=1, max_length=64, description="Username/ID")
+    password: SecretStr = Field(min_length=1, max_length=1024, description="Password")
     persistent: bool = Field(
         default=False,
         description="Requests a persistent session within the server-defined maximum lifetime",
