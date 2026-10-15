@@ -84,6 +84,7 @@ docker compose down
 
 ## 문서
 
+* [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 
 * [docs/EDGE_V2_INTEGRATION.md](docs/EDGE_V2_INTEGRATION.md): 엣지 v2 수신 API, 장치별 인증 및 저장 ACK 계약

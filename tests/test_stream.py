@@ -13,6 +13,11 @@ from src.app.services.broadcaster import broadcaster
 @pytest.mark.asyncio
 async def test_pit_config_crud(client: AsyncClient) -> None:
     """Test pit configuration listing, reading, and updating."""
+    session = await client.post(
+        "/api/v1/session", json={"username": "admin", "password": "admin1234"}
+    )
+    assert session.status_code == 200
+    client.headers["X-CSRF-Token"] = session.json()["csrfToken"]
     # 1. List configs (creates default pit-01 if empty)
     resp = await client.get("/api/v1/config/pits")
     assert resp.status_code == 200

@@ -106,6 +106,8 @@ async def probe(base_url: str) -> None:
         await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"
         assert (await client.get(content)).status_code == 401
+        assert (await client.get("/api/v1/settings/alerts")).status_code == 401
+        assert (await client.get("/api/v1/config/pits")).status_code == 401
         session = await client.post(
             "/api/v1/session",
             json={
@@ -114,6 +116,16 @@ async def probe(base_url: str) -> None:
             },
         )
         assert session.status_code == 200
+        admin_csrf = {"X-CSRF-Token": session.json()["csrfToken"]}
+        settings = await client.get("/api/v1/settings/alerts")
+        assert settings.status_code == 200
+        assert settings.headers["cache-control"] == "no-store"
+        pit_path = "/api/v1/config/pits/gateway-synthetic"
+        pit_payload = {"name": "Synthetic gateway pit"}
+        assert (await client.put(pit_path, json=pit_payload)).status_code == 403
+        created_pit = await client.put(pit_path, json=pit_payload, headers=admin_csrf)
+        assert created_pit.status_code == 200, created_pit.text
+        assert (await client.get(pit_path)).json()["name"] == "Synthetic gateway pit"
         policy = await client.get("/api/v1/media/cameras/camera-main/recording-policy")
         assert policy.status_code == 200 and policy.json()["retention_days"] == 30
         video = await client.get(content)
@@ -190,7 +202,7 @@ async def probe(base_url: str) -> None:
         assert (await client.get(daily + "/content")).status_code == 401
     print(
         "Gateway checks passed: edge v2 large scan/ACK, session auth, "
-        "MJPEG, daily HLS/export, Range and logout"
+        "admin permissions, MJPEG, daily HLS/export, Range and logout"
     )
 
 
