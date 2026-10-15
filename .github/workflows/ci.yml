@@ -36,6 +36,9 @@ jobs:
       - name: Type checking (mypy)
         run: uv run mypy src
 
+      - name: Verify SQLite to PostgreSQL transfer
+        run: uv run python -m tests.integration.verify_db_transfer
+
       - name: Run test suite (pytest)
         run: uv run pytest -v
 
