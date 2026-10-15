@@ -39,6 +39,9 @@ jobs:
       - name: Verify SQLite to PostgreSQL transfer
         run: uv run python -m tests.integration.verify_db_transfer
 
+      - name: Verify PostgreSQL backup and isolated restore
+        run: uv run python -m tests.integration.verify_db_backup
+
       - name: Run test suite (pytest)
         run: uv run pytest -v
 
