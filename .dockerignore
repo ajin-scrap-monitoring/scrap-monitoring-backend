@@ -16,7 +16,19 @@ __pycache__/
 # Environment files (never commit secrets)
 .env
 .env.*
+*.env
+*.env.*
 !.env.example
+data/
+*.dump
+*.dump.partial
+*.dump.sha256
+AGENTS.md
+CODEX_RULES.md
+PROJECT_CONTEXT.md
+handoff/
+Downloads/
+downloads/
 
 # Development and demo files
 demo_sensor.py

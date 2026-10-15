@@ -84,6 +84,7 @@ docker compose down
 
 ## 문서
 
+* [docs/POSTGRESQL_DEPLOYMENT.md](docs/POSTGRESQL_DEPLOYMENT.md): PostgreSQL 전용 계정·권한·볼륨·내부 연결과 배포 검증
 * [docs/DB_BACKUP_RECOVERY.md](docs/DB_BACKUP_RECOVERY.md): PostgreSQL 백업·격리 복원 검증과 운영 복구 절차
 * [docs/DB_TRANSFER.md](docs/DB_TRANSFER.md): SQLite→PostgreSQL 시험 이전·적용·전체 비교
 * [docs/DB_MIGRATIONS.md](docs/DB_MIGRATIONS.md): DB 버전 관리·기존 DB 등록·적용 명령·시작 전 검사

@@ -50,3 +50,6 @@ jobs:
 
       - name: Verify Docker image build
         run: docker build -t test-backend:latest .
+
+      - name: Verify PostgreSQL deployment and persistence
+        run: uv run python -m tests.integration.verify_postgresql_deployment --image test-backend:latest

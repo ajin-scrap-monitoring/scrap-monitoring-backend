@@ -4,6 +4,8 @@
 # Environments (보안 및 로컬 환경)
 .env
 .env.*
+*.env
+*.env.*
 !.env.example
 .venv/
 venv/
