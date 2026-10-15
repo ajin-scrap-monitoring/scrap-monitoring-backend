@@ -4,6 +4,16 @@ import pytest
 from httpx import AsyncClient
 
 
+@pytest.fixture(autouse=True)
+async def authenticated_admin(client: AsyncClient):
+    """Exercise existing business behavior through an authorized browser session."""
+    response = await client.post(
+        "/api/v1/session", json={"username": "admin", "password": "admin1234"}
+    )
+    assert response.status_code == 200
+    client.headers["X-CSRF-Token"] = response.json()["csrfToken"]
+
+
 @pytest.mark.asyncio
 async def test_alert_settings_get_and_put(client: AsyncClient) -> None:
     """Test getting and updating alert settings with ETag and If-Match."""

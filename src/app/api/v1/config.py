@@ -4,12 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.admin_access import private_response, require_admin_change
+from src.app.api.v1.session import get_session
 from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.config import PitConfig
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
 
-router = APIRouter(prefix="/config", tags=["Configuration"])
+router = APIRouter(
+    prefix="/config",
+    tags=["Configuration"],
+    dependencies=[Depends(get_session), Depends(private_response)],
+)
 
 
 @router.get("/pits", response_model=list[PitConfigResponse], summary="List all pit configurations")
@@ -55,7 +61,12 @@ async def get_pit_config(
     return PitConfigResponse.model_validate(pit)
 
 
-@router.put("/pits/{pit_id}", response_model=PitConfigResponse, summary="Update pit configuration")
+@router.put(
+    "/pits/{pit_id}",
+    response_model=PitConfigResponse,
+    summary="Update pit configuration",
+    dependencies=[Depends(require_admin_change)],
+)
 async def update_pit_config(
     pit_id: str,
     payload: PitConfigUpdateRequest,
