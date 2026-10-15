@@ -83,6 +83,6 @@ uv run python -m tests.integration.verify_db_migrations
 uv run python tests/integration/verify_media_gateway.py --image <local-test-image>
 ```
 
-단위/통합 테스트는 새 생성·구조 검사·재적용·기존 14/16개 테이블 등록, 라이다 원문·계정/세션·정책·읽음 보존, 다음 SQLite ID, 구조 불일치·알 수 없는 버전·파괴적 downgrade 차단, CLI 동작과 비밀값 비노출을 검증한다. 실제 PostgreSQL에서는 새 DB와 기존 구조의 등록·JSONB 정책 초기화·모델 일치를 확인한다.
+단위/통합 테스트는 새 생성·구조 검사·재적용·기존 14/16개 테이블 등록, 라이다 원문·계정/세션·정책·읽음 보존, 다음 SQLite ID, 구조 불일치·알 수 없는 버전·파괴적 downgrade 차단, CLI 동작과 비밀값 비노출을 검증한다. 실제 PostgreSQL에서는 새 DB와 기존 구조의 등록·JSONB 정책 초기화·모델 일치를 확인한다. 테스트용 DB 비밀번호는 메모리에만 유지하고 파일에 저장하지 않는다. Docker에는 PostgreSQL용 SCRAM-SHA-256 검증값만 전달하며, DB의 해시 저장과 잘못된 비밀번호 접속 거부도 확인한다.
 
 구현 방식은 Alembic 공식 [Asyncio 연결 공유 안내](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic), [자동 생성과 검토 안내](https://alembic.sqlalchemy.org/en/latest/autogenerate.html)를 따른다.

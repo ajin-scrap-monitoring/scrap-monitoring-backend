@@ -1,14 +1,16 @@
 """Explicit local Docker test of fresh and legacy PostgreSQL schema migrations."""
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import secrets
 import subprocess
-import tempfile
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from uuid import uuid4
 
 from alembic import command
+from asyncpg import InvalidPasswordError
 from sqlalchemy import text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -26,14 +28,27 @@ from src.app.models.auth import AuthSession, AuthUser
 from src.app.models.config import PitConfig
 from src.app.models.log import AlertLog
 
-ROOT = Path(__file__).resolve().parents[2]
-
 
 def docker(*args: str) -> str:
     result = subprocess.run(
         ["docker", *args], check=True, capture_output=True, text=True, timeout=120
     )
     return result.stdout.strip()
+
+
+def scram_verifier(password: str) -> str:
+    """Build a salted PostgreSQL verifier; never persist the original password."""
+    salt = secrets.token_bytes(16)
+    iterations = 4096
+    salted = hashlib.pbkdf2_hmac("sha256", password.encode("ascii"), salt, iterations)
+    client_key = hmac.digest(salted, b"Client Key", "sha256")
+    stored_key = hashlib.sha256(client_key).digest()
+    server_key = hmac.digest(salted, b"Server Key", "sha256")
+
+    def encoded(value: bytes) -> str:
+        return base64.b64encode(value).decode("ascii")
+
+    return f"SCRAM-SHA-256${iterations}:{encoded(salt)}${encoded(stored_key)}:{encoded(server_key)}"
 
 
 async def verify(port: int, password: str) -> None:
@@ -56,6 +71,21 @@ async def verify(port: int, password: str) -> None:
                 await asyncio.sleep(0.5)
         else:
             raise RuntimeError("PostgreSQL readiness timed out")
+        async with engine.connect() as connection:
+            verifier = await connection.scalar(
+                text("SELECT rolpassword FROM pg_authid WHERE rolname = current_user")
+            )
+            assert verifier.startswith("SCRAM-SHA-256$") and password not in verifier
+        rejected = create_async_engine(url.set(password=secrets.token_urlsafe(24)))
+        try:
+            try:
+                async with rejected.connect():
+                    raise AssertionError("Incorrect password was accepted")
+            except InvalidPasswordError:
+                pass
+        finally:
+            await rejected.dispose()
+        print("PostgreSQL SCRAM storage and incorrect-password rejection passed", flush=True)
         async with engine.begin() as connection:
             await connection.run_sync(upgrade_schema)
             await connection.run_sync(require_current_schema)
@@ -154,31 +184,32 @@ async def verify(port: int, password: str) -> None:
 
 def main() -> None:
     name = "db-migration-check-" + uuid4().hex[:8]
-    with tempfile.TemporaryDirectory(prefix="migration-check-", dir=ROOT.parent) as directory:
-        env = Path(directory) / "postgres.env"
-        password = secrets.token_urlsafe(24)
-        env.touch(mode=0o600)
-        env.write_text(f"POSTGRES_PASSWORD={password}\nPOSTGRES_DB=migration_check\n")
-        container = docker(
-            "run",
-            "-d",
-            "--name",
-            name,
-            "--cpus",
-            "0.5",
-            "--memory",
-            "512m",
-            "-p",
-            "127.0.0.1::5432",
-            "--env-file",
-            str(env),
-            "postgres:17-alpine",
-        )
-        try:
-            port = int(docker("port", container, "5432/tcp").splitlines()[0].rsplit(":", 1)[1])
-            asyncio.run(verify(port, password))
-        finally:
-            docker("rm", "-f", "-v", container)
+    password = secrets.token_urlsafe(24)
+    # Docker receives only the one-way verifier, never the plaintext credential.
+    container = docker(
+        "run",
+        "-d",
+        "--name",
+        name,
+        "--cpus",
+        "0.5",
+        "--memory",
+        "512m",
+        "-p",
+        "127.0.0.1::5432",
+        "-e",
+        f"POSTGRES_PASSWORD={scram_verifier(password)}",
+        "-e",
+        "POSTGRES_DB=migration_check",
+        "-e",
+        "POSTGRES_HOST_AUTH_METHOD=scram-sha-256",
+        "postgres:17-alpine",
+    )
+    try:
+        port = int(docker("port", container, "5432/tcp").splitlines()[0].rsplit(":", 1)[1])
+        asyncio.run(verify(port, password))
+    finally:
+        docker("rm", "-f", "-v", container)
     print("PostgreSQL migration checks passed; temporary DB removed")
 
 
