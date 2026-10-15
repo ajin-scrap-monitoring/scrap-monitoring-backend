@@ -68,6 +68,8 @@ sudo docker compose -p scrap-backend-check -f data/backend-check/compose.yml exe
 
 관리자 설정·알림 수신 대상·테스트 알림 및 피트 설정 API에도 DB 세션 기반 접근 검사를 적용한다. 관리자 정보 조회는 관리자만 가능하고, 피트 설정 조회는 로그인 사용자에게 허용한다. 변경 요청에는 관리자 권한과 CSRF 토큰이 필요하다. 자세한 경로와 프론트엔드 요청 방법은 [관리자 API 권한 안내](ADMIN_ACCESS.md)를 따른다.
 
+개인 알림함의 읽음 상태와 미확인 개수는 로그인 계정별로 관리한다. 알림 조회에는 로그인이, 읽음 변경에는 같은 세션의 CSRF 토큰이 필요하다. [사용자별 알림 읽음 안내](NOTIFICATION_READS.md)를 따른다.
+
 기존 API 회귀와 신규 합성 테스트로 해시 저장·만료·역할·비활성화·재설정·트랜잭션 실패를 검증한다. 실제 이미지에서 재시작 후 기존 쿠키와 CSRF 유지, 로그아웃 후 재시작해도 세션이 복구되지 않는지, 영상 게이트웨이 인증을 확인한다.
 
 근거: [OWASP 비밀번호 저장 권고](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), [argon2-cffi 공식 API](https://argon2-cffi.readthedocs.io/en/stable/api.html).

@@ -9,6 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.models.log import AlertLog
 
 
+@pytest.fixture(autouse=True)
+async def authenticated_viewer(client: AsyncClient):
+    """Existing notification behavior is exercised for the logged-in account."""
+    response = await client.post(
+        "/api/v1/session", json={"username": "operator", "password": "operator1234"}
+    )
+    assert response.status_code == 200
+    client.headers["X-CSRF-Token"] = response.json()["csrfToken"]
+
+
 @pytest.mark.asyncio
 async def test_notifications_empty(client: AsyncClient) -> None:
     """Test empty notification center query."""

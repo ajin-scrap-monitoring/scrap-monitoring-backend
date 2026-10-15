@@ -1,11 +1,12 @@
 """Scoped, paginated notification links and immutable collection assessment revisions."""
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_operations import EdgeV2AlertLink
 from src.app.models.log import AlertLog
+from src.app.models.notification_read import NotificationRead
 from src.app.schemas.edge_v2 import Assessment
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
@@ -64,10 +65,18 @@ async def alerts(
     source: MonitoringSource,
     limit: int,
     offset: int,
+    username: str,
 ) -> V2AlertPage:
     query = (
-        select(AlertLog, EdgeV2AlertLink)
+        select(AlertLog, EdgeV2AlertLink, NotificationRead.read_at)
         .join(EdgeV2AlertLink, EdgeV2AlertLink.alert_id == AlertLog.id)
+        .outerjoin(
+            NotificationRead,
+            and_(
+                NotificationRead.username == username,
+                NotificationRead.alert_id == AlertLog.id,
+            ),
+        )
         .where(
             EdgeV2AlertLink.pit_id == source.pit_id,
             EdgeV2AlertLink.site_id == source.site_id,
@@ -85,9 +94,9 @@ async def alerts(
                 loadPercent=log.fill_ratio_percent,
                 observedAt=utc(link.observed_at),
                 triggeredAt=utc(log.triggered_at),
-                readAt=utc(log.read_at) if log.read_at else None,
+                readAt=utc(read_at) if read_at else None,
             )
-            for log, link in rows
+            for log, link, read_at in rows
         ],
         totalItems=total,
         limit=limit,

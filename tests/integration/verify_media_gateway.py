@@ -93,6 +93,54 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
+async def probe_notification_reads(
+    client: httpx.AsyncClient, base_url: str, backend: str, csrf: dict[str, str]
+) -> tuple[str, str, httpx.Cookies, str]:
+    """Two real browser sessions must keep independent acknowledgments."""
+    seed = """
+import asyncio
+from datetime import UTC, datetime
+from src.app.db.session import get_sessionmaker
+from src.app.models.log import AlertLog
+async def run():
+    async with get_sessionmaker()() as db:
+        log = AlertLog(pit_id='gateway-synthetic', triggered_at=datetime.now(UTC),
+                       fill_ratio_percent=95, message='Synthetic gateway notification')
+        db.add(log)
+        await db.commit()
+        print(log.id)
+asyncio.run(run())
+"""
+    identifier = docker("exec", backend, "python", "-c", seed).splitlines()[-1]
+    path = f"/api/v1/notifications/notif-{identifier}"
+    assert (await client.patch(path, json={"read": True})).status_code == 403
+    read = await client.patch(path, json={"read": True}, headers=csrf)
+    assert read.status_code == 200, read.text
+    admin_read_at = read.json()["readAt"]
+    async with httpx.AsyncClient(base_url=base_url, timeout=5) as viewer:
+        login = await viewer.post(
+            "/api/v1/session",
+            json={
+                "username": "operator",
+                "password": "synthetic-gateway-operator-password",
+            },
+        )
+        assert login.status_code == 200
+        page = await viewer.get("/api/v1/notifications")
+        assert page.status_code == 200
+        assert page.json()["unreadCount"] == 1 and page.json()["items"][0]["readAt"] is None
+        headers = {"X-CSRF-Token": login.json()["csrfToken"]}
+        assert (
+            await viewer.post("/api/v1/notifications/read-all", headers=headers)
+        ).status_code == 204
+        own = (await viewer.get("/api/v1/notifications")).json()
+        assert own["unreadCount"] == 0
+        assert (await client.get("/api/v1/notifications")).json()["items"][0][
+            "readAt"
+        ] == admin_read_at
+        return path, admin_read_at, viewer.cookies, own["items"][0]["readAt"]
+
+
 async def probe(base_url: str, backend: str) -> None:
     async with httpx.AsyncClient(base_url=base_url, timeout=5) as client:
         async with asyncio.timeout(20):
@@ -146,6 +194,12 @@ async def probe(base_url: str, backend: str) -> None:
             headers={**admin_csrf, "If-Match": settings.headers["etag"]},
         )
         assert stale.status_code == 412
+        (
+            notification_path,
+            admin_read_at,
+            viewer_cookies,
+            viewer_read_at,
+        ) = await probe_notification_reads(client, base_url, backend, admin_csrf)
         docker("restart", backend)
         async with asyncio.timeout(20):
             while True:
@@ -158,6 +212,14 @@ async def probe(base_url: str, backend: str) -> None:
         restored = await client.get(settings_path)
         assert restored.status_code == 200 and restored.json() == saved.json()
         assert restored.headers["etag"] == saved.headers["etag"]
+        admin_page = (await client.get("/api/v1/notifications")).json()
+        assert admin_page["unreadCount"] == 0 and admin_page["items"][0]["readAt"] == admin_read_at
+        async with httpx.AsyncClient(base_url=base_url, cookies=viewer_cookies) as viewer:
+            viewer_page = (await viewer.get("/api/v1/notifications")).json()
+            assert (
+                viewer_page["unreadCount"] == 0
+                and viewer_page["items"][0]["readAt"] == viewer_read_at
+            )
         pit_path = "/api/v1/config/pits/gateway-synthetic"
         pit_payload = {"name": "Synthetic gateway pit"}
         assert (await client.put(pit_path, json=pit_payload)).status_code == 403
@@ -235,12 +297,16 @@ async def probe(base_url: str, backend: str) -> None:
         )
         assert logout.status_code == 204
         assert (await client.get(content)).status_code == 401
+        assert (await client.get("/api/v1/notifications")).status_code == 401
+        assert (
+            await client.patch(notification_path, json={"read": True}, headers=admin_csrf)
+        ).status_code == 401
         assert (await client.get(daily + "/hls/index.m3u8")).status_code == 401
         assert (await client.get(segment_path)).status_code == 401
         assert (await client.get(daily + "/content")).status_code == 401
     print(
         "Gateway checks passed: edge v2 large scan/ACK, session auth, "
-        "admin permissions, policy restart, MJPEG, daily HLS/export, Range and logout"
+        "admin permissions, policy/notification restart, MJPEG, daily HLS/export, Range and logout"
     )
 
 
@@ -268,6 +334,8 @@ def main() -> None:
             "APP_ENV=test",
             "-e",
             "ADMIN_PASSWORD=synthetic-gateway-admin-password",
+            "-e",
+            "OPERATOR_PASSWORD=synthetic-gateway-operator-password",
             "-e",
             "DATABASE_URL=sqlite+aiosqlite:////app/data/gateway-test.db",
             "-e",
