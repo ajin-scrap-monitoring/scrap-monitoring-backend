@@ -28,7 +28,7 @@ OPERATOR_PASSWORD=<조회 계정이 필요하면 별도의 12~1024자 비밀번�
 | `auth_users` | 아이디, 표시 이름, 역할, Argon2id 비밀번호 해시, 활성 여부, 비밀번호 버전 |
 | `auth_sessions` | 쿠키 토큰의 SHA-256 해시, 사용자 ID, 비밀번호 버전, CSRF 토큰, 만료 시각 |
 
-기존 DB 테이블을 변경하지 않고 초기화 시 두 테이블을 추가한다. SQLite에서는 기존 수집 데이터와 같은 DB 파일에 저장된다. 기본 Compose 설정은 호스트의 `data/scrap_monitoring.db`를, 별도 테스트 구성은 `data/backend-check/db/receiver-check.db`를 사용한다. 실제 위치는 해당 실행 환경의 `DATABASE_URL`과 볼륨 매핑이 기준이다. 운영 모드의 PostgreSQL 요구사항은 기존 설정 검증을 따른다.
+계정과 세션은 두 테이블에 저장한다. 스키마 생성·기존 DB 등록은 [DB 마이그레이션 절차](DB_MIGRATIONS.md)를 먼저 따른다. SQLite에서는 기존 수집 데이터와 같은 DB 파일에 저장된다. 기본 Compose 설정은 호스트의 `data/scrap_monitoring.db`를, 별도 테스트 구성은 `data/backend-check/db/receiver-check.db`를 사용한다. 실제 위치는 해당 실행 환경의 `DATABASE_URL`과 볼륨 매핑이 기준이다. 운영 모드의 PostgreSQL 요구사항은 기존 설정 검증을 따른다.
 
 비밀번호는 평문이나 복호화 가능한 암호문으로 저장하지 않는다. Argon2id는 19 MiB 메모리, 반복 2회, 병렬도 1을 사용한다. CPU 작업은 이벤트 루프 밖의 전용 작업 스레드 하나에서 처리해 동시에 실행하는 해시 계산을 제한한다. 알 수 없는 계정도 더미 해시를 검증하며 손상된 해시는 인증 실패로 처리한다.
 
