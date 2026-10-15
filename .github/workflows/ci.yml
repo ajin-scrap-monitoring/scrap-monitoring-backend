@@ -53,3 +53,6 @@ jobs:
 
       - name: Verify PostgreSQL deployment and persistence
         run: uv run python -m tests.integration.verify_postgresql_deployment --image test-backend:latest
+
+      - name: Verify scheduled backups and SQLite WAL recovery
+        run: uv run python -m tests.integration.verify_scheduled_backups --image test-backend:latest

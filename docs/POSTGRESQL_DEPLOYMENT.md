@@ -81,7 +81,7 @@ docker compose --env-file /dev/null -p scrap-postgresql -f docker-compose.postgr
 
 새 빈 설치만 명시적 `ADMIN_PASSWORD`로 최초 계정을 만든다. 이전 설치는 기존 계정/해시를 유지한다. readyz, 계정·설정·이력·수신·영상 gateway를 실제 연결로 확인한다. 운영 세션 쿠키는 Secure이므로 사용자 로그인 검증은 HTTPS gateway에서 수행한다. liveness만으로 DB 연결이 정상이라고 판단하지 않는다.
 
-볼륨 보존 컨테이너 교체는 백업과 대상 확인 후 수행한다. 이미지 변경·계정 교체와 실제 데이터 이전은 서로 다른 절차다. 이번 구성에는 정기 백업 스케줄·보관·외부 저장소·실패 알림을 포함하지 않는다. `scrap_backup`의 실제 pg_dump 접속 권한은 검증하며 자동 백업은 후속 작업이다. 복구는 [DB_BACKUP_RECOVERY.md](DB_BACKUP_RECOVERY.md)를 따른다.
+볼륨 보존 컨테이너 교체는 백업과 대상 확인 후 수행한다. 이미지 변경·계정 교체와 실제 데이터 이전은 서로 다른 절차다. 정기 백업·보관·실패 상태 확인은 별도 [백업 overlay](SCHEDULED_BACKUPS.md)를 사용한다. 실제 외부 저장소와 감시 알림 연결은 배포 환경에서 확정한다. 복구는 [DB_BACKUP_RECOVERY.md](DB_BACKUP_RECOVERY.md)를 따른다.
 
 ## 로컬 검증
 
