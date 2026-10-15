@@ -28,6 +28,9 @@ htmlcov/
 # Local databases & volumes
 *.db
 *.sqlite3
+*.dump
+*.dump.partial
+*.dump.sha256
 data/
 
 # IDE
