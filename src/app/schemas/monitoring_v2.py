@@ -62,7 +62,10 @@ class CollectionEventPage(BaseModel):
 
 
 class LidarProfileV2(BaseModel):
-    """No height is inferred from a reflection coordinate or an unverified floor distance."""
+    """No height is inferred from a reflection coordinate or an unverified floor distance.
+
+    A verified, explicit frame/floor/region reference enables a separate height projection.
+    """
 
     sensorId: str
     measuredAt: datetime | None = None
@@ -70,17 +73,23 @@ class LidarProfileV2(BaseModel):
     calibrationVersion: str | None = None
     unit: Literal["cm"] = "cm"
     referenceDistanceCm: float
-    calibrationState: Literal["UNVERIFIED"] = "UNVERIFIED"
+    calibrationState: Literal["UNVERIFIED", "VERIFIED", "UNAVAILABLE"] = "UNVERIFIED"
     average: float | None = None
     minimum: float | None = None
     maximum: float | None = None
     samples: list[dict[str, float | bool | None]] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
+    coverageRatio: float = Field(default=0, ge=0, le=1)
+    sectionFillPercent: float | None = Field(default=None, ge=0, le=100)
+    valuePolicy: Literal["SPATIAL_BIN_MEDIAN"] = "SPATIAL_BIN_MEDIAN"
 
 
 class LidarProfilePageV2(BaseModel):
     pitId: str
     profiles: list[LidarProfileV2]
+    # Equal weighting of two representative sections, not a validated pit volume estimate.
+    meanSectionFillPercent: float | None = Field(default=None, ge=0, le=100)
+    meanSectionReasonCodes: list[str] = Field(default_factory=list)
 
 
 class StateEventV2(BaseModel):
