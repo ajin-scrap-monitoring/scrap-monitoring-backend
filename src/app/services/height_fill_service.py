@@ -21,14 +21,17 @@ def height_method(source: MonitoringSource, depth_cm: float | None) -> str | Non
     )
     if reference is None or not reference.verified or depth_cm is None:
         return None
-    return "HEIGHT_SECTION_V1:" + digest([reference.model_dump(mode="json"), depth_cm])
+    return "HEIGHT_SECTION_V2:" + digest(
+        [reference.model_dump(mode="json"), depth_cm, get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS]
+    )
 
 
 async def project_height_fill(
     db: AsyncSession, measurement: Measurement, receipt: EdgeV2Message, row: EdgeV2Filter
 ) -> None:
     from src.app.services.edge_v2_projection import project_input
-    from src.app.services.monitoring_v2_service import lidar_profiles
+    from src.app.services.height_median_service import project_height_window
+    from src.app.services.monitoring_v2_service import raw_lidar_profiles
 
     source = next(
         (
@@ -41,7 +44,10 @@ async def project_height_fill(
     if source is None:
         row.payload = {}
         return
-    page = await lidar_profiles(db, source, utc(receipt.received_at))
+    page = await raw_lidar_profiles(db, source, utc(receipt.received_at))
+    stabilized = await project_height_window(db, source, measurement, receipt, page)
+    if not get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
+        return
     pit = await db.get(PitConfig, source.pit_id)
     method = height_method(source, pit.total_depth_cm if pit else None)
     observed = max(
@@ -58,7 +64,7 @@ async def project_height_fill(
         generated_at=measurement.generated_at,
         received_at=utc(receipt.received_at),
         observed_to=observed,
-        rule_version="HEIGHT_SECTION_V1",
+        rule_version="HEIGHT_SECTION_V2",
         method_version=method,
         scope_token=method,
         value_percent=value,
@@ -89,7 +95,9 @@ async def project_height_fill(
         current.message_id = measurement.message_id
         current.generated_at = measurement.generated_at
         current.payload = observation.model_dump(mode="json")
-    await project_input(db, observation, receipt, row)
+    await project_input(
+        db, observation, receipt, row, height_filtered_percent=stabilized.meanSectionFillPercent
+    )
 
 
 async def height_snapshot(

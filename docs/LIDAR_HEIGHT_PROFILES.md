@@ -45,3 +45,7 @@ uv run python -m tests.integration.verify_postgresql_api tests/test_lidar_height
 ```
 
 합성 시험은 단위/바닥/깊이, 구간별 중앙값과 표본 밀도, 빠진 구간, 범위/품질/좌표 오류, 설정/보정 변경, 신선도/장치 장애, 늦게 도착한 설정, A/B 불일치, HTTP 인증과 동일 메시지 ACK/409, 원본 판정·알림과의 분리를 확인한다. 물리 장비·실제 설치 보정·브라우저 화면 검증과 배포는 포함하지 않는다.
+
+## 높이의 시간 중앙값
+
+[HEIGHT_TEMPORAL_MEDIAN.md](HEIGHT_TEMPORAL_MEDIAN.md)의 선택적 시간 필터를 켜면 기존 cm 높이 필드에 안정화된 결과를 전달한다. 기본 비활성이고 공간별 중앙값만 사용하는 기존 응답도 유지한다. 프론트엔드는 중앙값을 다시 계산할 필요가 없다.

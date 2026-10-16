@@ -84,7 +84,7 @@ class LidarProfileV2(BaseModel):
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
     coverageRatio: float = Field(default=0, ge=0, le=1)
     sectionFillPercent: float | None = Field(default=None, ge=0, le=100)
-    valuePolicy: Literal["SPATIAL_BIN_MEDIAN"] = "SPATIAL_BIN_MEDIAN"
+    valuePolicy: Literal["SPATIAL_BIN_MEDIAN", "SPATIAL_TEMPORAL_MEDIAN"] = "SPATIAL_BIN_MEDIAN"
 
 
 class LidarProfilePageV2(BaseModel):

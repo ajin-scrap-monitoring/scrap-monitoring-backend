@@ -144,11 +144,14 @@ async def test_height_spike_history_and_wire_provenance(client, test_db_session,
     )
     assert sample.assessmentId is None and sample.observationId.startswith("height-")
     assert sample.inputSource == "HEIGHT_SECTIONS" and sample.methodVersion.startswith(
-        "HEIGHT_SECTION_V1:"
+        "HEIGHT_SECTION_V2:"
     )
     assert (sample.validSamples, sample.invalidSamples) == (8, 4)
     assert await db.scalar(select(func.count()).select_from(AlertLog)) == 0
-    assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 4
+    assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 5
+    height_window = await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "height_window"))
+    assert "position_mm" not in json.dumps(height_window.payload)
+    assert all(len(s["frames"]) <= 5 for s in height_window.payload["sensors"].values())
     minute = await db.scalar(select(EdgeV2Minute))
     assert "position_mm" not in json.dumps(minute.payload)
     assert len(minute.payload["values"]) <= 60

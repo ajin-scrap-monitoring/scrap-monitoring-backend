@@ -190,6 +190,18 @@ async def build_snapshot(
 async def lidar_profiles(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> LidarProfilePageV2:
+    from src.app.services.height_median_service import height_median_enabled, read_height_window
+
+    when = now or datetime.now(UTC)
+    page = await raw_lidar_profiles(db, source, when)
+    if height_median_enabled():
+        return await read_height_window(db, source, page, when)
+    return page
+
+
+async def raw_lidar_profiles(
+    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+) -> LidarProfilePageV2:
     settings = get_settings()
     device = next(
         d

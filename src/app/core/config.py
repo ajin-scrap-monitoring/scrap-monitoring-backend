@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     EDGE_V2_HEIGHT_REFERENCES: list[HeightReference] = Field(default_factory=list, repr=False)
     # Height ratios are a separate opt-in input; edge capabilities and bodies stay unchanged.
     EDGE_V2_HEIGHT_FILL_ENABLED: bool = False
+    # Height-only filtering can be enabled without activating collection decisions.
+    EDGE_V2_HEIGHT_MEDIAN_ENABLED: bool = False
 
     @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")
     @classmethod
@@ -89,10 +91,10 @@ class Settings(BaseSettings):
             pits.add(source.pit_id)
             assigned.add(device)
         referenced: set[str] = set()
-        if self.EDGE_V2_HEIGHT_FILL_ENABLED and (
+        if (self.EDGE_V2_HEIGHT_FILL_ENABLED or self.EDGE_V2_HEIGHT_MEDIAN_ENABLED) and (
             not self.EDGE_V2_HEIGHT_REFERENCES or not self.EDGE_V2_COMPACT_STORAGE_ENABLED
         ):
-            raise ValueError("Height fill input requires explicit references and compact storage")
+            raise ValueError("Height filtering requires explicit references and compact storage")
         if self.EDGE_V2_HEIGHT_REFERENCES and not self.EDGE_V2_COMPACT_STORAGE_ENABLED:
             raise ValueError("Height references require compact latest-observation storage")
         for reference in self.EDGE_V2_HEIGHT_REFERENCES:

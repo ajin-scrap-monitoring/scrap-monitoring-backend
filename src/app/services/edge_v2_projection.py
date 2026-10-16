@@ -141,6 +141,13 @@ async def project(
         current.generated_at = max(utc(current.generated_at), payload.generated_at)
         current.payload = original
     if isinstance(payload, StatusReport):
+        from src.app.services.height_median_service import (
+            height_median_enabled,
+            invalidate_on_status,
+        )
+
+        if height_median_enabled():
+            await invalidate_on_status(db, payload, utc(receipt.received_at), same_instance)
         if old_status is not None and old_status != payload.overall_state:
             db.add(
                 EdgeV2Transition(
@@ -177,7 +184,9 @@ async def project(
                 and active_scope[0] != payload.config_revision
             ):
                 filter_row.payload = {}
-    elif isinstance(payload, Measurement) and get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
+    elif isinstance(payload, Measurement) and (
+        get_settings().EDGE_V2_HEIGHT_FILL_ENABLED or get_settings().EDGE_V2_HEIGHT_MEDIAN_ENABLED
+    ):
         from src.app.services.height_fill_service import project_height_fill
 
         await db.flush()
@@ -213,7 +222,12 @@ async def project_state(
 
 
 async def project_input(
-    db: AsyncSession, assessment: FillObservation, receipt: EdgeV2Message, row: EdgeV2Filter
+    db: AsyncSession,
+    assessment: FillObservation,
+    receipt: EdgeV2Message,
+    row: EdgeV2Filter,
+    *,
+    height_filtered_percent: float | None = None,
 ) -> None:
     from src.app.services.edge_v2_service import device_status
 
@@ -307,8 +321,14 @@ async def project_input(
             samples = samples[-settings.EDGE_V2_MEDIAN_WINDOW_SECONDS :]
             filter_state = "WARMING"
             if len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS:
-                filtered = float(median(s["value"] for s in samples))
-                filter_state = "READY"
+                # Height bins have already been filtered in cm. Derive the ratio once;
+                # a second percentage median would add another smoothing delay.
+                filtered = (
+                    height_filtered_percent
+                    if assessment.source == "HEIGHT_SECTIONS"
+                    else float(median(s["value"] for s in samples))
+                )
+                filter_state = "READY" if filtered is not None else "WARMING"
     else:
         samples = []
     above_since = None
