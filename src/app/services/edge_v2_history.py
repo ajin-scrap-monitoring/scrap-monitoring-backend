@@ -95,8 +95,16 @@ async def alerts(
     username: str,
 ) -> V2AlertPage:
     query = (
-        select(AlertLog, EdgeV2AlertLink, NotificationRead.read_at)
+        select(AlertLog, EdgeV2AlertLink, NotificationRead.read_at, EdgeV2Message.message_type)
         .join(EdgeV2AlertLink, EdgeV2AlertLink.alert_id == AlertLog.id)
+        .outerjoin(
+            EdgeV2Message,
+            and_(
+                EdgeV2Message.site_id == EdgeV2AlertLink.site_id,
+                EdgeV2Message.edge_id == EdgeV2AlertLink.edge_id,
+                EdgeV2Message.message_id == EdgeV2AlertLink.message_id,
+            ),
+        )
         .outerjoin(
             NotificationRead,
             and_(
@@ -117,13 +125,15 @@ async def alerts(
             V2Alert(
                 eventId=f"evt-alt-{log.id}",
                 notificationId=f"notif-{log.id}",
-                assessmentId=link.assessment_id,
+                assessmentId=link.assessment_id if kind != "lidar_measurement" else None,
+                observationId=link.assessment_id if kind == "lidar_measurement" else None,
+                inputSource="HEIGHT_SECTIONS" if kind == "lidar_measurement" else "EDGE_STATE",
                 loadPercent=log.fill_ratio_percent,
                 observedAt=utc(link.observed_at),
                 triggeredAt=utc(log.triggered_at),
                 readAt=utc(read_at) if read_at else None,
             )
-            for log, link, read_at in rows
+            for log, link, read_at, kind in rows
         ],
         totalItems=total,
         limit=limit,

@@ -35,7 +35,7 @@
 
 `calibrationState`는 UNVERIFIED/VERIFIED/UNAVAILABLE이며 `valuePolicy`는 SPATIAL_BIN_MEDIAN이다. VERIFIED 상태여도 coverage가 부족하면 `sectionFillPercent`는 null일 수 있다. `reasonCodes`에서 부족 원인을 확인한다.
 
-이 값은 두 대표 단면의 높이 비율이다. 전체 피트의 체적 적재율이나 현장 검증된 수거 기준을 보장하지 않는다. 공간 구간의 중앙값은 기존 최근5초의 시간 중앙값과 구분한다. `/profiles` 결과로 엣지 `capabilities.fill`을 ENABLED로 바꾸거나 `fill_estimate`를 생성하지 않으며 snapshot/SSE·분 이력·수거 알림은 기존 검증 STATE를 계속 사용한다. 해당 연결은 계산 방법과 현장 검증을 확정한 후 별도로 진행한다.
+이 값은 두 대표 단면의 높이 비율이다. 전체 피트의 체적 적재율이나 현장 검증된 수거 기준을 보장하지 않는다. 공간 구간의 중앙값은 기존 최근5초의 시간 중앙값과 구분한다. `/profiles` 결과로 엣지 `capabilities.fill`을 ENABLED로 바꾸거나 `fill_estimate`를 생성하지 않으며 기본 설정의 snapshot/SSE·분 이력·수거 알림은 기존 검증 STATE를 계속 사용한다. 계산 방법과 현장 기준 검증 후 선택적으로 연결하려면 [단면 입력 설정](HEIGHT_FILL_PIPELINE.md)을 사용한다.
 
 ## 합성 검증
 

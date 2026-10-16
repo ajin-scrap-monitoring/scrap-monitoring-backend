@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.app.schemas.edge_v2 import Assessment, DeviceStatus, Identifier
+from src.app.schemas.fill_observation import FillObservation
 
 DashboardDataState = Literal["FRESH", "STALE", "UNAVAILABLE", "UNKNOWN", "NO_DATA"]
 OperationalState = Literal["NORMAL", "WARNING", "CRITICAL"]
@@ -22,6 +23,7 @@ class MonitoringSource(BaseModel):
 
 
 class MonitoringSummaryV2(BaseModel):
+    inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"] = "EDGE_STATE"
     loadPercent: float | None = Field(default=None, ge=0, le=100)
     rawLoadPercent: float | None = Field(default=None, ge=0, le=100)
     filterState: Literal["DISABLED", "WARMING", "READY", "UNAVAILABLE"] = "DISABLED"
@@ -52,6 +54,7 @@ class MonitoringSnapshotV2(BaseModel):
     assessment: Assessment | None
     deviceStatus: DeviceStatus
     operations: OperationStatus | None = None
+    fillObservation: FillObservation | None = None
 
 
 class CollectionEventPage(BaseModel):
@@ -109,7 +112,9 @@ class StateEventPageV2(BaseModel):
 class V2Alert(BaseModel):
     eventId: str
     notificationId: str
-    assessmentId: str
+    assessmentId: str | None
+    observationId: str | None = None
+    inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"] = "EDGE_STATE"
     loadPercent: float
     observedAt: datetime
     triggeredAt: datetime
