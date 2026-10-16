@@ -44,6 +44,8 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 
 `assessment`에는 점 배열이나 영상이 없다. 보정 좌표를 높이로 간주하거나 점으로 적재율을 계산하지 않는다. 임의의 `fill_state` 문자열을 기존 NORMAL/WARNING/CRITICAL로 추정하지 않고 그대로 제공한다. 유효한 0%는 `0`, 판정 불가는 `null`이므로 프론트엔드는 둘을 구분해야 한다.
 
+별도 `/profiles`는 명시적으로 등록한 검증 기준이 있을 때 [높이 프로필과 단면 기준 계산](LIDAR_HEIGHT_PROFILES.md)을 제공한다. 이 계산은 위 snapshot의 `assessment`나 `summary.loadPercent`를 바꾸지 않는다.
+
 ## 최신 판정과 신선도
 
 - 현장·장비가 일치하는 `assessment_type: STATE`만 선택한다. `generated_at`이 가장 큰 STATE가 현재 판정이다. 시각이 같으면 먼저 저장된 행을 선택해 재시도로 화면이 바뀌지 않게 한다. EVENT 및 사건의 높은 revision은 현재 STATE를 대체하지 않는다.

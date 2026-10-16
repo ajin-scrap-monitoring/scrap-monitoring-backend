@@ -7,6 +7,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.app.core.edge_v2_security import EdgeV2Device
+from src.app.schemas.lidar_height import HeightReference
 from src.app.schemas.monitoring_v2 import MonitoringSource
 
 
@@ -62,6 +63,8 @@ class Settings(BaseSettings):
     EDGE_V2_CRITICAL_CONFIRM_SECONDS: int = Field(default=3, ge=0, le=60)
     # Sensor-to-empty-floor distance, separate from the pit's total depth.
     EDGE_V2_EMPTY_FLOOR_DISTANCE_CM: float = Field(default=1000.0, gt=0, le=100000)
+    # Opt-in private geometry. The temporary sensor-to-floor distance cannot verify this frame.
+    EDGE_V2_HEIGHT_REFERENCES: list[HeightReference] = Field(default_factory=list, repr=False)
 
     @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")
     @classmethod
@@ -83,6 +86,23 @@ class Settings(BaseSettings):
                 raise ValueError("Dashboard source must reference a configured v2 device")
             pits.add(source.pit_id)
             assigned.add(device)
+        referenced: set[str] = set()
+        if self.EDGE_V2_HEIGHT_REFERENCES and not self.EDGE_V2_COMPACT_STORAGE_ENABLED:
+            raise ValueError("Height references require compact latest-observation storage")
+        for reference in self.EDGE_V2_HEIGHT_REFERENCES:
+            if reference.pit_id not in pits or reference.pit_id in referenced:
+                raise ValueError("Height references require unique configured pit assignments")
+            source = next(
+                s for s in self.EDGE_V2_MONITORING_SOURCES if s.pit_id == reference.pit_id
+            )
+            device_config = next(
+                d
+                for d in self.EDGE_V2_DEVICES
+                if (d.site_id, d.edge_id) == (source.site_id, source.edge_id)
+            )
+            if set(reference.calibration_versions) != set(device_config.sensor_ids):
+                raise ValueError("Height reference must pin both configured sensor calibrations")
+            referenced.add(reference.pit_id)
         return self
 
     @field_validator("EDGE_V2_DEVICES")
