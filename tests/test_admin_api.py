@@ -272,3 +272,51 @@ async def test_recipient_rejects_version_change_during_save(test_engine, monkeyp
         )
         assert row is not None
         assert (row.enabled, row.channels, row.version_id) == (False, "email", 2)
+
+
+@pytest.mark.asyncio
+async def test_record_only_test_notification_does_not_claim_delivery(
+    client: AsyncClient, test_db_session
+) -> None:
+    """A dashboard test request records an informational notice, not a delivery receipt."""
+    from src.app.models.log import AlertLog
+
+    created = await client.post(
+        "/api/v1/notification-recipients",
+        json={
+            "name": "Synthetic test recipient",
+            "team": "Test",
+            "email": "recording@example.com",
+            "phone": "000-0000-0000",
+            "channels": ["email", "sms"],
+            "eventTypes": ["collection_required"],
+        },
+    )
+    assert created.status_code == 201
+    response = await client.post(
+        "/api/v1/notifications/test",
+        json={"recipientId": created.json()["id"], "channels": ["email", "sms"]},
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+    row = await test_db_session.scalar(select(AlertLog))
+    assert row is not None
+    assert row.status == "RECORDED"
+    assert row.channel == "EMAIL,SMS"
+    assert row.severity == "info"
+    assert "전송 완료" not in row.message
+    assert "실제 발송은 수행하지 않았습니다" in row.message
+
+    listed = await client.get("/api/v1/notifications")
+    assert listed.status_code == 200
+    notice = listed.json()["items"][0]
+    assert notice["title"] == "테스트 알림 요청 기록"
+    assert notice["detail"] == row.message
+    assert notice["severity"] == "info"
+    assert listed.json()["unreadCount"] == 1
+    read = await client.patch(f"/api/v1/notifications/{notice['id']}", json={"read": True})
+    assert read.status_code == 200
+    assert read.json()["readAt"] is not None
+    assert (await client.get("/api/v1/notifications")).json()["unreadCount"] == 0
+    await test_db_session.refresh(row)
+    assert row.status == "RECORDED"
