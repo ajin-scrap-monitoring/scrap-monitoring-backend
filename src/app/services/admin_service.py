@@ -3,10 +3,10 @@
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.log import AlertLog
@@ -151,6 +151,7 @@ class AdminService:
         recipient_id: str,
         payload: NotificationRecipientPatch,
         db: AsyncSession,
+        if_match: str | None = None,
     ) -> tuple[NotificationRecipient, str] | None:
         """Partially update an existing recipient."""
         stmt = select(NotificationRecipientModel).where(
@@ -160,6 +161,11 @@ class AdminService:
         rec_model = res.scalar_one_or_none()
         if not rec_model:
             return None
+
+        version = rec_model.version_id
+        if if_match is not None and if_match != f'"{version}"':
+            raise HTTPException(412, "Recipient changed; retrieve the current version first")
+        changes: dict[str, Any] = {"version_id": version + 1}
 
         if payload.email and str(payload.email) != rec_model.email:
             chk_stmt = select(NotificationRecipientModel).where(
@@ -171,24 +177,37 @@ class AdminService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Email '{payload.email}' is already in use by another recipient",
                 )
-            rec_model.email = str(payload.email)
+            changes["email"] = str(payload.email)
 
         if payload.name is not None:
-            rec_model.name = payload.name
+            changes["name"] = payload.name
         if payload.team is not None:
-            rec_model.team = payload.team
+            changes["team"] = payload.team
         if payload.phone is not None:
-            rec_model.phone = payload.phone
+            changes["phone"] = payload.phone
         if payload.enabled is not None:
-            rec_model.enabled = payload.enabled
+            changes["enabled"] = payload.enabled
         if payload.channels is not None:
-            rec_model.channels = ",".join(payload.channels)
+            changes["channels"] = ",".join(payload.channels)
         if payload.subscriptionMode is not None:
-            rec_model.subscription_mode = payload.subscriptionMode
+            changes["subscription_mode"] = payload.subscriptionMode
         if payload.eventTypes is not None:
-            rec_model.event_types = ",".join(payload.eventTypes)
+            changes["event_types"] = ",".join(payload.eventTypes)
 
-        rec_model.version_id += 1
+        # Check and change the version in one DB statement, including concurrent readers.
+        saved = await db.execute(
+            update(NotificationRecipientModel)
+            .where(
+                NotificationRecipientModel.id == recipient_id,
+                NotificationRecipientModel.version_id == version,
+            )
+            .values(**changes)
+            .returning(NotificationRecipientModel.id)
+            .execution_options(synchronize_session=False)
+        )
+        if saved.scalar_one_or_none() is None:
+            await db.rollback()
+            raise HTTPException(412, "Recipient changed; retrieve the current version first")
         await db.commit()
         await db.refresh(rec_model)
 
