@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.app.schemas.edge_v2 import Assessment, DeviceStatus, Identifier
 from src.app.schemas.fill_observation import FillObservation
+from src.app.schemas.presentation import DisplayPercent
 
 DashboardDataState = Literal["FRESH", "STALE", "UNAVAILABLE", "UNKNOWN", "NO_DATA"]
 OperationalState = Literal["NORMAL", "WARNING", "CRITICAL"]
@@ -25,8 +26,8 @@ class MonitoringSource(BaseModel):
 class MonitoringSummaryV2(BaseModel):
     simulated: bool = False
     inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"] = "EDGE_STATE"
-    loadPercent: float | None = Field(default=None, ge=0, le=100)
-    rawLoadPercent: float | None = Field(default=None, ge=0, le=100)
+    loadPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
+    rawLoadPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
     filterState: Literal["DISABLED", "WARMING", "READY", "UNAVAILABLE"] = "DISABLED"
     warningThresholdPercent: float
     collectionThresholdPercent: float
@@ -88,7 +89,7 @@ class LidarProfileV2(BaseModel):
     samples: list[dict[str, float | bool | None]] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
     coverageRatio: float = Field(default=0, ge=0, le=1)
-    sectionFillPercent: float | None = Field(default=None, ge=0, le=100)
+    sectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
     valuePolicy: Literal["SPATIAL_BIN_MEDIAN", "SPATIAL_TEMPORAL_MEDIAN"] = "SPATIAL_BIN_MEDIAN"
 
 
@@ -96,7 +97,7 @@ class LidarProfilePageV2(BaseModel):
     pitId: str
     profiles: list[LidarProfileV2]
     # Equal weighting of two representative sections, not a validated pit volume estimate.
-    meanSectionFillPercent: float | None = Field(default=None, ge=0, le=100)
+    meanSectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
     meanSectionReasonCodes: list[str] = Field(default_factory=list)
 
 
@@ -121,7 +122,7 @@ class V2Alert(BaseModel):
     assessmentId: str | None
     observationId: str | None = None
     inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"] = "EDGE_STATE"
-    loadPercent: float
+    loadPercent: DisplayPercent
     observedAt: datetime
     triggeredAt: datetime
     readAt: datetime | None

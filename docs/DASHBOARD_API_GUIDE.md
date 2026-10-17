@@ -51,6 +51,14 @@ v1 snapshot의 `lidarProfiles`는 별도 m 계약이다. v2에 cm 값을 넣는 
 - 높이 모드의 `fillObservation`·`observationId`는 원본 엣지 assessment ID와 다르다. 이력/경보의 nullable assessmentId를 채우려고 가짜 엣지 ID를 만들지 않는다.
 - 실제 임계치는 snapshot의 값을 사용한다. 문서의 기본 예시 값을 화면에 고정하지 않는다.
 
+## 적재율 숫자의 반올림
+
+화면에 사용하는 v2 적재율은 JSON 응답에서 소수점 셋째 자리에서 반올림해 최대 둘째 자리까지 숫자로 제공한다. 예: `57.740568 → 57.74`, `57.745 → 57.75`, `99.999 → 100.0`. 현재값/SSE의 `summary.loadPercent / rawLoadPercent`, 높이 단면의 `sectionFillPercent / meanSectionFillPercent`, 이력의 `valuePercent / averagePercent / minimumPercent / maximumPercent`, v2 경보의 `loadPercent`에 같은 규칙을 적용한다.
+
+DB와 내부 계산·중앙값·임계치 판정은 반올림 전 정밀도를 유지한다. 원본 엣지 assessment, fillObservation의 계산 근거, 높이(cm), 설정 임계치는 이 표시용 반올림 대상이 아니다. 따라서 화면 숫자가 임계치와 같게 반올림되더라도 판정이 달라질 수 있으며, 상태는 서버가 제공한 판정 필드를 사용한다.
+
+null은 null, 실제 0은 숫자 0으로 유지한다. JSON number는 `57.70`의 끝 0이나 `%` 문자·글자 크기를 보장하지 않는다. 항상 두 자릿수로 표시하거나 `%`의 크기를 줄이는 서식은 대시보드에서 적용한다.
+
 ## 분 이력과 부분 구간
 
 [분 이력](V2_LOAD_HISTORY.md)은 원문 STATE 또는 compact 숫자 슬롯을 읽는다. `valuePolicy=RAW_STATE / MEDIAN_MINUTE`를 구분한다.
