@@ -1,8 +1,8 @@
-"""Bounded temporal medians of verified height bins, preserving the existing cm fields."""
+"""Bounded temporal medians of height bins or received scan means, all in cm."""
 
 from datetime import datetime, timedelta
 from statistics import fmean, median
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,7 @@ class HeightFrame(BaseModel):
 
 class SensorWindow(BaseModel):
     positions: list[float] = Field(default_factory=list, max_length=200)
+    basis: Literal["SPATIAL_BINS", "RECEIVED_POINTS"] = "SPATIAL_BINS"
     frames: list[HeightFrame] = Field(default_factory=list, max_length=31)
 
 
@@ -67,18 +68,31 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
     ):
         return SensorWindow()
     size = get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS
-    positions = [float(cast(float, s["positionRatio"])) for s in profile.samples]
-    heights = [
-        float(s["height"]) if s["valid"] and s["height"] is not None else None
-        for s in profile.samples
-    ]
-    frames = previous.frames if previous.positions == positions else []
+    by_angle = profile.coverageBasis == "RECEIVED_POINTS"
+    heights: list[float | None]
+    # Received points have no fixed spatial grid. Keep one scan mean per second instead
+    # of requiring the same point count, array index or angle list in successive scans.
+    if by_angle:
+        if profile.average is None:
+            return SensorWindow(basis="RECEIVED_POINTS")
+        positions, heights = [0.0], [profile.average]
+    else:
+        positions = [float(cast(float, s["positionRatio"])) for s in profile.samples]
+        heights = [
+            float(s["height"]) if s["valid"] and s["height"] is not None else None
+            for s in profile.samples
+        ]
+    frames = (
+        previous.frames
+        if previous.positions == positions and previous.basis == profile.coverageBasis
+        else []
+    )
     at = profile.measuredAt
     if frames and at <= frames[-1].at:
         # A repeated scan can be displayed, but never counts as an additional observation.
         if at == frames[-1].at and heights == frames[-1].heights:
             return previous
-        return SensorWindow(positions=positions)
+        return SensorWindow(positions=positions, basis=profile.coverageBasis)
     if frames and at - frames[-1].at > timedelta(seconds=1.5):
         frames = []
     frames = [
@@ -87,7 +101,9 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
         if at - f.at < timedelta(seconds=size) and int(f.at.timestamp()) != int(at.timestamp())
     ]
     return SensorWindow(
-        positions=positions, frames=[*frames, HeightFrame(at=at, heights=heights)][-size:]
+        positions=positions,
+        basis=profile.coverageBasis,
+        frames=[*frames, HeightFrame(at=at, heights=heights)][-size:],
     )
 
 
@@ -99,6 +115,10 @@ def filtered_page(
     reference = height_reference(page.pitId)
     depth = reference_depth(reference, depth)
     for profile in result.profiles:
+        by_angle = profile.coverageBasis == "RECEIVED_POINTS"
+        if by_angle:
+            filter_scan_mean(profile, window, size, depth)
+            continue
         profile.valuePolicy = "SPATIAL_TEMPORAL_MEDIAN"
         profile.average = profile.minimum = profile.maximum = profile.sectionFillPercent = None
         profile.coverageRatio = 0
@@ -109,6 +129,7 @@ def filtered_page(
             and len(history.frames) == size
             and history.frames[-1].at == profile.measuredAt
             and history.positions == positions
+            and history.basis == "SPATIAL_BINS"
             and profile.calibrationState in ("VERIFIED", "SIMULATION")
         )
         values: list[float] = []
@@ -145,6 +166,36 @@ def filtered_page(
     elif not result.meanSectionReasonCodes:
         result.meanSectionReasonCodes = ["HEIGHT_TEMPORAL_WARMING_OR_MISSING"]
     return result
+
+
+def filter_scan_mean(
+    profile: LidarProfileV2, window: HeightWindow | None, size: int, depth: float | None
+) -> None:
+    """Filter only received scan means; current individual heights remain visible.
+
+    Coverage is diagnostic metadata, never a percentage gate for received-point input.
+    An empty/invalid current scan cannot borrow a height from the previous window.
+    """
+    profile.valuePolicy = "SENSOR_ANGLE"
+    profile.summaryValuePolicy = "SCAN_MEAN_TEMPORAL_MEDIAN"
+    profile.filteredAverage = profile.sectionFillPercent = None
+    history = window.sensors.get(profile.sensorId) if window else None
+    if (
+        profile.calibrationState in ("VERIFIED", "SIMULATION")
+        and profile.average is not None
+        and history is not None
+        and history.basis == "RECEIVED_POINTS"
+        and len(history.frames) == size
+        and history.frames[-1].at == profile.measuredAt
+        and all(len(f.heights) == 1 and f.heights[0] is not None for f in history.frames)
+        and depth
+    ):
+        profile.filteredAverage = float(median(cast(float, f.heights[0]) for f in history.frames))
+        profile.sectionFillPercent = profile.filteredAverage / depth * 100
+    elif profile.calibrationState in ("VERIFIED", "SIMULATION"):
+        profile.reasonCodes = list(
+            dict.fromkeys([*profile.reasonCodes, "HEIGHT_TEMPORAL_WARMING_OR_MISSING"])
+        )
 
 
 async def project_height_window(

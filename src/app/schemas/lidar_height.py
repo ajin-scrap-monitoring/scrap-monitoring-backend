@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.app.schemas.edge_v2 import Identifier
 
+MAX_HEIGHT_SAMPLES = 8192
+
 
 class HeightReference(BaseModel):
     """A pinned z-up frame, flat floor and rectangular region, all in centimetres."""
@@ -70,6 +72,8 @@ class SimulationHeightReference(BaseModel):
     top_z_cm: float = Field(ge=-1_000_000, le=1_000_000)
     boundary_xy_cm: list[tuple[float, float]] = Field(min_length=3, max_length=64)
     sensor_poses: dict[Identifier, SimulationSensorPose] = Field(min_length=2, max_length=2)
+    # Received angles are the default; spatial bins remain an explicit legacy option.
+    sampling_policy: Literal["SENSOR_ANGLE", "SPATIAL_BIN"] = "SENSOR_ANGLE"
     bin_count: int = Field(default=20, ge=2, le=200)
     minimum_points_per_bin: int = Field(default=3, ge=1, le=1000)
     minimum_coverage: float = Field(default=1.0, gt=0, le=1)

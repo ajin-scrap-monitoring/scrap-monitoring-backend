@@ -86,11 +86,19 @@ class LidarProfileV2(BaseModel):
     average: float | None = None
     minimum: float | None = None
     maximum: float | None = None
-    samples: list[dict[str, float | bool | None]] = Field(default_factory=list)
+    # Angle samples stay current; only the representative scan mean is filtered in time.
+    filteredAverage: float | None = None
+    summaryValuePolicy: Literal["PROFILE_MEAN", "SCAN_MEAN_TEMPORAL_MEDIAN"] = "PROFILE_MEAN"
+    samples: list[dict[str, float | int | bool | None]] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
     coverageRatio: float = Field(default=0, ge=0, le=1)
     sectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
-    valuePolicy: Literal["SPATIAL_BIN_MEDIAN", "SPATIAL_TEMPORAL_MEDIAN"] = "SPATIAL_BIN_MEDIAN"
+    coverageBasis: Literal["SPATIAL_BINS", "RECEIVED_POINTS"] = "SPATIAL_BINS"
+    valuePolicy: Literal[
+        "SPATIAL_BIN_MEDIAN",
+        "SPATIAL_TEMPORAL_MEDIAN",
+        "SENSOR_ANGLE",
+    ] = "SPATIAL_BIN_MEDIAN"
 
 
 class LidarProfilePageV2(BaseModel):

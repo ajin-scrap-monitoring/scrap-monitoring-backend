@@ -191,7 +191,9 @@ async def compact_samples(
             )
             slot_source = row.payload.get("sources", {}).get(stamp, "EDGE_STATE")
             slot_method = row.payload.get("methods", {}).get(stamp)
-            if str(slot_method).startswith("SIMULATION_HEIGHT_SECTION_V1:"):
+            if str(slot_method).startswith(
+                ("SIMULATION_HEIGHT_SECTION_V1:", "SIMULATION_SENSOR_ANGLE_V1:")
+            ):
                 group["simulated"] = True
             if value is not None:
                 group["values"].append(value)
