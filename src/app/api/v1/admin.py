@@ -119,7 +119,7 @@ async def update_notification_recipient(
 ) -> NotificationRecipient:
     """Partially update an existing notification recipient."""
     updated = await admin_service.update_recipient(
-        recipient_id=recipient_id, payload=payload, db=db
+        recipient_id=recipient_id, payload=payload, db=db, if_match=if_match
     )
     if not updated:
         raise HTTPException(

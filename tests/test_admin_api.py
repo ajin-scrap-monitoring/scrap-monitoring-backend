@@ -2,6 +2,12 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from src.app.models.recipient import NotificationRecipientModel
+from src.app.schemas.admin import NotificationRecipientPatch
+from src.app.services.admin_service import admin_service
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +166,109 @@ async def test_notification_recipients_crud_and_test_notification(client: AsyncC
         },
     )
     assert test_404_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_recipient_rejects_stale_etag_without_overwriting(client: AsyncClient) -> None:
+    """Two open dashboard forms cannot overwrite a newer saved preference."""
+    created = await client.post(
+        "/api/v1/notification-recipients",
+        json={
+            "name": "Synthetic recipient",
+            "team": "Test",
+            "email": "recipient-etag@example.com",
+            "channels": ["email"],
+            "eventTypes": ["collection_required"],
+        },
+    )
+    assert created.status_code == 201
+    path = f"/api/v1/notification-recipients/{created.json()['id']}"
+    version = created.headers["ETag"]
+    saved = await client.patch(path, json={"enabled": False}, headers={"If-Match": version})
+    assert saved.status_code == 200
+    assert saved.headers["ETag"] != version
+    assert saved.json()["version"] == saved.headers["ETag"]
+
+    for stale in (version, '"unknown"', "W/" + saved.headers["ETag"]):
+        rejected = await client.patch(
+            path, json={"enabled": True, "channels": ["sms"]}, headers={"If-Match": stale}
+        )
+        assert rejected.status_code == 412
+    items = (await client.get("/api/v1/notification-recipients")).json()["items"]
+    row = next(item for item in items if item["id"] == created.json()["id"])
+    assert row["enabled"] is False
+    assert row["channels"] == ["email"]
+    assert row["version"] == saved.headers["ETag"]
+    current = await client.patch(
+        path, json={"channels": ["sms"]}, headers={"If-Match": row["version"]}
+    )
+    assert current.status_code == 200
+    assert current.json()["channels"] == ["sms"]
+
+
+@pytest.mark.asyncio
+async def test_recipient_rejects_version_change_during_save(test_engine, monkeypatch) -> None:
+    """A concurrent commit after the read still wins over an in-flight stale save."""
+    import asyncio
+
+    from fastapi import HTTPException
+    from sqlalchemy.sql import Select
+
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with factory() as seed:
+        seed.add(
+            NotificationRecipientModel(
+                id="synthetic-race",
+                name="Test",
+                team="Test",
+                email="race@example.com",
+                version_id=1,
+                enabled=True,
+                channels="email",
+            )
+        )
+        await seed.commit()
+    read_finished, continue_save = asyncio.Event(), asyncio.Event()
+    async with factory() as slow, factory() as fast:
+        original_execute = slow.execute
+
+        async def paused_execute(statement, *args, **kwargs):
+            result = await original_execute(statement, *args, **kwargs)
+            if isinstance(statement, Select):
+                # Materialize the first reader's snapshot before the other administrator saves.
+                result = result.freeze()()
+                read_finished.set()
+                await continue_save.wait()
+            return result
+
+        monkeypatch.setattr(slow, "execute", paused_execute)
+        pending = asyncio.create_task(
+            admin_service.update_recipient(
+                "synthetic-race",
+                NotificationRecipientPatch(enabled=True, channels=["sms"]),
+                slow,
+                if_match='"1"',
+            )
+        )
+        try:
+            await asyncio.wait_for(read_finished.wait(), timeout=5)
+            saved = await admin_service.update_recipient(
+                "synthetic-race",
+                NotificationRecipientPatch(enabled=False),
+                fast,
+                if_match='"1"',
+            )
+            assert saved is not None and saved[1] == '"2"'
+        finally:
+            continue_save.set()
+        with pytest.raises(HTTPException) as rejected:
+            await asyncio.wait_for(pending, timeout=5)
+        assert rejected.value.status_code == 412
+    async with factory() as check:
+        row = await check.scalar(
+            select(NotificationRecipientModel).where(
+                NotificationRecipientModel.id == "synthetic-race"
+            )
+        )
+        assert row is not None
+        assert (row.enabled, row.channels, row.version_id) == (False, "email", 2)
