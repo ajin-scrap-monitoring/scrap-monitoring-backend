@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.schemas.presentation import DisplayPercent
 
 HistoryInterval = Literal[60, 300, 900, 3600]
 HistoryDataState = Literal["AVAILABLE", "LIMITED", "UNAVAILABLE", "STALE", "UNKNOWN", "NO_DATA"]
@@ -21,13 +22,13 @@ class HistorySampleV2(BaseModel):
     observationId: str | None = None
     inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS", "MIXED"] = "EDGE_STATE"
     methodVersion: str | None = None
-    valuePercent: float | None = Field(default=None, ge=0, le=100)
+    valuePercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
     valid: bool = False
     dataState: HistoryDataState = "NO_DATA"
     reasonCodes: list[str] = Field(default_factory=lambda: ["STATE_NOT_RECEIVED"])
-    averagePercent: float | None = None
-    minimumPercent: float | None = None
-    maximumPercent: float | None = None
+    averagePercent: DisplayPercent | None = None
+    minimumPercent: DisplayPercent | None = None
+    maximumPercent: DisplayPercent | None = None
     validSamples: int = 0
     invalidSamples: int = 0
     valuePolicy: Literal["RAW_STATE", "MEDIAN_MINUTE"] = "RAW_STATE"
