@@ -5,6 +5,15 @@ from src.app.schemas.lidar_height import HeightReference, SimulationHeightRefere
 
 HeightContext = HeightReference | SimulationHeightReference
 SIMULATION_METHOD = "SIMULATION_HEIGHT_SECTION_V1:"
+SIMULATION_ANGLE_METHOD = "SIMULATION_SENSOR_ANGLE_V1:"
+
+
+def simulation_method(reference: SimulationHeightReference) -> str:
+    return (
+        SIMULATION_ANGLE_METHOD
+        if reference.sampling_policy == "SENSOR_ANGLE"
+        else SIMULATION_METHOD
+    )
 
 
 def height_reference(pit_id: str) -> HeightContext | None:

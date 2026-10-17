@@ -5,7 +5,11 @@ from datetime import datetime, timedelta
 from statistics import fmean, median
 
 from src.app.schemas.edge_v2 import Configuration, Measurement, SensorObservation
-from src.app.schemas.lidar_height import SimulationHeightReference, SimulationSensorPose
+from src.app.schemas.lidar_height import (
+    MAX_HEIGHT_SAMPLES,
+    SimulationHeightReference,
+    SimulationSensorPose,
+)
 from src.app.schemas.monitoring_v2 import LidarProfileV2
 
 XY = tuple[float, float]
@@ -89,6 +93,7 @@ def simulation_profile(
     Geometry comes only from separately pinned simulator configuration, not wire coordinates.
     """
     scan = sensor.scan
+    by_angle = reference.sampling_policy == "SENSOR_ANGLE"
     result = LidarProfileV2(
         sensorId=sensor.sensor_id,
         measuredAt=scan.acquired_at if scan else None,
@@ -98,6 +103,8 @@ def simulation_profile(
         referenceDepthCm=reference.top_z_cm - reference.floor_z_cm,
         simulated=True,
         timeBasis="SIMULATION_SOURCE_UTC_UNVERIFIED",
+        coverageBasis="RECEIVED_POINTS" if by_angle else "SPATIAL_BINS",
+        valuePolicy="SENSOR_ANGLE" if by_angle else "SPATIAL_BIN_MEDIAN",
     )
     configured = (
         next((s for s in configuration.sensors if s.sensor_id == sensor.sensor_id), None)
@@ -129,6 +136,8 @@ def simulation_profile(
         reason = "HEIGHT_SCAN_STALE"
     elif scan.clock_state not in ("SYNCED", "UNSYNCED"):
         reason = "HEIGHT_SCAN_CLOCK_UNAVAILABLE"
+    elif by_angle and len(scan.points) > MAX_HEIGHT_SAMPLES:
+        reason = "HEIGHT_SAMPLE_LIMIT_EXCEEDED"
     line = floor_section(reference, pose) if pose else None
     if reason is None and line is None:
         reason = "SIMULATION_FLOOR_SECTION_UNAVAILABLE"
@@ -141,10 +150,23 @@ def simulation_profile(
     origin, tangent, length = line
     result.calibrationState = "SIMULATION"
     result.sectionLengthCm = length
-    bins: list[list[float]] = [[] for _ in range(reference.bin_count)]
+    bins: list[list[float]] = [[] for _ in range(reference.bin_count)] if not by_angle else []
+    values: list[float] = []
     depth = reference.top_z_cm - reference.floor_z_cm
     polygon = reference.boundary_xy_cm
-    for point in scan.points:
+    for point in (
+        sorted(scan.points, key=lambda p: (p.angle_mdeg, p.index)) if by_angle else scan.points
+    ):
+        sample: dict[str, float | int | bool | None] = {
+            "angleMdeg": point.angle_mdeg,
+            "sourceIndex": point.index,
+            "positionRatio": None,
+            "height": None,
+            "valid": False,
+        }
+        if by_angle:
+            # Keep invalid received points as gaps; do not invent unreceived angle slots.
+            result.samples.append(sample)
         # Bound hostile wire integers before conversion. Coordinate calculation reasons refer
         # to position_mm, which this raw-range path deliberately does not consume.
         if (
@@ -174,25 +196,32 @@ def simulation_profile(
         ratio = ((x - origin[0]) * tangent[0] + (y - origin[1]) * tangent[1]) / length
         if not 0 <= ratio <= 1:
             continue
-        bins[min(len(bins) - 1, int(ratio * len(bins)))].append(max(0, min(depth, height)))
-    values = []
-    for index, points in enumerate(bins):
-        value = float(median(points)) if len(points) >= reference.minimum_points_per_bin else None
-        result.samples.append(
-            {
-                "positionRatio": (index + 0.5) / len(bins),
-                "height": value,
-                "valid": value is not None,
-            }
-        )
-        if value is not None:
+        value = float(max(0, min(depth, height)))
+        if by_angle:
+            sample.update(positionRatio=ratio, height=value, valid=True)
             values.append(value)
-    result.coverageRatio = len(values) / len(bins)
+        else:
+            bins[min(len(bins) - 1, int(ratio * len(bins)))].append(value)
+    if not by_angle:
+        for index, points in enumerate(bins):
+            bin_value = (
+                float(median(points)) if len(points) >= reference.minimum_points_per_bin else None
+            )
+            result.samples.append(
+                {
+                    "positionRatio": (index + 0.5) / len(bins),
+                    "height": bin_value,
+                    "valid": bin_value is not None,
+                }
+            )
+            if bin_value is not None:
+                values.append(bin_value)
+    result.coverageRatio = len(values) / len(result.samples) if result.samples else 0
     if values:
         result.average, result.minimum, result.maximum = fmean(values), min(values), max(values)
     if not values:
-        result.reasonCodes.append("HEIGHT_NO_VALID_BINS")
-    elif result.coverageRatio < reference.minimum_coverage:
+        result.reasonCodes.append("HEIGHT_NO_VALID_POINTS" if by_angle else "HEIGHT_NO_VALID_BINS")
+    elif not by_angle and result.coverageRatio < reference.minimum_coverage:
         result.reasonCodes.append("HEIGHT_INSUFFICIENT_COVERAGE")
     else:
         result.sectionFillPercent = fmean(values) / depth * 100

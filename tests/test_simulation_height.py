@@ -37,6 +37,7 @@ REFERENCE = {
     "top_z_cm": 100,
     "boundary_xy_cm": [[0, 0], [200, 0], [200, 200], [0, 200]],
     "sensor_poses": {"lidar-a": POSE, "lidar-b": POSE},
+    "sampling_policy": "SPATIAL_BIN",
     "bin_count": 2,
     "minimum_points_per_bin": 3,
 }

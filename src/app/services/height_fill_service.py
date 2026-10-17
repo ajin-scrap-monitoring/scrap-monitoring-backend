@@ -15,11 +15,11 @@ from src.app.schemas.lidar_height import SimulationHeightReference
 from src.app.schemas.monitoring_v2 import DashboardDataState, MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
 from src.app.services.height_reference import (
-    SIMULATION_METHOD,
     clock_allowed,
     height_reference,
     reference_depth,
     reference_sensors,
+    simulation_method,
 )
 
 
@@ -31,7 +31,7 @@ def height_method(source: MonitoringSource, depth_cm: float | None) -> str | Non
     if not isinstance(reference, SimulationHeightReference) and not reference.verified:
         return None
     prefix = (
-        SIMULATION_METHOD
+        simulation_method(reference)
         if isinstance(reference, SimulationHeightReference)
         else "HEIGHT_SECTION_V2:"
     )
@@ -81,7 +81,7 @@ async def project_height_fill(
         generated_at=measurement.generated_at,
         received_at=utc(receipt.received_at),
         observed_to=observed,
-        rule_version="SIMULATION_HEIGHT_SECTION_V1" if simulated else "HEIGHT_SECTION_V2",
+        rule_version=method.split(":", 1)[0] if method else "HEIGHT_SECTION_V2",
         method_version=method,
         scope_token=method,
         value_percent=value,

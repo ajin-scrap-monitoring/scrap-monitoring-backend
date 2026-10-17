@@ -31,13 +31,16 @@
 | --- | --- |
 | `profiles[].sensorId` | 각 센서의 식별자. 배열 순서만으로 센서를 바꾸지 않음 |
 | `profiles[].unit` | cm. 화면이 m를 사용하면 한 번만 100으로 나눔 |
-| `profiles[].samples[].positionRatio` | 측정 구간의 상대 위치 0..1 |
-| `profiles[].samples[].height` | 해당 구간의 높이(cm). 시간 필터 활성 시 중앙값 결과 |
+| `profiles[].samples[].positionRatio` | 측정 구간의 상대 위치 0..1. 수신점 모드의 잘못된 점에서는 null |
+| `profiles[].samples[].height` | 높이(cm). 공간 모드는 시간 필터 활성 시 구간 중앙값, SENSOR_ANGLE은 최신 수신점 높이 |
 | `profiles[].samples[].valid` | false 또는 height null이면 선을 끊음. 0cm는 유효한 숫자 |
-| `profiles[].average / minimum / maximum` | 반환된 유효 구간 높이의 평균·최소·최대. 준비/결측 상황에서는 null 가능 |
+| `profiles[].average / minimum / maximum` | 반환된 유효 높이의 평균·최소·최대. SENSOR_ANGLE은 최신 스캔 통계이며 시간 창 준비 중에도 제공 |
 | `profiles[].calibrationState / reasonCodes` | 검증·결측·준비 상태. 과거 값으로 대신 채우지 않음 |
-| `profiles[].valuePolicy` | 기본 SPATIAL_BIN_MEDIAN 또는 시간 필터 SPATIAL_TEMPORAL_MEDIAN |
-| `profiles[].sectionFillPercent` | 해당 단면의 높이 비율(%). 전체 피트 부피 비율과 구분 |
+| `profiles[].valuePolicy` | 일반 공간 모드는 SPATIAL_BIN_MEDIAN / SPATIAL_TEMPORAL_MEDIAN, 시뮬레이션 기본 각도 모드는 SENSOR_ANGLE(최신 수신점 높이) |
+| `profiles[].coverageBasis` | SPATIAL_BINS 또는 RECEIVED_POINTS. RECEIVED_POINTS의 유효 비중은 표시 차단 조건이 아님 |
+| `profiles[].summaryValuePolicy / filteredAverage` | 수신점 모드는 SCAN_MEAN_TEMPORAL_MEDIAN일 때 대표 스캔 평균의 시간 중앙값(cm)을 별도로 제공. 개별 samples.height는 최신 측정값 |
+| `profiles[].samples[].angleMdeg / sourceIndex` | 각도 모드의 원래 측정 각도(1/1000도) / 원본 점 index. 수신한 점 수만큼 제공하며 20개로 고정하지 않음 |
+| `profiles[].sectionFillPercent` | 해당 센서의 높이 비율(%). SENSOR_ANGLE 시간 필터 모드는 filteredAverage 기준. 전체 피트 부피 비율과 구분 |
 
 v1 snapshot의 `lidarProfiles`는 별도 m 계약이다. v2에 cm 값을 넣는 것과 v1 단위를 바꾸는 것은 다른 작업이다.
 
