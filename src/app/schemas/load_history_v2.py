@@ -17,6 +17,9 @@ class HistorySampleV2(BaseModel):
     generatedAt: datetime | None = None
     observedAt: datetime | None = None
     assessmentId: str | None = None
+    observationId: str | None = None
+    inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS", "MIXED"] = "EDGE_STATE"
+    methodVersion: str | None = None
     valuePercent: float | None = Field(default=None, ge=0, le=100)
     valid: bool = False
     dataState: HistoryDataState = "NO_DATA"

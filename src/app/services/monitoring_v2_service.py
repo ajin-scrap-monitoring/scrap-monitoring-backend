@@ -118,12 +118,27 @@ async def build_snapshot(
                 state = "UNKNOWN"
                 reasons.append("FILTER_UNAVAILABLE")
     operations: OperationStatus | None = None
+    fill_observation = None
+    if settings.EDGE_V2_HEIGHT_FILL_ENABLED:
+        from src.app.services.height_fill_service import height_snapshot
+
+        (
+            fill_observation,
+            state,
+            reasons,
+            raw_percent,
+            percent,
+            filter_state,
+        ) = await height_snapshot(db, source, device, config, now)
+        measured_at = fill_observation.observed_to if fill_observation else None
     if settings.EDGE_V2_OPERATIONS_ENABLED:
         row = await db.get(EdgeV2Operation, source.pit_id)
         if row and (row.site_id, row.edge_id) != (source.site_id, source.edge_id):
             row = None
-        evaluated = (
-            row is not None and assessment is not None and row.message_id == assessment.message_id
+        evaluated = row is not None and (
+            fill_observation is not None and row.message_id == fill_observation.message_id
+            if settings.EDGE_V2_HEIGHT_FILL_ENABLED
+            else assessment is not None and row.message_id == assessment.message_id
         )
         effective = (
             row.state
@@ -150,6 +165,7 @@ async def build_snapshot(
         dataState=state,
         reasonCodes=list(dict.fromkeys(reasons)),
         summary=MonitoringSummaryV2(
+            inputSource="HEIGHT_SECTIONS" if settings.EDGE_V2_HEIGHT_FILL_ENABLED else "EDGE_STATE",
             loadPercent=percent,
             rawLoadPercent=raw_percent,
             filterState=filter_state,
@@ -162,6 +178,7 @@ async def build_snapshot(
         assessment=assessment,
         deviceStatus=device,
         operations=operations,
+        fillObservation=fill_observation,
     )
     # Stable identity suppresses unchanged SSE frames while timeout transitions remain visible.
     snapshot.snapshotId = digest(
@@ -171,6 +188,18 @@ async def build_snapshot(
 
 
 async def lidar_profiles(
+    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+) -> LidarProfilePageV2:
+    from src.app.services.height_median_service import height_median_enabled, read_height_window
+
+    when = now or datetime.now(UTC)
+    page = await raw_lidar_profiles(db, source, when)
+    if height_median_enabled():
+        return await read_height_window(db, source, page, when)
+    return page
+
+
+async def raw_lidar_profiles(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> LidarProfilePageV2:
     settings = get_settings()

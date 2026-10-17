@@ -179,13 +179,26 @@ async def compact_samples(
             if not start <= timestamp < end:
                 continue
             key = int(timestamp.timestamp() // seconds)
-            group = grouped.setdefault(key, {"values": [], "invalid": 0})
+            group = grouped.setdefault(
+                key, {"values": [], "invalid": 0, "sources": set(), "methods": set()}
+            )
+            slot_source = row.payload.get("sources", {}).get(stamp, "EDGE_STATE")
+            slot_method = row.payload.get("methods", {}).get(stamp)
             if value is not None:
                 group["values"].append(value)
+                group["sources"].add(slot_source)
+                if slot_method is not None:
+                    group["methods"].add(slot_method)
             else:
                 group["invalid"] += 1
             if "last_time" not in group or timestamp >= group["last_time"]:
-                group.update(last_time=timestamp, value=value, last=row.payload["last"])
+                group.update(
+                    last_time=timestamp,
+                    value=value,
+                    last=row.payload["last"],
+                    last_source=slot_source,
+                    last_method=slot_method,
+                )
     result: dict[int, tuple[datetime, dict[str, Any]]] = {}
     for key, group in grouped.items():
         last = group["last"]
@@ -195,23 +208,38 @@ async def compact_samples(
         )
         values = group["values"]
         value = group["value"]
+        mixed = len(group["sources"]) > 1 or len(group["methods"]) > 1
+        input_source = next(iter(group["sources"]), group["last_source"]) if not mixed else "MIXED"
+        if mixed:
+            values, value = [], None
         data = {
             "generatedAt": generated if metadata_retained else None,
             "observedAt": last["observedAt"] if metadata_retained else None,
             "assessmentId": last["assessmentId"] if metadata_retained else None,
+            "observationId": last.get("observationId") if metadata_retained else None,
+            "inputSource": input_source,
+            "methodVersion": next(iter(group["methods"]), group["last_method"])
+            if not mixed
+            else None,
             "valuePercent": value,
             "valid": value is not None,
-            "dataState": last["dataState"]
+            "dataState": "UNKNOWN"
+            if mixed
+            else last["dataState"]
             if metadata_retained
             else ("AVAILABLE" if value is not None else "UNKNOWN"),
-            "reasonCodes": last["reasonCodes"]
+            "reasonCodes": ["FILL_METHOD_CHANGED_WITHIN_BUCKET"]
+            if mixed
+            else last["reasonCodes"]
             if metadata_retained
             else ["COMPACT_SUBMINUTE_METADATA_NOT_RETAINED"],
             "averagePercent": sum(values) / len(values) if values else None,
             "minimumPercent": min(values) if values else None,
             "maximumPercent": max(values) if values else None,
             "validSamples": len(values),
-            "invalidSamples": group["invalid"],
+            "invalidSamples": group["invalid"] + len(group["values"])
+            if mixed
+            else group["invalid"],
             "valuePolicy": "MEDIAN_MINUTE",
         }
         result[key] = (generated if metadata_retained else group["last_time"], data)

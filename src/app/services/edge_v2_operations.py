@@ -12,6 +12,7 @@ from src.app.db.session import get_sessionmaker
 from src.app.models.edge_v2_operations import EdgeV2AlertLink, EdgeV2Operation
 from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Transition
 from src.app.models.log import AlertLog
+from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.services.edge_v2_service import utc
 from src.app.services.monitoring_v2_service import build_snapshot
@@ -28,7 +29,26 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         .execution_options(populate_existing=True)
     )
     snapshot = await build_snapshot(db, source, now)
-    assessment = snapshot.assessment
+    assessment = snapshot.fillObservation
+    edge = snapshot.assessment
+    if assessment is None and not get_settings().EDGE_V2_HEIGHT_FILL_ENABLED and edge is not None:
+        estimate = edge.fill_estimate
+        assessment = FillObservation(
+            source="EDGE_STATE",
+            site_id=edge.site_id,
+            edge_id=edge.edge_id,
+            config_revision=edge.config_revision,
+            message_id=edge.message_id,
+            observation_id=edge.assessment_id,
+            generated_at=edge.generated_at,
+            received_at=snapshot.assessmentReceivedAt or now,
+            observed_to=edge.observed_to,
+            rule_version=edge.rule_version,
+            method_version=estimate.method_version if estimate else None,
+            value_percent=estimate.ratio * 100 if estimate else None,
+            data_state="AVAILABLE" if edge.decision_state == "AVAILABLE" else "LIMITED",
+            reason_codes=edge.reason_codes,
+        )
     fill = snapshot.summary.loadPercent
     if snapshot.dataState != "FRESH" or assessment is None or fill is None:
         if row and row.critical_since is not None:
@@ -37,10 +57,10 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         return
     observed_at = assessment.observed_to
     assert observed_at is not None
-    assert assessment.fill_estimate is not None
+    assert assessment.value_percent is not None
     # Display rounding must not move a value across an alarm/recovery threshold.
     if snapshot.summary.filterState == "DISABLED":
-        fill = assessment.fill_estimate.ratio * 100.0
+        fill = assessment.value_percent
     same_source = row is not None and (row.site_id, row.edge_id) == (source.site_id, source.edge_id)
     if (
         row
@@ -109,7 +129,12 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
                     "previous": previous,
                     "current": current,
                     "valuePercent": fill,
-                    "assessmentId": assessment.assessment_id,
+                    "assessmentId": assessment.assessment_id
+                    if assessment.source == "EDGE_STATE"
+                    else None,
+                    "observationId": assessment.observation_id,
+                    "inputSource": assessment.source,
+                    "methodVersion": assessment.method_version,
                     "messageId": assessment.message_id,
                 },
             )
@@ -118,6 +143,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
     if current == "CRITICAL" and (
         row.last_alert_at is None or now - utc(row.last_alert_at) >= cooldown
     ):
+        metric_label = "단면 높이 비율" if assessment.source == "HEIGHT_SECTIONS" else "적재율"
         alert = AlertLog(
             pit_id=source.pit_id,
             triggered_at=now,
@@ -126,7 +152,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
             status="RECORDED",
             event_type="collection_required",
             severity="error",
-            message=f"스크랩 적재율 {fill:.1f}%: 수거 필요 (라이다 v2 판정)",
+            message=f"스크랩 {metric_label} {fill:.1f}%: 수거 필요 (라이다 v2 판정)",
         )
         db.add(alert)
         await db.flush()

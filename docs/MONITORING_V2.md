@@ -21,10 +21,11 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | --- | --- | --- |
 | GET | `/api/v2/monitoring/snapshot?pit_id=pit-demo` | 현재 판정·적재율·장비 상태 |
 | GET | `/api/v2/monitoring/events?pit_id=pit-demo` | 동일한 스냅샷의 SSE |
+| GET | `/api/v2/monitoring/profiles?pit_id=pit-demo` | 별도 높이 곡선과 단면 기준 비율 |
 
-최근 24시간 적재율 그래프용 `/api/v2/monitoring/load-history`는 [V2_LOAD_HISTORY.md](V2_LOAD_HISTORY.md)를 참고한다. 과거 STATE 판정을 조회하며 현재 장비 상태로 과거 값을 지우지 않는다.
+최근 24시간 적재율 그래프용 `/api/v2/monitoring/load-history`는 [V2_LOAD_HISTORY.md](V2_LOAD_HISTORY.md)를 참고한다. 과거 STATE 판정과 compact 분 이력을 조회하며 현재 장비 상태로 과거 값을 지우지 않는다. 화면별 요청과 연결 주의사항은 [DASHBOARD_API_GUIDE.md](DASHBOARD_API_GUIDE.md)를 따른다.
 
-두 API 모두 `/api/v1/session`으로 발급한 `scrap_session` 쿠키가 필요하다. 관리자와 조회 사용자 모두 이용할 수 있다. 장치 Bearer 토큰으로 브라우저 세션을 대체하지 않는다. 세션이 없거나 만료되면 `401`, 연결 설정이 없는 피트는 `404 MONITORING_SOURCE_NOT_CONFIGURED`다. 응답은 캐시하지 않는다. 전체 스키마는 `/docs`에서 확인한다.
+조회 API는 `/api/v1/session`으로 발급한 `scrap_session` 쿠키가 필요하다. 관리자와 조회 사용자 모두 이용할 수 있다. 장치 Bearer 토큰으로 브라우저 세션을 대체하지 않는다. 세션이 없거나 만료되면 `401`, 연결 설정이 없는 피트는 `404 MONITORING_SOURCE_NOT_CONFIGURED`다. 응답은 캐시하지 않는다. 전체 스키마는 `/docs`에서 확인한다.
 
 핵심 응답 필드:
 
@@ -33,20 +34,24 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | `schemaVersion` | `"2"`. v1 화면 모델과 별도로 처리 |
 | `snapshotId` | `serverTime`을 제외한 내용의 해시. 변경 감지용이며 순번이 아님 |
 | `pitId`, `source` | 명시적으로 연결한 피트·현장·장비 |
-| `measuredAt` | 선택한 STATE의 `observed_to`, 없으면 null |
+| `measuredAt` | 기본 모드는 STATE의 `observed_to`, 높이 모드는 계산 관측 시각. 없으면 null |
 | `assessmentReceivedAt` | 선택한 STATE의 서버 수신 시각. 신선도 기준으로 사용하지 않음 |
 | `dataState`, `reasonCodes` | 화면 표시 가능 여부와 이유 |
-| `summary.loadPercent` | 검증된 `fill_estimate.ratio × 100` 또는 null |
+| `summary.loadPercent` | 기본 모드는 검증 STATE의 비율(시간 필터 활성 시 안정화한 값), 높이 모드는 안정화된 높이의 단면 비율. 불가는 null |
+| `summary.rawLoadPercent`, `summary.filterState` | 시간 필터 전 비율과 필터 준비 상태 |
+| `summary.inputSource`, `fillObservation` | EDGE_STATE 또는 HEIGHT_SECTIONS와 별도 높이 계산 관측. 원본 엣지 판정과 구분 |
 | `summary.warningThresholdPercent`, `summary.collectionThresholdPercent`, `summary.recoveryThresholdPercent` | 경고·위험 진입·위험 복귀 임계치 |
 | `assessment` | 선택한 STATE의 원본 판정·기능 상태·근거 참조. 없으면 null |
 | `deviceStatus` | 기존 v2 장비 상태 조회와 동일한 연결 상태·원본 snapshot |
 | `operations` | 선택적으로 활성화한 경보 처리 상태. 자세한 설정은 [V2_OPERATIONS.md](V2_OPERATIONS.md) 참고 |
 
-`assessment`에는 점 배열이나 영상이 없다. 보정 좌표를 높이로 간주하거나 점으로 적재율을 계산하지 않는다. 임의의 `fill_state` 문자열을 기존 NORMAL/WARNING/CRITICAL로 추정하지 않고 그대로 제공한다. 유효한 0%는 `0`, 판정 불가는 `null`이므로 프론트엔드는 둘을 구분해야 한다.
+`assessment`에는 점 배열이나 영상이 없다. 명시적 높이 모드를 켜지 않은 기본 설정에서는 보정 좌표를 높이로 간주하거나 점으로 적재율을 계산하지 않는다. 임의의 `fill_state` 문자열을 기존 NORMAL/WARNING/CRITICAL로 추정하지 않고 그대로 제공한다. 유효한 0%는 `0`, 판정 불가는 `null`이므로 프론트엔드는 둘을 구분해야 한다.
 
-별도 `/profiles`는 명시적으로 등록한 검증 기준이 있을 때 [높이 프로필과 단면 기준 계산](LIDAR_HEIGHT_PROFILES.md)을 제공한다. 이 계산은 위 snapshot의 `assessment`나 `summary.loadPercent`를 바꾸지 않는다.
+별도 `/profiles`는 명시적으로 등록한 검증 기준이 있을 때 [높이 프로필과 단면 기준 계산](LIDAR_HEIGHT_PROFILES.md)을 제공한다. 기본 설정에서 이 계산은 snapshot의 `assessment`나 `summary.loadPercent`를 바꾸지 않는다. `EDGE_V2_HEIGHT_FILL_ENABLED=true`에서는 [높이 시간 중앙값](HEIGHT_TEMPORAL_MEDIAN.md)을 거친 단면 비율을 summary에 사용하고, 원본 assessment와 capabilities는 유지한다. 이 모드는 전체 체적 적재율과 구분한다.
 
 ## 최신 판정과 신선도
+
+아래 STATE 선택 규칙은 기본 EDGE_STATE 모드다. HEIGHT_SECTIONS 모드의 관측 선택·설정 변경·창 무효화는 [HEIGHT_FILL_PIPELINE.md](HEIGHT_FILL_PIPELINE.md)를 따른다. 두 모드 모두 FRESH 이외의 숫자를 현재 값으로 표시하지 않는다.
 
 - 현장·장비가 일치하는 `assessment_type: STATE`만 선택한다. `generated_at`이 가장 큰 STATE가 현재 판정이다. 시각이 같으면 먼저 저장된 행을 선택해 재시도로 화면이 바뀌지 않게 한다. EVENT 및 사건의 높은 revision은 현재 STATE를 대체하지 않는다.
 - 과거 `generated_at`의 지연 메시지나 중복 재전송은 현재 값을 갱신하지 않는다. STATE에는 부팅 인스턴스·sequence가 없으므로 장치 시각 동기화가 필요하다. 미래 시각이 있는 최신 판정을 받으면 이전 값을 현재 값으로 대신 표시하지 않고 UNKNOWN으로 보관한다.
@@ -55,7 +60,7 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 - 장비가 `MEASUREMENT_UNAVAILABLE`, `CONFIG_ERROR`, `UNKNOWN`이면 표시 적재율은 null이다. 현재 장비 상태와 판정의 설정 버전이 다르면 UNKNOWN이다. `HEALTHY`·`DEGRADED`에서는 검증된 판정 값이 있으면 표시할 수 있으며 원본 센서 상태와 reason을 함께 제공한다.
 - STATE가 없으면 NO_DATA, 오래됐으면 STALE, 장비 연결·시각·설정 일치 여부를 확인할 수 없으면 UNKNOWN, 기능 미검증 또는 판정 불가는 UNAVAILABLE이다. 표시 가능한 값은 FRESH다. 여러 문제가 겹치면 시각 이상 → 관측 신선도 → 장비 연결 → 장비 판정 → 설정 버전 → 적재 판단 순서로 `dataState`를 정한다. 상세 장비 상태는 별도로 유지한다.
 
-FRESH 이외의 상태에서는 `summary.loadPercent`가 null이다. 과거 `assessment.fill_estimate`는 근거 확인을 위해 남아 있으므로 현재 수치 게이지에 직접 사용하지 않는다. 알림 기록과 히스테리시스는 별도로 활성화하는 작업자가 담당하며 이 조회 기능에서 실행하지 않는다. 수거 완료 확정과 카메라 녹화 요청도 이 조회 기능에서 수행하지 않는다. 추이·표면 높이·카메라 상태도 추정하지 않으며 후속 계약으로 연결한다.
+FRESH 이외의 상태에서는 `summary.loadPercent`가 null이다. 과거 `assessment.fill_estimate`는 근거 확인을 위해 남아 있으므로 현재 수치 게이지에 직접 사용하지 않는다. 알림 기록과 히스테리시스는 별도로 활성화하는 작업자가 담당하며 이 조회 기능에서 실행하지 않는다. 수거 완료 확정과 카메라 녹화 요청도 이 조회 기능에서 수행하지 않는다. 미검증 표면 높이·카메라 상태를 임의로 추정하지 않으며 관련 조회 계약으로 구분한다.
 
 ## SSE 연결
 
