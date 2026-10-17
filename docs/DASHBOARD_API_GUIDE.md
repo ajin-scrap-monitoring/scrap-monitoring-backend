@@ -46,7 +46,7 @@ v1 snapshot의 `lidarProfiles`는 별도 m 계약이다. v2에 cm 값을 넣는 
 ## 현재 게이지와 출처
 
 - 현재 게이지는 `dataState=FRESH`일 때의 `summary.loadPercent`를 사용한다. null을 0%로 바꾸지 않는다.
-- `summary.inputSource=EDGE_STATE`면 기존 엣지 판정 입력이다. `HEIGHT_SECTIONS`면 백엔드가 검증 높이 단면에서 계산한 비율이다. 단면 기준이라는 설명을 표시한다.
+- `summary.inputSource=EDGE_STATE`면 기존 엣지 판정 입력이다. `HEIGHT_SECTIONS`면 백엔드가 높이 단면에서 계산한 비율이다. `summary.simulated=true`이면 합성 기준으로 계산한 시뮬레이션 값이다. 단면 기준이라는 설명을 표시한다.
 - `assessment`와 `assessmentReceivedAt`은 원래 엣지 STATE를 유지한다. 높이 모드에서 숫자를 제공하더라도 엣지 `capabilities.fill`을 ENABLED로 바꾸지 않는다.
 - 높이 모드의 `fillObservation`·`observationId`는 원본 엣지 assessment ID와 다르다. 이력/경보의 nullable assessmentId를 채우려고 가짜 엣지 ID를 만들지 않는다.
 - 실제 임계치는 snapshot의 값을 사용한다. 문서의 기본 예시 값을 화면에 고정하지 않는다.
@@ -80,3 +80,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 - [V2_LOAD_HISTORY.md](V2_LOAD_HISTORY.md): 구간 조회·부분 metadata
 - [DAILY_RECORDINGS.md](DAILY_RECORDINGS.md): 날짜 녹화·HLS·MP4
 - [AUTH_STORAGE.md](AUTH_STORAGE.md), [ADMIN_ACCESS.md](ADMIN_ACCESS.md): 로그인·권한·CSRF
+
+## 시뮬레이션 높이 연결
+
+[시뮬레이션 높이 API 안내](SIMULATION_HEIGHT_API.md)에 기존 세 API의 연결 필드와 합성 출처 표시, 개발 환경 활성화 조건을 정리했다. 높이는 기존 height 필드를 사용하며, 화면에서 중앙값을 다시 계산하지 않는다.

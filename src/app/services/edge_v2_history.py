@@ -128,6 +128,7 @@ async def alerts(
                 assessmentId=link.assessment_id if kind != "lidar_measurement" else None,
                 observationId=link.assessment_id if kind == "lidar_measurement" else None,
                 inputSource="HEIGHT_SECTIONS" if kind == "lidar_measurement" else "EDGE_STATE",
+                simulated=bool(log.message and log.message.startswith("[시뮬레이션]")),
                 loadPercent=log.fill_ratio_percent,
                 observedAt=utc(link.observed_at),
                 triggeredAt=utc(log.triggered_at),

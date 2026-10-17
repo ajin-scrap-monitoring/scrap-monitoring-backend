@@ -11,17 +11,31 @@ from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Latest
 from src.app.schemas.edge_v2 import DeviceStatus, Measurement
 from src.app.schemas.fill_observation import FillObservation
+from src.app.schemas.lidar_height import SimulationHeightReference
 from src.app.schemas.monitoring_v2 import DashboardDataState, MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
+from src.app.services.height_reference import (
+    SIMULATION_METHOD,
+    clock_allowed,
+    height_reference,
+    reference_depth,
+    reference_sensors,
+)
 
 
 def height_method(source: MonitoringSource, depth_cm: float | None) -> str | None:
-    reference = next(
-        (r for r in get_settings().EDGE_V2_HEIGHT_REFERENCES if r.pit_id == source.pit_id), None
-    )
-    if reference is None or not reference.verified or depth_cm is None:
+    reference = height_reference(source.pit_id)
+    depth_cm = reference_depth(reference, depth_cm)
+    if reference is None or depth_cm is None:
         return None
-    return "HEIGHT_SECTION_V2:" + digest(
+    if not isinstance(reference, SimulationHeightReference) and not reference.verified:
+        return None
+    prefix = (
+        SIMULATION_METHOD
+        if isinstance(reference, SimulationHeightReference)
+        else "HEIGHT_SECTION_V2:"
+    )
+    return prefix + digest(
         [reference.model_dump(mode="json"), depth_cm, get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS]
     )
 
@@ -54,7 +68,10 @@ async def project_height_fill(
         (s.scan.acquired_at for s in measurement.sensors if s.scan is not None), default=None
     )
     value = page.meanSectionFillPercent
+    simulated = isinstance(height_reference(source.pit_id), SimulationHeightReference)
     observation = FillObservation(
+        simulated=simulated,
+        time_basis="SIMULATION_SOURCE_UTC_UNVERIFIED" if simulated else "SOURCE_UTC",
         source="HEIGHT_SECTIONS",
         site_id=measurement.site_id,
         edge_id=measurement.edge_id,
@@ -64,12 +81,16 @@ async def project_height_fill(
         generated_at=measurement.generated_at,
         received_at=utc(receipt.received_at),
         observed_to=observed,
-        rule_version="HEIGHT_SECTION_V2",
+        rule_version="SIMULATION_HEIGHT_SECTION_V1" if simulated else "HEIGHT_SECTION_V2",
         method_version=method,
         scope_token=method,
         value_percent=value,
         data_state="AVAILABLE" if value is not None else "UNAVAILABLE",
-        reason_codes=["HEIGHT_SECTION_ESTIMATE"]
+        reason_codes=(
+            ["SIMULATION_GEOMETRY", "SIMULATION_SOURCE_CLOCK_UNVERIFIED", "HEIGHT_SECTION_ESTIMATE"]
+            if simulated
+            else ["HEIGHT_SECTION_ESTIMATE"]
+        )
         if value is not None
         else list(
             dict.fromkeys(
@@ -122,9 +143,7 @@ async def height_snapshot(
     state: DashboardDataState = "FRESH"
     observed = observation.observed_to
     threshold = pit.critical_threshold_percent if pit else get_settings().EDGE_V2_CRITICAL_THRESHOLD
-    reference = next(
-        (r for r in get_settings().EDGE_V2_HEIGHT_REFERENCES if r.pit_id == source.pit_id), None
-    )
+    reference = height_reference(source.pit_id)
     sensor_states = {s.sensor_id: s for s in device.snapshot.sensors} if device.snapshot else {}
     sensors_ready = reference is not None and all(
         (sensor := sensor_states.get(sensor_id)) is not None
@@ -133,7 +152,7 @@ async def height_snapshot(
         and timedelta(0)
         <= now - sensor.last_scan_at
         < timedelta(seconds=get_settings().EDGE_V2_ASSESSMENT_TTL_SECONDS)
-        for sensor_id in reference.calibration_versions
+        for sensor_id in reference_sensors(reference)
     )
     if observation.generated_at > now or observed is not None and observed > now:
         state = "UNKNOWN"
@@ -151,7 +170,7 @@ async def height_snapshot(
         or device.effective_state not in ("HEALTHY", "DEGRADED")
         or device.snapshot is None
         or device.snapshot.config_revision != observation.config_revision
-        or device.snapshot.clock.state != "SYNCED"
+        or not clock_allowed(source.pit_id, device.snapshot.clock.state)
         or device.snapshot.generated_at > now
     ):
         state = "UNAVAILABLE"

@@ -135,6 +135,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
                     "observationId": assessment.observation_id,
                     "inputSource": assessment.source,
                     "methodVersion": assessment.method_version,
+                    "simulated": assessment.simulated,
                     "messageId": assessment.message_id,
                 },
             )
@@ -152,7 +153,8 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
             status="RECORDED",
             event_type="collection_required",
             severity="error",
-            message=f"스크랩 {metric_label} {fill:.1f}%: 수거 필요 (라이다 v2 판정)",
+            message=("[시뮬레이션] " if assessment.simulated else "")
+            + f"스크랩 {metric_label} {fill:.1f}%: 수거 필요 (라이다 v2 판정)",
         )
         db.add(alert)
         await db.flush()

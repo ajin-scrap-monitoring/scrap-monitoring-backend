@@ -12,6 +12,7 @@ HistoryDataState = Literal["AVAILABLE", "LIMITED", "UNAVAILABLE", "STALE", "UNKN
 
 
 class HistorySampleV2(BaseModel):
+    simulated: bool = False
     bucketStartAt: datetime
     bucketEndAt: datetime
     generatedAt: datetime | None = None

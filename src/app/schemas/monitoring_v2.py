@@ -23,6 +23,7 @@ class MonitoringSource(BaseModel):
 
 
 class MonitoringSummaryV2(BaseModel):
+    simulated: bool = False
     inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"] = "EDGE_STATE"
     loadPercent: float | None = Field(default=None, ge=0, le=100)
     rawLoadPercent: float | None = Field(default=None, ge=0, le=100)
@@ -76,7 +77,11 @@ class LidarProfileV2(BaseModel):
     calibrationVersion: str | None = None
     unit: Literal["cm"] = "cm"
     referenceDistanceCm: float
-    calibrationState: Literal["UNVERIFIED", "VERIFIED", "UNAVAILABLE"] = "UNVERIFIED"
+    simulated: bool = False
+    timeBasis: Literal["SOURCE_UTC", "SIMULATION_SOURCE_UTC_UNVERIFIED"] = "SOURCE_UTC"
+    referenceDepthCm: float | None = None
+    sectionLengthCm: float | None = None
+    calibrationState: Literal["UNVERIFIED", "VERIFIED", "UNAVAILABLE", "SIMULATION"] = "UNVERIFIED"
     average: float | None = None
     minimum: float | None = None
     maximum: float | None = None
@@ -110,6 +115,7 @@ class StateEventPageV2(BaseModel):
 
 
 class V2Alert(BaseModel):
+    simulated: bool = False
     eventId: str
     notificationId: str
     assessmentId: str | None
