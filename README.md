@@ -102,6 +102,7 @@ docker compose down
 
 * [docs/EDGE_V2_INTEGRATION.md](docs/EDGE_V2_INTEGRATION.md): 엣지 v2 수신 API, 장치별 인증 및 저장 ACK 계약
 * [docs/MONITORING_V2.md](docs/MONITORING_V2.md): v2 판정·장비 상태 조회, 피트 연결 설정 및 대시보드 SSE 계약
+* [docs/DASHBOARD_API_GUIDE.md](docs/DASHBOARD_API_GUIDE.md): 실제 화면 기준 API 연결표·높이 단위·판정 출처·부분 분 이력 처리
 * [docs/V2_LOAD_HISTORY.md](docs/V2_LOAD_HISTORY.md): 최근 24시간 적재율 추이, 시간 구간과 판정 불가·누락 처리
 * [docs/V2_OPERATIONS.md](docs/V2_OPERATIONS.md): v2 경보 기록, 영속 쿨다운 및 수거 사건 개정 이력
 * [docs/DAILY_RECORDINGS.md](docs/DAILY_RECORDINGS.md): 날짜별 상시 녹화 조회·HLS 재생·하루 MP4 다운로드 연동

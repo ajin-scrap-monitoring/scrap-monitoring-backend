@@ -2,7 +2,7 @@
 
 [최신 관측 모드](COMPACT_LIDAR_STORAGE.md)에서 생성한 분 요약도 함께 조회한다. 기존 대표값 선택은 마지막 값이며 평균/최소/최대와 품질 수를 추가 제공한다. 원문 모드와 분 요약의 `valuePolicy`를 구분한다.
 
-목업의 최근 24시간 대표 적재율 그래프를 위한 조회 API다. 저장된 v2 STATE 판정을 시간 구간별로 선택한다. 카메라 API와 독립적이며 기존 v1 추이 API와 SSE 응답은 유지한다.
+대시보드의 최근 24시간 대표 적재율 그래프를 위한 조회 API다. 기본 원문 모드는 저장된 v2 STATE 판정을 시간 구간별로 선택한다. compact 모드는 분 이력을 함께 사용하고, 선택적 높이 모드에서는 안정화된 높이에서 계산한 비율을 저장한다. 카메라 API와 독립적이며 기존 v1 추이 API와 SSE 응답은 유지한다.
 
 ## 요청
 
@@ -30,17 +30,27 @@ GET /api/v2/monitoring/load-history?pit_id=pit-demo
 | 필드 | 의미 |
 | --- | --- |
 | `bucketStartAt`, `bucketEndAt` | 요청 범위로 잘라낸 구간, 종료 미포함 |
-| `generatedAt` | 선택한 STATE의 원래 생성 시각. 없으면 null |
-| `observedAt` | 선택한 STATE의 `observed_to`. 없으면 null |
-| `assessmentId` | 원본 판단 ID. 없으면 null |
-| `valuePercent` | 원본 ratio × 100, 알 수 없으면 null |
+| `generatedAt` | 선택한 원본/계산 관측의 생성 시각. 보관되지 않았으면 null |
+| `observedAt` | 선택한 원본/계산 관측 시각. 보관되지 않았으면 null |
+| `assessmentId` | 원본 엣지 판단 ID. 높이 관측이나 보관되지 않은 경우 null |
+| `valuePercent` | 원문 모드는 ratio × 100, 분 이력은 안정화된 비율. 알 수 없으면 null |
 | `valid` | 숫자 적재율 제공 여부. 실제 0%는 true |
 | `dataState` | AVAILABLE / LIMITED / UNAVAILABLE / STALE / UNKNOWN / NO_DATA |
 | `reasonCodes` | 원본 판정 이유와 이력 조회의 유효성 판단 이유 |
 
 표본은 구간 시작 시각 오름차순이다. 프론트엔드는 `valid: false` 또는 `valuePercent: null`인 구간을 0으로 바꾸거나 이전 값으로 채우지 않고 그래프를 끊어서 표시한다. `LIMITED` 값은 수치를 제공하지만 입력 제한 상태도 표시한다.
 
+## compact 분 이력과 선택적 높이 입력
+
+`valuePolicy=RAW_STATE`는 원문 STATE, `MEDIAN_MINUTE`는 compact 분 이력이다. 분 이력에는 평균·최소·최대·유효/무효 표본 수와 `inputSource`, `methodVersion`, `observationId`도 제공한다. 현재 모드의 대표값은 구간의 마지막 값이며 평균으로 바꾸지 않는다.
+
+부분 분 범위에서 원래 정밀 시각·ID를 보존하지 않았다면 `generatedAt`, `observedAt`, `assessmentId`는 null이고 `COMPACT_SUBMINUTE_METADATA_NOT_RETAINED`를 표시한다. 숫자 슬롯이 유효하면 `valid=true`와 숫자는 유지하며 bucket 위치로 표시할 수 있다. 이 조건을 원문 STATE의 시각 누락까지 확장하거나 원래 시각을 만들어내지 않는다.
+
+높이 모드에서는 `inputSource=HEIGHT_SECTIONS`, 별도 `observationId`를 사용하고 assessmentId는 null이다. 서로 다른 유효 출처/방법의 숫자가 같은 bucket에 섞이면 `MIXED`/null과 `FILL_METHOD_CHANGED_WITHIN_BUCKET`을 반환한다. [높이 판정 연결](HEIGHT_FILL_PIPELINE.md)과 [대시보드 연결 안내](DASHBOARD_API_GUIDE.md)를 참고한다.
+
 ## 선택과 유효성 기준
+
+아래는 기본 원문 STATE 선택 규칙이다. compact와 높이 입력의 처리 차이는 위 절을 따른다.
 
 - 그래프의 시간 축은 **판정 생성 시각 `generated_at`**이다. 관측 시각은 `observedAt`으로 별도 제공한다. 서버 수신 시각은 시간 축이나 신선도 계산에 사용하지 않는다.
 - 연결된 현장·장비의 STATE만 조회한다. EVENT·수거 개정·점 배열·현재 status는 이 조회에 사용하지 않는다.
