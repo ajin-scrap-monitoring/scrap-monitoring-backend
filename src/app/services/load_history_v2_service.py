@@ -180,10 +180,19 @@ async def compact_samples(
                 continue
             key = int(timestamp.timestamp() // seconds)
             group = grouped.setdefault(
-                key, {"values": [], "invalid": 0, "sources": set(), "methods": set()}
+                key,
+                {
+                    "values": [],
+                    "invalid": 0,
+                    "sources": set(),
+                    "methods": set(),
+                    "simulated": False,
+                },
             )
             slot_source = row.payload.get("sources", {}).get(stamp, "EDGE_STATE")
             slot_method = row.payload.get("methods", {}).get(stamp)
+            if str(slot_method).startswith("SIMULATION_HEIGHT_SECTION_V1:"):
+                group["simulated"] = True
             if value is not None:
                 group["values"].append(value)
                 group["sources"].add(slot_source)
@@ -218,6 +227,7 @@ async def compact_samples(
             "assessmentId": last["assessmentId"] if metadata_retained else None,
             "observationId": last.get("observationId") if metadata_retained else None,
             "inputSource": input_source,
+            "simulated": group["simulated"],
             "methodVersion": next(iter(group["methods"]), group["last_method"])
             if not mixed
             else None,

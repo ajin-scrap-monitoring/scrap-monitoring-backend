@@ -166,10 +166,12 @@ async def project(
         if not same_instance or payload.overall_state not in ("HEALTHY", "DEGRADED"):
             filter_row.payload = {}
         if get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
+            from src.app.services.height_reference import device_clock_allowed
+
             observed_now = utc(receipt.received_at)
             active_scope = filter_row.payload.get("scope", [])
             if (
-                payload.clock.state != "SYNCED"
+                not device_clock_allowed(payload.site_id, payload.edge_id, payload.clock.state)
                 or payload.generated_at > observed_now
                 or len(payload.sensors) != 2
                 or any(

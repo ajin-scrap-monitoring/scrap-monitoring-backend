@@ -8,6 +8,8 @@ from src.app.schemas.edge_v2 import Identifier, UtcTime
 
 
 class FillObservation(BaseModel):
+    simulated: bool = False
+    time_basis: Literal["SOURCE_UTC", "SIMULATION_SOURCE_UTC_UNVERIFIED"] = "SOURCE_UTC"
     source: Literal["EDGE_STATE", "HEIGHT_SECTIONS"]
     site_id: Identifier
     edge_id: Identifier

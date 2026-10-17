@@ -14,6 +14,7 @@ from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_operations import EdgeV2Operation
 from src.app.models.edge_v2_projection import EdgeV2Filter
 from src.app.schemas.edge_v2 import Assessment, Configuration, Measurement
+from src.app.schemas.lidar_height import SimulationHeightReference
 from src.app.schemas.monitoring_v2 import (
     DashboardDataState,
     LidarProfilePageV2,
@@ -26,7 +27,9 @@ from src.app.schemas.monitoring_v2 import (
 )
 from src.app.services.edge_v2_projection import latest_message
 from src.app.services.edge_v2_service import device_status, digest, utc
+from src.app.services.height_reference import clock_allowed, height_reference
 from src.app.services.lidar_height import height_profile
+from src.app.services.simulation_height import simulation_profile
 
 
 def monitoring_source(pit_id: str) -> MonitoringSource:
@@ -166,6 +169,7 @@ async def build_snapshot(
         reasonCodes=list(dict.fromkeys(reasons)),
         summary=MonitoringSummaryV2(
             inputSource="HEIGHT_SECTIONS" if settings.EDGE_V2_HEIGHT_FILL_ENABLED else "EDGE_STATE",
+            simulated=bool(fill_observation and fill_observation.simulated),
             loadPercent=percent,
             rawLoadPercent=raw_percent,
             filterState=filter_state,
@@ -209,9 +213,7 @@ async def raw_lidar_profiles(
         if (d.site_id, d.edge_id) == (source.site_id, source.edge_id)
     )
     message = await latest_message(db, source.site_id, source.edge_id, "measurement")
-    reference = next(
-        (r for r in settings.EDGE_V2_HEIGHT_REFERENCES if r.pit_id == source.pit_id), None
-    )
+    reference = height_reference(source.pit_id)
     if reference and message:
         observation = Measurement.model_validate(message.payload)
         registration = await db.scalar(
@@ -228,19 +230,31 @@ async def raw_lidar_profiles(
         pit = await db.get(PitConfig, source.pit_id)
         when = now or datetime.now(UTC)
         status = await device_status(db, source.site_id, source.edge_id, when)
-        profiles = [
-            height_profile(
-                observation,
-                sensor,
-                configuration,
-                reference,
-                pit.total_depth_cm if pit else None,
-                when,
-                settings.EDGE_V2_ASSESSMENT_TTL_SECONDS,
-                settings.EDGE_V2_EMPTY_FLOOR_DISTANCE_CM,
-            )
-            for sensor in observation.sensors
-        ]
+        profiles = []
+        for sensor in observation.sensors:
+            if isinstance(reference, SimulationHeightReference):
+                profile = simulation_profile(
+                    observation,
+                    sensor,
+                    configuration,
+                    reference,
+                    None,
+                    when,
+                    settings.EDGE_V2_ASSESSMENT_TTL_SECONDS,
+                    settings.EDGE_V2_EMPTY_FLOOR_DISTANCE_CM,
+                )
+            else:
+                profile = height_profile(
+                    observation,
+                    sensor,
+                    configuration,
+                    reference,
+                    pit.total_depth_cm if pit else None,
+                    when,
+                    settings.EDGE_V2_ASSESSMENT_TTL_SECONDS,
+                    settings.EDGE_V2_EMPTY_FLOOR_DISTANCE_CM,
+                )
+            profiles.append(profile)
         # A healthy process does not prove either sensor is fresh and using this configuration.
         for profile in profiles:
             sensor_status = (
@@ -252,7 +266,7 @@ async def raw_lidar_profiles(
                 status.effective_state not in ("HEALTHY", "DEGRADED")
                 or status.snapshot is None
                 or status.snapshot.config_revision != observation.config_revision
-                or status.snapshot.clock.state != "SYNCED"
+                or not clock_allowed(source.pit_id, status.snapshot.clock.state)
                 or status.snapshot.generated_at > when
                 or sensor_status is None
                 or sensor_status.data_state != "FRESH"

@@ -14,6 +14,11 @@ from src.app.models.edge_v2_projection import EdgeV2Latest
 from src.app.schemas.edge_v2 import Measurement, StatusReport, UtcTime
 from src.app.schemas.monitoring_v2 import LidarProfilePageV2, LidarProfileV2, MonitoringSource
 from src.app.services.edge_v2_service import device_status, digest, utc
+from src.app.services.height_reference import (
+    device_clock_allowed,
+    height_reference,
+    reference_depth,
+)
 
 
 class HeightFrame(BaseModel):
@@ -39,9 +44,7 @@ def height_median_enabled() -> bool:
 
 async def window_scope(db: AsyncSession, source: MonitoringSource, now: datetime) -> str:
     settings = get_settings()
-    reference = next(
-        (r for r in settings.EDGE_V2_HEIGHT_REFERENCES if r.pit_id == source.pit_id), None
-    )
+    reference = height_reference(source.pit_id)
     pit = await db.get(PitConfig, source.pit_id)
     status = await device_status(db, source.site_id, source.edge_id, now)
     return digest(
@@ -57,7 +60,11 @@ async def window_scope(db: AsyncSession, source: MonitoringSource, now: datetime
 
 
 def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
-    if profile.calibrationState != "VERIFIED" or profile.measuredAt is None or not profile.samples:
+    if (
+        profile.calibrationState not in ("VERIFIED", "SIMULATION")
+        or profile.measuredAt is None
+        or not profile.samples
+    ):
         return SensorWindow()
     size = get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS
     positions = [float(cast(float, s["positionRatio"])) for s in profile.samples]
@@ -89,9 +96,8 @@ def filtered_page(
 ) -> LidarProfilePageV2:
     result = page.model_copy(deep=True)
     size = get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS
-    reference = next(
-        (r for r in get_settings().EDGE_V2_HEIGHT_REFERENCES if r.pit_id == page.pitId), None
-    )
+    reference = height_reference(page.pitId)
+    depth = reference_depth(reference, depth)
     for profile in result.profiles:
         profile.valuePolicy = "SPATIAL_TEMPORAL_MEDIAN"
         profile.average = profile.minimum = profile.maximum = profile.sectionFillPercent = None
@@ -103,7 +109,7 @@ def filtered_page(
             and len(history.frames) == size
             and history.frames[-1].at == profile.measuredAt
             and history.positions == positions
-            and profile.calibrationState == "VERIFIED"
+            and profile.calibrationState in ("VERIFIED", "SIMULATION")
         )
         values: list[float] = []
         for index, sample in enumerate(profile.samples):
@@ -125,7 +131,10 @@ def filtered_page(
             profile.coverageRatio = len(values) / len(profile.samples)
         if reference and depth and profile.coverageRatio >= reference.minimum_coverage and values:
             profile.sectionFillPercent = fmean(values) / depth * 100
-        if profile.calibrationState == "VERIFIED" and profile.sectionFillPercent is None:
+        if (
+            profile.calibrationState in ("VERIFIED", "SIMULATION")
+            and profile.sectionFillPercent is None
+        ):
             profile.reasonCodes = list(
                 dict.fromkeys([*profile.reasonCodes, "HEIGHT_TEMPORAL_WARMING_OR_MISSING"])
             )
@@ -209,7 +218,7 @@ async def invalidate_on_status(
     if (
         not same_instance
         or status.overall_state not in ("HEALTHY", "DEGRADED")
-        or status.clock.state != "SYNCED"
+        or not device_clock_allowed(status.site_id, status.edge_id, status.clock.state)
         or status.generated_at > now
         or row.payload
         and row.payload.get("config_revision") != status.config_revision

@@ -88,6 +88,7 @@ docker compose down
 * [docs/LIDAR_HEIGHT_PROFILES.md](docs/LIDAR_HEIGHT_PROFILES.md): 검증 좌표·바닥 기준을 사용하는 높이 프로필과 단면 기준 계산
 * [docs/HEIGHT_FILL_PIPELINE.md](docs/HEIGHT_FILL_PIPELINE.md): 선택적인 단면 입력·시간 중앙값·분 이력·수거 필요 판정과 출처
 * [docs/HEIGHT_TEMPORAL_MEDIAN.md](docs/HEIGHT_TEMPORAL_MEDIAN.md): 높이(cm) 시간 중앙값과 기존 높이 필드·단위 유지
+* [docs/SIMULATION_HEIGHT_API.md](docs/SIMULATION_HEIGHT_API.md): 개발용 합성 거리의 높이 환산과 기존 API·출처 표시 연결
 
 * [docs/SCHEDULED_BACKUPS.md](docs/SCHEDULED_BACKUPS.md): 정기 백업·성공본 보관·실패 상태 확인과 SQLite WAL 백업
 * [docs/POSTGRESQL_DEPLOYMENT.md](docs/POSTGRESQL_DEPLOYMENT.md): PostgreSQL 전용 계정·권한·볼륨·내부 연결과 배포 검증

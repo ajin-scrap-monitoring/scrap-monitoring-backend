@@ -7,7 +7,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.app.core.edge_v2_security import EdgeV2Device
-from src.app.schemas.lidar_height import HeightReference
+from src.app.schemas.lidar_height import HeightReference, SimulationHeightReference
 from src.app.schemas.monitoring_v2 import MonitoringSource
 
 
@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     EDGE_V2_EMPTY_FLOOR_DISTANCE_CM: float = Field(default=1000.0, gt=0, le=100000)
     # Opt-in private geometry. The temporary sensor-to-floor distance cannot verify this frame.
     EDGE_V2_HEIGHT_REFERENCES: list[HeightReference] = Field(default_factory=list, repr=False)
+    # Separate simulation geometry is rejected in production, including unverified source clocks.
+    EDGE_V2_SIMULATION_HEIGHT_REFERENCES: list[SimulationHeightReference] = Field(
+        default_factory=list, repr=False
+    )
     # Height ratios are a separate opt-in input; edge capabilities and bodies stay unchanged.
     EDGE_V2_HEIGHT_FILL_ENABLED: bool = False
     # Height-only filtering can be enabled without activating collection decisions.
@@ -91,13 +95,19 @@ class Settings(BaseSettings):
             pits.add(source.pit_id)
             assigned.add(device)
         referenced: set[str] = set()
+        references: list[HeightReference | SimulationHeightReference] = [
+            *self.EDGE_V2_HEIGHT_REFERENCES,
+            *self.EDGE_V2_SIMULATION_HEIGHT_REFERENCES,
+        ]
+        if self.APP_ENV == "production" and self.EDGE_V2_SIMULATION_HEIGHT_REFERENCES:
+            raise ValueError("Simulation height references are forbidden in production")
         if (self.EDGE_V2_HEIGHT_FILL_ENABLED or self.EDGE_V2_HEIGHT_MEDIAN_ENABLED) and (
-            not self.EDGE_V2_HEIGHT_REFERENCES or not self.EDGE_V2_COMPACT_STORAGE_ENABLED
+            not references or not self.EDGE_V2_COMPACT_STORAGE_ENABLED
         ):
             raise ValueError("Height filtering requires explicit references and compact storage")
-        if self.EDGE_V2_HEIGHT_REFERENCES and not self.EDGE_V2_COMPACT_STORAGE_ENABLED:
+        if references and not self.EDGE_V2_COMPACT_STORAGE_ENABLED:
             raise ValueError("Height references require compact latest-observation storage")
-        for reference in self.EDGE_V2_HEIGHT_REFERENCES:
+        for reference in references:
             if reference.pit_id not in pits or reference.pit_id in referenced:
                 raise ValueError("Height references require unique configured pit assignments")
             source = next(
@@ -108,8 +118,13 @@ class Settings(BaseSettings):
                 for d in self.EDGE_V2_DEVICES
                 if (d.site_id, d.edge_id) == (source.site_id, source.edge_id)
             )
-            if set(reference.calibration_versions) != set(device_config.sensor_ids):
-                raise ValueError("Height reference must pin both configured sensor calibrations")
+            sensor_ids = (
+                reference.sensor_poses
+                if isinstance(reference, SimulationHeightReference)
+                else reference.calibration_versions
+            )
+            if set(sensor_ids) != set(device_config.sensor_ids):
+                raise ValueError("Height reference must pin both configured sensor IDs")
             referenced.add(reference.pit_id)
         return self
 
@@ -160,7 +175,7 @@ class Settings(BaseSettings):
     # WebRTC / WHEP Media Server Integration
     MEDIA_SERVER_WHEP_URL: str | None = Field(
         default=None,
-        description="Upstream Media Server WHEP endpoint base URL (e.g. http://scrap-server-01.tail2e96c5.ts.net:8889)",
+        description="Upstream Media Server WHEP endpoint base URL (e.g. http://media.example.test:8889)",
     )
     WHEP_SESSION_TTL_SECONDS: int = Field(
         default=1800,
