@@ -134,13 +134,19 @@ async def update_notification_recipient(
 @notifications_admin_router.post(
     "/test",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Queue a test notification",
+    summary="Record a test notification request",
     dependencies=[Depends(require_admin_change)],
 )
 async def send_test_notification(
     payload: TestNotificationRequest,
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, str]:
-    """Queue an immediate test notification to a recipient."""
+    """Queue an immediate test notification to a recipient.
+
+    The current implementation records the request without external delivery.
+    """
     await admin_service.send_test_notification(payload=payload, db=db)
-    return {"status": "accepted", "message": "Test notification queued successfully"}
+    return {
+        "status": "accepted",
+        "message": "Test notification request recorded; no external delivery",
+    }

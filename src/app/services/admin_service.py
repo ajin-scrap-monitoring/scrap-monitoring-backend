@@ -236,7 +236,10 @@ class AdminService:
         payload: TestNotificationRequest,
         db: AsyncSession,
     ) -> None:
-        """Dispatch mock test alert and log to AlertLog database."""
+        """Dispatch mock test alert and log to AlertLog database.
+
+        This records the request only; no external email/SMS delivery is performed.
+        """
         stmt = select(NotificationRecipientModel).where(
             NotificationRecipientModel.id == payload.recipientId
         )
@@ -252,21 +255,23 @@ class AdminService:
         channels_str = ",".join(payload.channels).upper()
 
         logger.info(
-            "[TEST NOTIFICATION DISPATCH] Target: %s, Channels: %s",
+            "[TEST NOTIFICATION RECORDED] Target: %s, Requested channels: %s",
             recipient_name,
             channels_str,
         )
 
         # Record test alert log
         msg = (
-            f"[테스트 알림] {recipient_name} 담당자에게 {channels_str} 채널로 테스트 알림 전송 완료"
+            f"[테스트 알림] {recipient_name} 담당자의 {channels_str} 테스트 요청을 기록했습니다. "
+            "이메일·문자 실제 발송은 수행하지 않았습니다."
         )
         test_log = AlertLog(
             pit_id="pit-01",
             triggered_at=datetime.now(UTC),
             fill_ratio_percent=0.0,
             channel=channels_str,
-            status="SENT",
+            status="RECORDED",
+            severity="info",
             message=msg,
         )
         db.add(test_log)

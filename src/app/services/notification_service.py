@@ -42,6 +42,8 @@ def _parse_notification_id(notification_id: str) -> int | None:
 def _format_notification_title(log: AlertLog) -> str:
     """Derive user-friendly notification title from alert log."""
     if "테스트 알림" in log.message:
+        if log.status == "RECORDED":
+            return "테스트 알림 요청 기록"
         return "테스트 알림 발송"
     if log.fill_ratio_percent >= 85.0:
         return "스크랩 수거 필요 알림 (위험 임계치 초과)"
