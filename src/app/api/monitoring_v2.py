@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
+from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
+from src.app.schemas.collection_summary_v2 import CollectionSummaryV2
 from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
@@ -21,6 +23,8 @@ from src.app.schemas.monitoring_v2 import (
     V2AlertPage,
 )
 from src.app.schemas.session import Session
+from src.app.services.active_alerts_v2_service import active_fill_alerts
+from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_history import alerts, collection_events, state_events
 from src.app.services.load_history_v2_service import load_history
 from src.app.services.monitoring_v2_service import build_snapshot, lidar_profiles, monitoring_source
@@ -40,6 +44,26 @@ def get_source(
 Source = Annotated[MonitoringSource, Depends(get_source)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=10000)]
+
+
+@router.get("/active-alerts", response_model=ActiveFillAlertPageV2)
+async def get_active_alerts(
+    response: Response, session: CurrentSession, source: Source, db: Database
+) -> ActiveFillAlertPageV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await active_fill_alerts(db, source)
+
+
+@router.get("/collection-summary", response_model=CollectionSummaryV2)
+async def get_collection_summary(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    window_days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> CollectionSummaryV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await collection_summary(db, source, window_days)
 
 
 @router.get("/profiles", response_model=LidarProfilePageV2)
