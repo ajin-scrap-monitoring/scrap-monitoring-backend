@@ -83,7 +83,7 @@ async def test_warning_respects_saved_pre_alert_switch(client, test_db_session):
     assert result.reasonCodes == ["PRE_COLLECTION_ALERT_DISABLED"]
 
 
-async def test_stale_and_unevaluated_data_do_not_present_old_alert_as_current(
+async def test_stale_data_is_unknown_but_brief_pending_preserves_recent_alarm(
     client, test_db_session
 ):
     db = test_db_session
@@ -92,8 +92,11 @@ async def test_stale_and_unevaluated_data_do_not_present_old_alert_as_current(
     assert stale.evaluationState == "UNKNOWN" and stale.items == []
     await send(client, assessment("pending", ratio=0.99, when=NOW + timedelta(seconds=1)))
     pending = await active(db, 1)
-    assert pending.evaluationState == "UNKNOWN" and pending.items == []
-    assert "CURRENT_OBSERVATION_NOT_EVALUATED" in pending.reasonCodes
+    assert pending.evaluationState == "CRITICAL"
+    assert pending.items[0].evaluationSource == "RECENT_PERSISTED"
+    assert pending.items[0].evaluatedAt == NOW
+    assert pending.items[0].measuredAt == NOW + timedelta(seconds=1)
+    assert "OPERATIONS_EVALUATION_PENDING" in pending.reasonCodes
 
 
 async def test_invalid_data_reports_error_not_no_alarm(client, test_db_session):

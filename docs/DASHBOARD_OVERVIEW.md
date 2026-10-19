@@ -50,6 +50,6 @@
 - `CRITICAL`: `collection_required / error` 항목 하나. 기존 수거 임계치·지속 확인·히스테리시스 판정을 그대로 따른다.
 - `UNKNOWN / ERROR`: 현재 판정을 확정할 수 없음. 빈 목록과 사유를 반환하므로 ‘경보 없음’으로 표시하지 않는다. 판정 기능이 꺼져 있으면 `OPERATIONS_DISABLED`.
 
-항목의 `loadPercent`는 평가된 현재 수치이며 JSON에서 소수점 셋째 자리에서 반올림한다. `evaluatedAt`은 해당 관측의 평가 시각이며 경보 시작 시각이 아니다. `simulated=true`인 경우 시뮬레이션임을 표시한다. 현재 단계와 피트로 만든 `id`는 표시용 키이고 DB 알림 ID와 다르다.
+항목의 `loadPercent`는 최신 측정 수치이며 JSON에서 소수점 셋째 자리에서 반올림한다. `measuredAt`은 그 측정 시각이다. `evaluatedAt`은 경보 판정을 완료한 관측 시각이며 경보 시작 시각이 아니다. `evaluationSource=RECENT_PERSISTED`인 짧은 처리 대기에는 두 시각이 다를 수 있다. 이때 기존 작업자의 최근 유효 판정을 유지하며 응답 사유에 `OPERATIONS_EVALUATION_PENDING`을 제공한다. 최신 관측까지 평가했으면 `CURRENT_OBSERVATION`이다. 최근 판정 허용 조건과 시간 제한은 [경보 처리 안내](V2_OPERATIONS.md#측정-갱신과-경보-갱신-시각)를 따른다. `simulated=true`인 경우 시뮬레이션임을 표시한다. 현재 단계와 피트로 만든 `id`는 표시용 키이고 DB 알림 ID와 다르다.
 
 `notificationId`는 CRITICAL에서 연결된 최근 내부 기록이 있을 때 제공하며 경보 시작 시각을 의미하지 않는다. WARNING에서는 과거 위험 알림으로 연결하지 않는다. 경보가 해제되어도 과거 알림 기록은 남고, 알림을 읽어도 현재 위험 상태가 해제되지는 않는다. 조회해도 새 DB 알림이나 이메일을 만들지 않는다. 외부 발송 연동은 별도 기능이다.

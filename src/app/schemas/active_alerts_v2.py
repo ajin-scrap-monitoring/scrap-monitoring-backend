@@ -14,6 +14,8 @@ class ActiveFillAlertV2(BaseModel):
     severity: Literal["warning", "error"]
     title: str
     evaluatedAt: datetime
+    measuredAt: datetime | None = None
+    evaluationSource: Literal["CURRENT_OBSERVATION", "RECENT_PERSISTED"] | None = None
     loadPercent: DisplayPercent
     simulated: bool
     notificationId: str | None = None

@@ -40,6 +40,7 @@ class OperationStatus(BaseModel):
     lastEvaluatedAt: datetime | None
     lastAlertAt: datetime | None
     notificationId: str | None
+    evaluationSource: Literal["CURRENT_OBSERVATION", "RECENT_PERSISTED"] | None = None
 
 
 class MonitoringSnapshotV2(BaseModel):
