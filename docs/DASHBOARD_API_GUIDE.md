@@ -89,6 +89,8 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 
 ## 상세 계약
 
+높이 감소로 추정한 수거의 마지막 활동 시각은 [수거 감지 안내](HEIGHT_COLLECTION_DETECTION.md)의 `lastCollectionActivityAt`과 `activitySource`로 연결한다. 감지 설정은 m, 기존 높이 API는 cm다.
+
 - [MONITORING_V2.md](MONITORING_V2.md): 현재값과 SSE
 - [LIDAR_HEIGHT_PROFILES.md](LIDAR_HEIGHT_PROFILES.md), [HEIGHT_TEMPORAL_MEDIAN.md](HEIGHT_TEMPORAL_MEDIAN.md): 검증 높이와 cm 시간 중앙값
 - [HEIGHT_FILL_PIPELINE.md](HEIGHT_FILL_PIPELINE.md), [V2_OPERATIONS.md](V2_OPERATIONS.md): 판정 출처·이력·경보

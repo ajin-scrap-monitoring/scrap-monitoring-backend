@@ -21,12 +21,21 @@ from src.app.services.edge_v2_service import utc
 
 
 async def state_events(
-    db: AsyncSession, source: MonitoringSource, limit: int, offset: int
+    db: AsyncSession,
+    source: MonitoringSource,
+    limit: int,
+    offset: int,
+    collection_detections_only: bool = False,
 ) -> StateEventPageV2:
     query = select(EdgeV2Transition).where(
         EdgeV2Transition.site_id == source.site_id,
         EdgeV2Transition.edge_id == source.edge_id,
     )
+    if collection_detections_only:
+        query = query.where(
+            EdgeV2Transition.kind.in_(["COLLECTION_DETECTED", "COLLECTION_SETTLED"]),
+            EdgeV2Transition.payload["pitId"].as_string() == source.pit_id,
+        )
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = await db.scalars(
         query.order_by(EdgeV2Transition.occurred_at.desc(), EdgeV2Transition.id.desc())

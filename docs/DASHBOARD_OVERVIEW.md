@@ -10,7 +10,7 @@
 | 적재율 경보 | snapshot의 `operations.effectiveState` | UNKNOWN/ERROR와 NORMAL 구분 |
 | 최근 24시간·1시간 전 적재율 | `/api/v2/monitoring/load-history` | 유효한 해당 구간을 사용, 현재값으로 과거를 채우지 않음 |
 | LiDAR 1·2 높이 | `/api/v2/monitoring/profiles` | 센서 ID로 연결, cm 단위. API가 있는데 화면이 고정 미지원이면 화면 연결 필요 |
-| 최근 수거 후 경과·평균 수거 주기 | `/api/v2/monitoring/collection-summary` | 수거 완료 기록만 집계, 부족하면 null과 사유 |
+| 최근 수거 후 경과·평균 수거 주기 | `/api/v2/monitoring/collection-summary` | 확정 완료·높이 감소 감지를 구분, 활동 시각은 lastCollectionActivityAt 사용 |
 | 현재 활성 적재율 경보 | `/api/v2/monitoring/active-alerts` | 현재 판정 기준이며 과거 알림 목록과 구분 |
 | 과거 알림·읽음 상태 | `/api/v2/monitoring/alerts`, `/api/v1/notifications` | 읽지 않은 과거 경보가 현재도 활성이라는 뜻은 아님 |
 | 예상 도달·남은 시간 | 예측 API 미구현 | 완료 시각이나 증가 속도를 임의의 고정 값으로 표시하지 않음 |
@@ -38,6 +38,10 @@
 공개 합성 예로 완료가 10시간 전·7시간 전·1시간 전에 있었다면 간격은 3시간·6시간이며 평균은 4.5시간이다. 마지막 완료는 1시간 전이다. 다른 피트·미래 시각의 기록은 섞지 않는다. 평균은 `(기간 내 마지막 완료 - 첫 완료) / cycleCount`로 SQL 집계하며 원문 메모나 작업자 목록을 불러오지 않는다.
 
 센서 EVENT의 COLLECTION/SUSPECTED·CONFIRMED·RESOLVED·RETRACTED는 기존 작업자의 수거 완료 확인을 대체하지 않는다. 적재율이 하락하거나 경보가 복귀한 것만으로 가짜 수거 완료를 기록하지 않는다. 기존 `POST /api/v1/collections/confirm`의 관리자 확인 기록을 사용하며 이 조회 작업은 수거 기록을 추가하지 않는다.
+
+## 높이 감소로 감지한 수거 활동
+
+[높이 감소 수거 감지](HEIGHT_COLLECTION_DETECTION.md)를 활성화하면 같은 통계 API의 `lastCollectionActivityAt / secondsSinceLastCollectionActivity / activitySource`로 마지막 수거 감지 후 경과를 표시한다. 기존 `lastCollectionAt`은 사람의 완료 확인 기록으로 보존한다. 감지와 종료 추정을 완료 확정으로 표시하지 않는다. 감지 이력은 `/api/v2/monitoring/collection-detections`에서 조회한다.
 
 ## 현재 활성 적재율 경보
 

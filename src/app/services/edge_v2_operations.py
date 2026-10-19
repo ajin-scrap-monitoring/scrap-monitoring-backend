@@ -14,6 +14,7 @@ from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Transition
 from src.app.models.log import AlertLog
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.services.collection_detection_service import process_collection_source
 from src.app.services.edge_v2_service import utc
 from src.app.services.monitoring_v2_service import build_snapshot
 
@@ -201,6 +202,7 @@ class EdgeV2OperationsWorker:
             for source in get_settings().EDGE_V2_MONITORING_SOURCES:
                 try:
                     await process_source(db, source, now or datetime.now(UTC))
+                    await process_collection_source(db, source, now or datetime.now(UTC))
                 finally:
                     await db.rollback()
 

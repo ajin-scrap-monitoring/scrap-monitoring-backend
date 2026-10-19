@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     EDGE_V2_HEIGHT_FILL_ENABLED: bool = False
     # Height-only filtering can be enabled without activating collection decisions.
     EDGE_V2_HEIGHT_MEDIAN_ENABLED: bool = False
+    # Detection is an estimate, separate from a worker-confirmed collection completion.
+    EDGE_V2_COLLECTION_DETECTION_ENABLED: bool = False
+    # Operator-facing settings use metres; computation and height APIs continue to use cm.
+    EDGE_V2_COLLECTION_DROP_METERS: float | None = Field(
+        default=None, gt=0, le=1000, allow_inf_nan=False
+    )
+    EDGE_V2_COLLECTION_STABLE_BAND_METERS: float = Field(
+        default=0.2, gt=0, le=100, allow_inf_nan=False
+    )
+    EDGE_V2_COLLECTION_CONFIRM_SECONDS: int = Field(default=10, ge=1, le=300)
+    EDGE_V2_COLLECTION_BASELINE_SECONDS: int = Field(default=10, ge=1, le=300)
+    EDGE_V2_COLLECTION_SETTLE_SECONDS: int = Field(default=60, ge=1, le=1800)
 
     @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")
     @classmethod
@@ -83,6 +95,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_monitoring_sources(self) -> "Settings":
+        if self.EDGE_V2_COLLECTION_DROP_METERS is not None and (
+            self.EDGE_V2_COLLECTION_STABLE_BAND_METERS >= self.EDGE_V2_COLLECTION_DROP_METERS
+        ):
+            raise ValueError("Collection stability band must be smaller than the detection drop")
+        if self.EDGE_V2_COLLECTION_DETECTION_ENABLED and not (
+            self.EDGE_V2_OPERATIONS_ENABLED
+            and self.EDGE_V2_HEIGHT_FILL_ENABLED
+            and self.EDGE_V2_COLLECTION_DROP_METERS is not None
+        ):
+            raise ValueError("Collection detection requires the height operational worker")
         devices = {(device.site_id, device.edge_id) for device in self.EDGE_V2_DEVICES}
         pits: set[str] = set()
         assigned: set[tuple[str, str]] = set()
