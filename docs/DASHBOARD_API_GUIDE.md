@@ -83,6 +83,10 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 
 날짜 녹화 504는 [미디어 연동](DAILY_RECORDINGS.md)의 timeout과 upstream 상태를 구분해 확인한다. 한 번의 timeout이나 재조회 성공만으로 항상 고장/항상 정상이라고 단정하지 않는다. 다른 담당 서비스 재시작이나 설정 변경은 자동으로 수행하지 않는다.
 
+## 현황 화면의 수거 통계·활성 경보
+
+[현황 화면 연결 안내](DASHBOARD_OVERVIEW.md)에서 항목별 API와 빈 값의 의미를 확인한다. `collection-summary`는 실제 완료 기록으로 최근 수거·평균 주기를 집계하고, `active-alerts`는 과거 알림함과 구분한 현재 적재율 경보를 제공한다.
+
 ## 상세 계약
 
 - [MONITORING_V2.md](MONITORING_V2.md): 현재값과 SSE
