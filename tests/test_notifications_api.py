@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.models.config import PitConfig
 from src.app.models.log import AlertLog
 
 
@@ -28,6 +29,86 @@ async def test_notifications_empty(client: AsyncClient) -> None:
     assert data["items"] == []
     assert data["unreadCount"] == 0
     assert data["page"]["totalItems"] == 0
+
+
+@pytest.mark.parametrize(
+    "event_type,severity,fill,title",
+    [
+        ("collection_required", "warning", 96.0, "스크랩 적재율 경고 알림"),
+        ("collection_required", "error", 80.0, "스크랩 수거 필요 알림 (위험 임계치 초과)"),
+        ("collection_required", "info", 96.0, "스크랩 수거 관련 알림"),
+        ("pre_collection_alert", "warning", 96.0, "스크랩 적재율 사전 경고 알림"),
+        ("collection_started", "info", 96.0, "스크랩 수거 시작 알림"),
+        ("collection_completed", "info", 96.0, "스크랩 수거 완료 알림"),
+        ("measurement_error", "error", 96.0, "측정 오류 알림"),
+        ("device_error", "error", 96.0, "장비 오류 알림"),
+        ("video_delay", "warning", 96.0, "영상 지연 알림"),
+    ],
+)
+async def test_notification_title_describes_recorded_event_not_fixed_percent(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    event_type: str,
+    severity: str,
+    fill: float,
+    title: str,
+) -> None:
+    """A high fill reading must not turn a device error or warning into a critical alert."""
+    log = AlertLog(
+        pit_id="pit-title",
+        triggered_at=datetime.now(UTC),
+        fill_ratio_percent=fill,
+        channel="LOG",
+        status="RECORDED",
+        message="Recorded synthetic event",
+        event_type=event_type,
+        severity=severity,
+    )
+    test_db_session.add(log)
+    await test_db_session.commit()
+    response = await client.get("/api/v1/notifications")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert (item["title"], item["type"], item["severity"]) == (title, event_type, severity)
+    read = await client.patch(f"/api/v1/notifications/{item['id']}", json={"read": True})
+    assert read.status_code == 200 and read.json()["title"] == title
+    assert log.fill_ratio_percent == fill and log.severity == severity and log.status == "RECORDED"
+
+
+async def test_notification_title_stays_historical_after_threshold_change(
+    client: AsyncClient, test_db_session: AsyncSession
+) -> None:
+    """Changing today's thresholds must not change the title of an existing warning."""
+    pit = PitConfig(
+        id="pit-title",
+        name="Synthetic",
+        total_depth_cm=1000,
+        warning_threshold_percent=75,
+        critical_threshold_percent=95,
+    )
+    test_db_session.add_all(
+        [
+            pit,
+            AlertLog(
+                pit_id=pit.id,
+                triggered_at=datetime.now(UTC),
+                fill_ratio_percent=90,
+                channel="LOG",
+                status="RECORDED",
+                message="Historical warning",
+                event_type="collection_required",
+                severity="warning",
+            ),
+        ]
+    )
+    await test_db_session.commit()
+    before = (await client.get("/api/v1/notifications")).json()["items"][0]
+    assert before["title"] == "스크랩 적재율 경고 알림"
+    pit.critical_threshold_percent = 85
+    await test_db_session.commit()
+    after = (await client.get("/api/v1/notifications")).json()["items"][0]
+    assert after["title"] == before["title"]
+    assert after["severity"] == "warning" and after["detail"] == before["detail"]
 
 
 @pytest.mark.asyncio

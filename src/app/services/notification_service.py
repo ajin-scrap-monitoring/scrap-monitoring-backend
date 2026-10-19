@@ -40,15 +40,28 @@ def _parse_notification_id(notification_id: str) -> int | None:
 
 
 def _format_notification_title(log: AlertLog) -> str:
-    """Derive user-friendly notification title from alert log."""
+    """Describe the recorded event without reclassifying it by a fixed fill threshold."""
     if "테스트 알림" in log.message:
         if log.status == "RECORDED":
             return "테스트 알림 요청 기록"
         return "테스트 알림 발송"
-    if log.fill_ratio_percent >= 85.0:
-        return "스크랩 수거 필요 알림 (위험 임계치 초과)"
-    if log.fill_ratio_percent >= 75.0:
-        return "스크랩 적재율 경고 알림"
+    event_titles = {
+        "pre_collection_alert": "스크랩 적재율 사전 경고 알림",
+        "collection_started": "스크랩 수거 시작 알림",
+        "collection_completed": "스크랩 수거 완료 알림",
+        "measurement_error": "측정 오류 알림",
+        "device_error": "장비 오류 알림",
+        "video_delay": "영상 지연 알림",
+    }
+    if log.event_type in event_titles:
+        return event_titles[log.event_type]
+    if log.event_type == "collection_required":
+        # The persisted severity reflects the policy at event time, including custom thresholds.
+        if log.severity == "error":
+            return "스크랩 수거 필요 알림 (위험 임계치 초과)"
+        if log.severity == "warning":
+            return "스크랩 적재율 경고 알림"
+        return "스크랩 수거 관련 알림"
     return "시스템 운영 알림"
 
 
