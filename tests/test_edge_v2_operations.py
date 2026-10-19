@@ -227,7 +227,9 @@ async def test_alert_history_notification_and_pending_snapshot(client, test_db_s
     await send(client, assessment("pending", 0.2, NOW + timedelta(seconds=1)))
     pending = await build_snapshot(db, monitoring_source("pit-demo"), NOW + timedelta(seconds=1))
     assert pending.operations.lastKnownState == "CRITICAL"
-    assert pending.operations.effectiveState == "UNKNOWN"
+    assert pending.operations.effectiveState == "CRITICAL"
+    assert pending.operations.evaluationSource == "RECENT_PERSISTED"
+    assert pending.operations.lastEvaluatedAt == NOW
     assert pending.snapshotId != initial.snapshotId
 
 

@@ -32,7 +32,20 @@ DB 초기화 시 `edge_v2_operations`와 `edge_v2_alert_links` 두 테이블을 
 
 경보는 기존 알림함 `/api/v1/notifications`에 `collection_required`, `severity: error`로 표시하고 기존 읽음 처리 API를 사용한다. `channel: LOG`, `status: RECORDED`는 DB 기록을 뜻한다. SMTP·문자 등의 외부 발송 성공을 뜻하지 않는다. 외부 발송과 v2 자동 카메라 녹화 연결은 별도 후속 작업이다. 미디어 서비스가 설정되어 있어도 이 작업자는 영상 요청을 생성하지 않는다.
 
-스냅샷과 SSE의 `operations`는 비활성화 시 null이다. 활성화 시 `lastKnownState`, `lastEvaluatedAt`, `lastAlertAt`, `notificationId`를 제공한다. 현재 STATE의 평가가 끝나고 신선할 때만 `effectiveState`에 NORMAL/WARNING/CRITICAL을 표시한다. 처리 대기나 데이터 지연·연결 불명은 UNKNOWN, 판정 불가는 ERROR다. 마지막 정상 판정과 마지막 알림은 근거 확인을 위해 유지한다. 원본 적재율과 경보 평가 상태는 별개이므로 화면에서 둘을 구분한다.
+스냅샷과 SSE의 `operations`는 비활성화 시 null이다. 활성화 시 `lastKnownState`, `lastEvaluatedAt`, `lastAlertAt`, `notificationId`를 제공한다. 현재 STATE의 평가가 끝나고 신선하면 `effectiveState`에 NORMAL/WARNING/CRITICAL을 표시한다. 새 관측이 먼저 도착한 짧은 평가 대기에도 동일 장비·설정·입력 종류의 완료된 판정이 3초 미만이면 유지한다. 관측 TTL이 더 짧으면 그 시간을 따른다. 아직 평가 기록이 없거나 허용 시간을 넘긴 대기, 데이터 지연·연결 불명은 UNKNOWN, 판정 불가는 ERROR다. 마지막 정상 판정과 마지막 알림은 근거 확인을 위해 유지한다. 원본 적재율과 경보 평가 상태는 별개이므로 화면에서 둘을 구분한다.
+
+### 측정 갱신과 경보 갱신 시각
+
+측정값은 작업자의 약 1초 평가 주기보다 자주 바뀔 수 있다. 메시지 ID가 바뀔 때마다 경보를 UNKNOWN으로 바꾸지 않고, 다음 조건을 모두 만족하는 짧은 대기에는 최근 완료한 판정을 표시한다.
+
+- 현재 측정이 FRESH이고 숫자 적재율이 있으며 기존 센서·시각·높이 기준 검증을 통과한다.
+- 같은 피트·현장·장비의 완료된 평가가 있다. 현재 관측의 생성·관측 시각이 그 평가보다 모두 새롭다.
+- 평가 관측 시각의 나이가 `min(3초, 관측 TTL)` 미만이다. 미래 시각의 평가 기록은 재사용하지 않는다.
+- 이전 평가 메시지의 수집 메타데이터가 남아 있고 현재와 설정 버전·입력 종류가 같다. 피트 설정이 그 평가 뒤 수정됐다면 재사용하지 않는다.
+
+`operations.evaluationSource=CURRENT_OBSERVATION`은 최신 메시지까지 평가된 상태, `RECENT_PERSISTED`는 위 조건을 통과한 최근 판정이다. 그 외에는 null이다. 최근 판정을 표시하는 동안 `reasonCodes`에 `OPERATIONS_EVALUATION_PENDING`을 제공한다. 허용 범위를 벗어난 대기는 `OPERATIONS_EVALUATION_UNAVAILABLE`로 구분한다.
+
+`lastEvaluatedAt`은 실제 완료한 평가의 관측 시각 그대로다. snapshot의 `measuredAt`과 일치하는 시각으로 바꾸지 않는다. 현재 적재율 숫자와 최근 판정의 시각은 서로 다를 수 있다. 새 판단·히스테리시스·3초 지속 확인·쿨다운·알림 기록은 기존 작업자 한 곳에서 계속 처리한다. snapshot/SSE/활성 경보 조회는 작업자를 실행하거나 DB 기록을 만들지 않는다. 작업자가 멈추면 최신 측정이 계속 들어와도 최근 판정 허용 시간이 지난 뒤 UNKNOWN으로 전환한다.
 
 현재 배포는 Uvicorn 단일 worker다. 프로세스 내 잠금과 DB 트랜잭션으로 처리하며 작업자 종료 시 태스크를 취소·회수한다. 사용자 세션은 DB에서 공유하지만 다중 worker·복제 배포에는 DB 기반 분산 작업 선점이 추가로 필요하다. 피트에 다른 장치를 다시 연결하면 기존 피트의 위험 상태와 쿨다운을 보존하고 새 장치의 신선한 STATE부터 평가한다.
 

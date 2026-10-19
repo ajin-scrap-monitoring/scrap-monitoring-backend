@@ -31,6 +31,47 @@ from src.app.services.height_reference import clock_allowed, height_reference
 from src.app.services.lidar_height import height_profile
 from src.app.services.simulation_height import simulation_profile
 
+# Allow one-second worker scheduling, but expose a stopped worker promptly.
+MAX_PENDING_EVALUATION_SECONDS = 3
+
+
+async def recent_operation_matches(
+    db: AsyncSession,
+    source: MonitoringSource,
+    row: EdgeV2Operation,
+    generated_at: datetime,
+    observed_at: datetime,
+    config_revision: str,
+    message_type: str,
+    config: PitConfig | None,
+    now: datetime,
+) -> bool:
+    """A brief pending observation can retain a fresh, compatible committed judgment."""
+    if not (
+        timedelta(0)
+        <= now - utc(row.observed_at)
+        < timedelta(
+            seconds=min(
+                MAX_PENDING_EVALUATION_SECONDS, get_settings().EDGE_V2_ASSESSMENT_TTL_SECONDS
+            )
+        )
+        and generated_at > utc(row.generated_at)
+        and observed_at > utc(row.observed_at)
+    ):
+        return False
+    if config and utc(config.updated_at) > utc(row.observed_at):
+        return False
+    receipt = (
+        await db.execute(
+            select(EdgeV2Message.config_revision, EdgeV2Message.message_type).where(
+                EdgeV2Message.site_id == source.site_id,
+                EdgeV2Message.edge_id == source.edge_id,
+                EdgeV2Message.message_id == row.message_id,
+            )
+        )
+    ).one_or_none()
+    return receipt is not None and receipt == (config_revision, message_type)
+
 
 def monitoring_source(pit_id: str) -> MonitoringSource:
     for source in get_settings().EDGE_V2_MONITORING_SOURCES:
@@ -143,6 +184,28 @@ async def build_snapshot(
             if settings.EDGE_V2_HEIGHT_FILL_ENABLED
             else assessment is not None and row.message_id == assessment.message_id
         )
+        evaluation_source: Literal["CURRENT_OBSERVATION", "RECENT_PERSISTED"] | None = (
+            "CURRENT_OBSERVATION" if evaluated and state == "FRESH" else None
+        )
+        observation = fill_observation if settings.EDGE_V2_HEIGHT_FILL_ENABLED else assessment
+        if not evaluated and state == "FRESH" and percent is not None and row and observation:
+            pending = measured_at is not None and await recent_operation_matches(
+                db,
+                source,
+                row,
+                observation.generated_at,
+                measured_at,
+                observation.config_revision,
+                "lidar_measurement" if settings.EDGE_V2_HEIGHT_FILL_ENABLED else "edge_assessment",
+                config,
+                now,
+            )
+            if pending:
+                evaluated = True
+                evaluation_source = "RECENT_PERSISTED"
+                reasons.append("OPERATIONS_EVALUATION_PENDING")
+            else:
+                reasons.append("OPERATIONS_EVALUATION_UNAVAILABLE")
         effective = (
             row.state
             if evaluated and row and state == "FRESH"
@@ -154,6 +217,7 @@ async def build_snapshot(
             lastEvaluatedAt=utc(row.observed_at) if row else None,
             lastAlertAt=utc(row.last_alert_at) if row and row.last_alert_at else None,
             notificationId=f"notif-{row.last_alert_id}" if row and row.last_alert_id else None,
+            evaluationSource=evaluation_source,
         )
     critical_threshold = (
         config.critical_threshold_percent if config else settings.EDGE_V2_CRITICAL_THRESHOLD

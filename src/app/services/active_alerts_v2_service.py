@@ -18,6 +18,8 @@ async def active_fill_alerts(
     operations = snapshot.operations
     state = operations.effectiveState if operations else "UNKNOWN"
     result = ActiveFillAlertPageV2(pitId=source.pit_id, computedAt=now, evaluationState=state)
+    if operations and operations.evaluationSource == "RECENT_PERSISTED":
+        result.reasonCodes = ["OPERATIONS_EVALUATION_PENDING"]
     if operations is None:
         result.reasonCodes = ["OPERATIONS_DISABLED"]
         return result
@@ -45,6 +47,8 @@ async def active_fill_alerts(
             severity="error" if critical else "warning",
             title="스크랩 수거 필요" if critical else "스크랩 적재율 경고",
             evaluatedAt=operations.lastEvaluatedAt,
+            measuredAt=snapshot.measuredAt,
+            evaluationSource=operations.evaluationSource,
             loadPercent=value,
             simulated=snapshot.summary.simulated,
             # A warning must not link to a previous critical notification.

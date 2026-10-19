@@ -43,7 +43,7 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | `summary.warningThresholdPercent`, `summary.collectionThresholdPercent`, `summary.recoveryThresholdPercent` | 경고·위험 진입·위험 복귀 임계치 |
 | `assessment` | 선택한 STATE의 원본 판정·기능 상태·근거 참조. 없으면 null |
 | `deviceStatus` | 기존 v2 장비 상태 조회와 동일한 연결 상태·원본 snapshot |
-| `operations` | 선택적으로 활성화한 경보 처리 상태. 자세한 설정은 [V2_OPERATIONS.md](V2_OPERATIONS.md) 참고 |
+| `operations` | 선택적으로 활성화한 경보 처리 상태. `evaluationSource`로 최신 관측 평가/짧은 대기의 최근 완료 판정을 구분한다. 실제 평가 시각은 `lastEvaluatedAt`을 사용한다. 자세한 설정은 [V2_OPERATIONS.md](V2_OPERATIONS.md) 참고 |
 
 `assessment`에는 점 배열이나 영상이 없다. 명시적 높이 모드를 켜지 않은 기본 설정에서는 보정 좌표를 높이로 간주하거나 점으로 적재율을 계산하지 않는다. 임의의 `fill_state` 문자열을 기존 NORMAL/WARNING/CRITICAL로 추정하지 않고 그대로 제공한다. 유효한 0%는 `0`, 판정 불가는 `null`이므로 프론트엔드는 둘을 구분해야 한다.
 
