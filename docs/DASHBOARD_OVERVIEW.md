@@ -10,7 +10,8 @@
 | 적재율 경보 | snapshot의 `operations.effectiveState` | UNKNOWN/ERROR와 NORMAL 구분 |
 | 최근 24시간·1시간 전 적재율 | `/api/v2/monitoring/load-history` | 유효한 해당 구간을 사용, 현재값으로 과거를 채우지 않음 |
 | LiDAR 1·2 높이 | `/api/v2/monitoring/profiles` | 센서 ID로 연결, cm 단위. API가 있는데 화면이 고정 미지원이면 화면 연결 필요 |
-| 최근 수거 후 경과·평균 수거 주기 | `/api/v2/monitoring/collection-summary` | 확정 완료·높이 감소 감지를 구분, 활동 시각은 lastCollectionActivityAt 사용 |
+| 최근 수거 후 경과 | 기존 `/api/v1/events?category=collection&page=1&pageSize=1`의 `occurredAt` | 사람의 완료 또는 자동 종료 판단 중 최신 항목. 시작 감지는 제외 |
+| 수거 통계 | `/api/v2/monitoring/collection-summary` | 사람의 완료 통계와 자동 판단 구분, 종료 기준 활동 시각은 lastCollectionActivityAt 사용 |
 | 현재 활성 적재율 경보 | `/api/v2/monitoring/active-alerts` | 현재 판정 기준이며 과거 알림 목록과 구분 |
 | 과거 알림·읽음 상태 | `/api/v2/monitoring/alerts`, `/api/v1/notifications` | 읽지 않은 과거 경보가 현재도 활성이라는 뜻은 아님 |
 | 예상 도달·남은 시간 | 예측 API 미구현 | 완료 시각이나 증가 속도를 임의의 고정 값으로 표시하지 않음 |
@@ -41,7 +42,7 @@
 
 ## 높이 감소로 감지한 수거 활동
 
-[높이 감소 수거 감지](HEIGHT_COLLECTION_DETECTION.md)를 활성화하면 같은 통계 API의 `lastCollectionActivityAt / secondsSinceLastCollectionActivity / activitySource`로 마지막 수거 감지 후 경과를 표시한다. 기존 `lastCollectionAt`은 사람의 완료 확인 기록으로 보존한다. 감지와 종료 추정을 완료 확정으로 표시하지 않는다. 감지 이력은 `/api/v2/monitoring/collection-detections`에서 조회한다.
+[높이 감소 수거 감지](HEIGHT_COLLECTION_DETECTION.md)를 활성화하면 같은 통계 API의 `lastCollectionActivityAt / secondsSinceLastCollectionActivity / activitySource`로 마지막 수거 종료 판단 후 경과를 제공한다. 수거 시작만으로 경과 시간을 초기화하지 않는다. 기존 `lastCollectionAt`은 사람의 완료 확인 기록으로 보존한다. 자동 종료는 HEIGHT_SETTLED 출처로 구분한다. 기존 화면은 위 이벤트 API에서 같은 종료 시간을 읽으므로 경과 시간 항목을 위해 화면 코드를 수정할 필요는 없다. 감지 이력은 `/api/v2/monitoring/collection-detections`에서 조회한다.
 
 ## 현재 활성 적재율 경보
 

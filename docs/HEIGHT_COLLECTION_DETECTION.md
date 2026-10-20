@@ -47,8 +47,9 @@
 
 | 필드 | 표시 용도 |
 | --- | --- |
-| `lastCollectionActivityAt / secondsSinceLastCollectionActivity` | 마지막 수거 활동·경과 초. 확인된 완료 또는 현재 감지 기준의 감지 중 더 최근 시각 |
-| `activitySource` | `CONFIRMED_COMPLETION / HEIGHT_DETECTION / null`. 감지를 확정 완료로 표시하지 않음 |
+| `lastCollectionActivityAt / secondsSinceLastCollectionActivity` | 마지막 수거 종료·경과 초. 사람의 완료 확인 또는 현재 감지 기준의 종료 판단 중 더 최근 시각 |
+| `activitySource` | `CONFIRMED_COMPLETION / HEIGHT_SETTLED / null`. 감지 시작만으로 종료 시간을 갱신하지 않음 |
+| `lastSettledCollectionAt / secondsSinceLastSettlement` | 마지막 자동 종료 판단 시각·경과 초 |
 | `lastDetectedCollectionAt / secondsSinceLastDetection` | 마지막 자동 감지 시각·경과 초 |
 | `detectedCollectionsInWindow` | 기간 내 감지 작업 수. 감지·종료 두 이벤트를 두 작업으로 세지 않음 |
 | `averageDetectedCollectionCycleSeconds` | 감지 간격의 평균 초, 최소 2개 필요. 확정 완료 주기와 별도 |
@@ -58,4 +59,16 @@
 
 감지 통계는 현재 장비 연결·높이 방법·감지 설정과 같은 `scopeToken`만 집계한다. 기준이 달라진 기록을 섞어 평균하지 않는다. 다른 기준의 과거 이벤트는 감지 이력에 남는다. 실제 기록이 없으면 시각·경과·평균은 null이다.
 
-`GET /api/v2/monitoring/collection-detections?pit_id=pit-demo&limit=20&offset=0`은 `StateEventPageV2` 형식으로 감지·종료 추정 이벤트를 반환한다. `limit` 1~100, `offset` 0~10000이며 피트·현장·장비 범위로 구분한다. 모든 조회는 `Cache-Control: no-store`다. 화면 담당자는 활동 시각과 `activitySource`를 연결하고 ‘수거 감지’라는 의미를 표시해야 한다. API 추가만으로 고정 화면 문구가 바뀌지는 않는다.
+`GET /api/v2/monitoring/collection-detections?pit_id=pit-demo&limit=20&offset=0`은 `StateEventPageV2` 형식으로 감지·종료 추정 이벤트를 반환한다. `limit` 1~100, `offset` 0~10000이며 피트·현장·장비 범위로 구분한다. 모든 조회는 `Cache-Control: no-store`다. 새 연결에서는 종료 기준 활동 시각과 `activitySource`를 사용한다. 기존 화면의 경과 시간 항목은 아래 호환 경로를 통해 별도 화면 수정 없이 값을 읽는다.
+
+## 기존 ‘최근 수거 후 경과’ 연결
+
+기존 화면은 `GET /api/v1/events?pit_id=pit-demo&category=collection&page=1&pageSize=1`의 `occurredAt`과 snapshot의 `serverTime` 차이를 시간·분으로 표시한다. 고정된 ‘정보 없음’ 문구가 아니며 조회 결과가 없을 때만 해당 문구를 사용한다.
+
+기존 화면의 수거 기록 재조회 주기는 약 1분이다. 종료 판단이 저장된 뒤 화면에 반영되기까지 이 조회 주기만큼 걸릴 수 있으며, 경과 시간 자체는 화면이 조회한 시점이 아닌 저장된 종료 판단 시각부터 계산한다.
+
+백엔드는 저장된 `COLLECTION_SETTLED`를 이 조회의 수거 종료 항목으로 함께 제공한다. 기존 화면의 검사에 맞춰 `type=collection_completed / category=collection / status=completed`를 유지하되, 자동 항목의 `title=수거 종료 감지`, `collectionSource=HEIGHT_SETTLED`, `confirmedCompletion=false`, `simulated`, `detectionId`로 판단 출처를 명시한다. 이 호환 type/status는 사람이 확인했다는 뜻이 아니다. 사람의 기존 기록에는 `collectionSource=MANUAL_CONFIRMATION / confirmedCompletion=true`를 제공한다.
+
+수거 시작(`COLLECTION_DETECTED`)은 이 목록에 넣지 않는다. 수거 중에는 이전 종료 시각을 유지하고 이번 종료 판단이 저장된 뒤에만 최신 시각이 바뀐다. 첫 종료 전에는 계속 정보 없음이다. 피트·현장·장비·현재 계산 방법과 감지 기준이 일치하는 종료만 포함하며 미래 기록을 제외한다. 다른 종류의 이벤트와 날짜·페이지 필터는 기존 규칙을 따른다. 자동 감지 중지 뒤에도 같은 기준으로 저장한 종료 이력은 조회할 수 있다.
+
+조회 때 사람의 `CollectionLog`를 생성하거나 알림·확인자를 만들어 넣지 않는다. 종료 시각은 안정 유지 조건을 충족해 판단한 관측 시각이며 실제 마지막 중장비 동작 시각을 소급 추정하지 않는다. 작업자가 종료 안정 시간보다 오래 쉬면 작업이 나뉠 수 있다. 현재 연결은 경과 시간용 이벤트 목록에 한정하며 기존 수거 확인 API·사람의 완료 통계·녹화 요청을 자동 생성하지 않는다. 대시보드 저장소 수정은 필요하지 않다.

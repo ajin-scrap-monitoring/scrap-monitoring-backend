@@ -137,6 +137,7 @@ def enabled_detector(angle_context, monkeypatch):
             return now.astimezone(tz) if tz else now.replace(tzinfo=None)
 
     monkeypatch.setattr("src.app.services.collection_summary_v2_service.datetime", Clock)
+    monkeypatch.setattr("src.app.services.collection_ended_service.datetime", Clock)
     get_settings.cache_clear()
     yield angle_context
     get_settings.cache_clear()
@@ -163,9 +164,21 @@ async def test_worker_persists_detection_summary_and_history_without_confirmed_c
 ):
     db = test_db_session
     await simulation.prepare(client, db)
+    await login(client)
     heights = [80] * 10 + [75, 70, 65, 60, 55, 50, 45, 40] + [40] * 12
+    collecting_checked = False
     for second, height in enumerate(heights):
         await detector_frame(client, db, enabled_detector, second, height)
+        if [row.kind for row in await event_rows(db)] == ["COLLECTION_DETECTED"]:
+            collecting_checked = True
+            response = await client.get("/api/v1/events?pit_id=pit-demo&category=collection")
+            assert response.json()["items"] == []
+            pending = await collection_summary(
+                db, monitoring_source("pit-demo"), now=START + timedelta(seconds=second)
+            )
+            assert pending.lastCollectionActivityAt is None
+            assert pending.detectionState == "COLLECTING"
+    assert collecting_checked
     rows = await event_rows(db)
     assert [row.kind for row in rows] == ["COLLECTION_DETECTED", "COLLECTION_SETTLED"]
     assert rows[0].payload["detectionId"] == rows[1].payload["detectionId"]
@@ -177,8 +190,9 @@ async def test_worker_persists_detection_summary_and_history_without_confirmed_c
     now = START + timedelta(seconds=len(heights) - 1)
     result = await collection_summary(db, source, now=now)
     assert result.lastCollectionAt is None
-    assert result.lastCollectionActivityAt == result.lastDetectedCollectionAt
-    assert result.activitySource == "HEIGHT_DETECTION"
+    assert result.lastCollectionActivityAt == result.lastSettledCollectionAt
+    assert result.lastSettledCollectionAt > result.lastDetectedCollectionAt
+    assert result.activitySource == "HEIGHT_SETTLED"
     assert result.detectedCollectionsInWindow == 1
     assert result.secondsSinceLastCollectionActivity > 0
     assert result.detectionDropMeters == 0.2
@@ -192,13 +206,31 @@ async def test_worker_persists_detection_summary_and_history_without_confirmed_c
     assert (
         await db.get(EdgeV2Latest, (source.site_id, source.edge_id, TRACKER_KIND))
     ).payload == before
-    await login(client)
+    legacy = await client.get("/api/v1/events?pit_id=pit-demo&category=collection&pageSize=1")
+    assert legacy.status_code == 200
+    ended = legacy.json()["items"][0]
+    assert legacy.json()["page"]["totalItems"] == 1
+    # These are the exact fields validated by the deployed dashboard's existing reader.
+    assert (ended["type"], ended["category"], ended["status"]) == (
+        "collection_completed",
+        "collection",
+        "completed",
+    )
+    assert datetime.fromisoformat(ended["occurredAt"]) == result.lastSettledCollectionAt
+    assert ended["collectionSource"] == "HEIGHT_SETTLED"
+    assert ended["confirmedCompletion"] is False
+    assert ended["simulated"] is True
+    assert ended["detectionId"] == rows[1].payload["detectionId"]
+    assert ended["recordingId"] is None
+    assert result.secondsSinceLastSettlement == int(
+        (now - datetime.fromisoformat(ended["occurredAt"])).total_seconds()
+    )
     response = await client.get("/api/v2/monitoring/collection-detections?pit_id=pit-demo")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["totalItems"] == 2
     summary = await client.get("/api/v2/monitoring/collection-summary?pit_id=pit-demo")
-    assert summary.json()["activitySource"] == "HEIGHT_DETECTION"
+    assert summary.json()["activitySource"] == "HEIGHT_SETTLED"
 
 
 async def test_height_drop_after_sensor_outage_is_not_a_new_collection(
@@ -246,12 +278,12 @@ async def test_detection_summary_scope_time_average_and_manual_completion_are_di
     source = monitoring_source("pit-demo")
     scope = collection_scope(source, await db.get(PitConfig, "pit-demo"))
 
-    def event(second, **overrides):
+    def event(second, kind="COLLECTION_DETECTED", **overrides):
         return EdgeV2Transition(
             site_id=source.site_id,
             edge_id=source.edge_id,
             occurred_at=START + timedelta(seconds=second),
-            kind="COLLECTION_DETECTED",
+            kind=kind,
             payload={"pitId": source.pit_id, "scopeToken": scope, **overrides},
         )
 
@@ -260,6 +292,8 @@ async def test_detection_summary_scope_time_average_and_manual_completion_are_di
             event(0),
             event(10),
             event(20),
+            event(5, kind="COLLECTION_SETTLED"),
+            event(15, kind="COLLECTION_SETTLED"),
             event(40),
             event(25, scopeToken="other"),
             event(26, pitId="other-pit"),
@@ -269,8 +303,8 @@ async def test_detection_summary_scope_time_average_and_manual_completion_are_di
     summary = await collection_summary(db, source, now=START + timedelta(seconds=30))
     assert summary.detectedCollectionsInWindow == 3
     assert summary.averageDetectedCollectionCycleSeconds == 10
-    assert summary.activitySource == "HEIGHT_DETECTION"
-    assert summary.secondsSinceLastCollectionActivity == 10
+    assert summary.activitySource == "HEIGHT_SETTLED"
+    assert summary.secondsSinceLastCollectionActivity == 15
     assert summary.completedCollectionsInWindow == 0
     db.add(
         CollectionLog(
@@ -313,3 +347,84 @@ async def test_failed_commit_retries_detection_without_duplicates(
     assert len(await event_rows(db)) == 1
     await process_collection_source(db, source, START + timedelta(seconds=14))
     assert len(await event_rows(db)) == 1
+
+
+async def test_legacy_elapsed_keeps_last_end_during_next_collection_and_filters_scope(
+    client, test_db_session, enabled_detector
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    scope = collection_scope(source, await db.get(PitConfig, source.pit_id))
+    now = START + timedelta(seconds=30)
+    enabled_detector["now"] = now
+
+    def ended(second, kind="COLLECTION_SETTLED", site=None, edge=None, **payload):
+        return EdgeV2Transition(
+            site_id=site or source.site_id,
+            edge_id=edge or source.edge_id,
+            occurred_at=START + timedelta(seconds=second),
+            kind=kind,
+            payload={
+                "pitId": source.pit_id,
+                "scopeToken": scope,
+                "detectionId": f"toy-{second}",
+                "simulated": True,
+                "confirmedCompletion": False,
+                **payload,
+            },
+        )
+
+    db.add_all(
+        [
+            ended(0),
+            ended(10),
+            ended(20, kind="COLLECTION_DETECTED"),
+            ended(25, pitId="other"),
+            ended(26, scopeToken="old-criteria"),
+            ended(27, site="other"),
+            ended(28, edge="other"),
+            ended(40),
+        ]
+    )
+    await db.commit()
+    url = "/api/v1/events?pit_id=pit-demo&category=collection&pageSize=1"
+    await login(client)
+    data = (await client.get(url)).json()
+    assert data["page"]["totalItems"] == 2
+    assert data["page"]["totalPages"] == 2
+    assert datetime.fromisoformat(data["items"][0]["occurredAt"]) == START + timedelta(seconds=10)
+    assert (await client.get(url + "&page=2")).json()["items"][0]["detectionId"] == "toy-0"
+    result = await collection_summary(db, source, now=now)
+    assert result.lastDetectedCollectionAt == START + timedelta(seconds=20)
+    assert result.secondsSinceLastCollectionActivity == 20
+    assert result.secondsSinceLastSettlement == 20
+    bounded = await client.get(
+        url + "&from=" + (START + timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+    )
+    assert bounded.json()["page"]["totalItems"] == 1
+    assert (await client.get(url.replace("pit-demo", "unconfigured"))).json()["items"] == []
+    assert (await client.get(url.replace("category=collection", "category=alert"))).json()[
+        "items"
+    ] == []
+    # A later end, rather than the start above, advances the display exactly once.
+    db.add(ended(29))
+    await db.commit()
+    result = await collection_summary(db, source, now=now)
+    assert result.secondsSinceLastCollectionActivity == 1
+    data = (await client.get(url)).json()
+    assert data["page"]["totalItems"] == 3
+    assert data["items"][0]["detectionId"] == "toy-29"
+    db.add(
+        CollectionLog(
+            pit_id=source.pit_id,
+            completed_at=now,
+            residual_height_cm=10,
+            operator_name="Synthetic operator",
+        )
+    )
+    await db.commit()
+    latest = (await client.get(url)).json()["items"][0]
+    assert latest["confirmedCompletion"] is True
+    assert latest["collectionSource"] == "MANUAL_CONFIRMATION"
+    assert latest["id"].startswith("evt-col-")
