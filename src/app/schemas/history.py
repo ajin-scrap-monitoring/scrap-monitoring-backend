@@ -79,6 +79,10 @@ class Event(BaseModel):
     occurredAt: datetime
     resolvedAt: datetime | None = None
     recordingId: str | None = None
+    collectionSource: Literal["MANUAL_CONFIRMATION", "HEIGHT_SETTLED"] | None = None
+    confirmedCompletion: bool | None = None
+    simulated: bool | None = None
+    detectionId: str | None = None
 
 
 class PageMetadata(BaseModel):

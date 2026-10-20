@@ -60,12 +60,12 @@ async def collection_summary(
     if not cycles:
         reasons.append("INSUFFICIENT_COLLECTIONS_IN_WINDOW")
     detection = await detection_summary(db, source, start, now)
-    last_detected = detection.lastDetectedCollectionAt
-    activity_at = max((at for at in (last, last_detected) if at is not None), default=None)
+    last_settled = detection.lastSettledCollectionAt
+    activity_at = max((at for at in (last, last_settled) if at is not None), default=None)
     activity_source = (
         "CONFIRMED_COMPLETION"
         if activity_at is not None and activity_at == last
-        else "HEIGHT_DETECTION"
+        else "HEIGHT_SETTLED"
         if activity_at is not None
         else None
     )
@@ -106,24 +106,31 @@ async def detection_summary(
         result.detectionReasonCodes = ["DETECTION_NOT_CONFIGURED"]
         return result
     event = EdgeV2Transition
-    stamp = case((event.occurred_at >= start, event.occurred_at), else_=None)
+    detected = case((event.kind == "COLLECTION_DETECTED", event.occurred_at), else_=None)
+    stamp = case((event.occurred_at >= start, detected), else_=None)
     row = (
         await db.execute(
             select(
-                func.max(event.occurred_at).label("last"),
+                func.max(detected).label("last"),
+                func.max(
+                    case((event.kind == "COLLECTION_SETTLED", event.occurred_at), else_=None)
+                ).label("last_settled"),
                 func.count(stamp).label("event_count"),
                 func.min(stamp).label("first_in_window"),
                 func.max(stamp).label("last_in_window"),
             ).where(
                 event.site_id == source.site_id,
                 event.edge_id == source.edge_id,
-                event.kind == "COLLECTION_DETECTED",
+                event.kind.in_(["COLLECTION_DETECTED", "COLLECTION_SETTLED"]),
                 event.occurred_at <= now,
                 event.payload["pitId"].as_string() == source.pit_id,
                 event.payload["scopeToken"].as_string() == scope,
             )
         )
     ).one()
+    if row.last_settled is not None:
+        result.lastSettledCollectionAt = utc(row.last_settled)
+        result.secondsSinceLastSettlement = int((now - utc(row.last_settled)).total_seconds())
     if row.last is not None:
         result.lastDetectedCollectionAt = utc(row.last)
         result.secondsSinceLastDetection = int((now - utc(row.last)).total_seconds())

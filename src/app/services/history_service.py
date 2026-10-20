@@ -19,6 +19,7 @@ from src.app.schemas.history import (
     PageMetadata,
 )
 from src.app.schemas.monitoring import LoadSample
+from src.app.services.collection_ended_service import collection_ended_events
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -214,8 +215,14 @@ class HistoryService:
                         occurredAt=_ensure_utc(c.completed_at),
                         resolvedAt=_ensure_utc(c.completed_at),
                         recordingId=None,
+                        collectionSource="MANUAL_CONFIRMATION",
+                        confirmedCompletion=True,
                     )
                 )
+
+            # The existing dashboard reads only ended collections for its elapsed clock.
+            # Starts stay in the v2 detection history and never replace the previous end.
+            events.extend(await collection_ended_events(db, pit_id, from_time, to_time))
 
         # 2. Alerts
         if category in ("all", "alert"):

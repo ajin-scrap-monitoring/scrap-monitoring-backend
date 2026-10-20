@@ -32,6 +32,8 @@ class DetectionSummary(BaseModel):
     detectionSettleSeconds: int
     lastDetectedCollectionAt: datetime | None = None
     secondsSinceLastDetection: int | None = Field(default=None, ge=0)
+    lastSettledCollectionAt: datetime | None = None
+    secondsSinceLastSettlement: int | None = Field(default=None, ge=0)
     detectedCollectionsInWindow: int = Field(default=0, ge=0)
     averageDetectedCollectionCycleSeconds: float | None = Field(default=None, ge=0)
     detectionSimulated: bool | None = None
