@@ -87,6 +87,19 @@ async def state_event_history(
     return await state_events(db, source, limit, offset)
 
 
+@router.get("/collection-detections", response_model=StateEventPageV2)
+async def collection_detection_history(
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> StateEventPageV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await state_events(db, source, limit, offset, collection_detections_only=True)
+
+
 @router.get("/load-history", response_model=LoadHistoryV2)
 async def get_load_history(
     response: Response,
