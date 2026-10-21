@@ -15,7 +15,9 @@ from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.services.collection_detection_service import (
     MAX_GAP_SECONDS,
     TRACKER_KIND,
+    collection_profile,
     collection_scope,
+    collection_settle_seconds,
 )
 from src.app.services.edge_v2_service import utc
 
@@ -97,7 +99,9 @@ async def detection_summary(
         detectionEnabled=settings.EDGE_V2_COLLECTION_DETECTION_ENABLED,
         detectionDropMeters=settings.EDGE_V2_COLLECTION_DROP_METERS,
         detectionConfirmSeconds=settings.EDGE_V2_COLLECTION_CONFIRM_SECONDS,
-        detectionSettleSeconds=settings.EDGE_V2_COLLECTION_SETTLE_SECONDS,
+        detectionSettleSeconds=collection_settle_seconds(source),
+        detectionProfile=collection_profile(source),
+        detectionHeightBasis=settings.EDGE_V2_COLLECTION_HEIGHT_BASIS,
     )
     pit = await db.get(PitConfig, source.pit_id)
     scope = collection_scope(source, pit)

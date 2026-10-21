@@ -22,6 +22,9 @@ class CollectionTracker(BaseModel):
     candidate_since: datetime | None = None
     episode_id: str | None = None
     simulated: bool = False
+    quiet_since: datetime | None = None
+    progress_anchor_cm: float | None = None
+    progress_candidate_since: datetime | None = None
 
 
 class DetectionSummary(BaseModel):
@@ -38,3 +41,6 @@ class DetectionSummary(BaseModel):
     averageDetectedCollectionCycleSeconds: float | None = Field(default=None, ge=0)
     detectionSimulated: bool | None = None
     detectionReasonCodes: list[str] = Field(default_factory=list)
+    detectionProfile: Literal["FIELD", "SIMULATION"] = "FIELD"
+    detectionHeightBasis: Literal["UPPER", "REPRESENTATIVE"] = "UPPER"
+    detectionEndPolicy: Literal["NO_FURTHER_DROP"] = "NO_FURTHER_DROP"

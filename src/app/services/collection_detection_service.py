@@ -1,6 +1,8 @@
 """Cumulative height-drop detection, driven only by new valid worker observations."""
 
 from datetime import UTC, datetime, timedelta
+from statistics import median
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +11,77 @@ from src.app.core.config import get_settings
 from src.app.models.config import PitConfig
 from src.app.models.edge_v2_projection import EdgeV2Latest, EdgeV2Transition
 from src.app.schemas.collection_detection import CollectionTracker
+from src.app.schemas.fill_observation import FillObservation
+from src.app.schemas.lidar_height import SimulationHeightReference
 from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
 from src.app.services.height_fill_service import height_method
-from src.app.services.height_reference import height_reference, reference_depth
+from src.app.services.height_median_service import HeightWindow, window_scope
+from src.app.services.height_reference import height_reference, reference_depth, reference_sensors
 from src.app.services.monitoring_v2_service import build_snapshot
 
 TRACKER_KIND = "collection_tracker"
 MAX_GAP_SECONDS = 3
+DETECTION_VERSION = "UPPER_NO_FURTHER_DROP_V2"
+
+
+def collection_profile(source: MonitoringSource) -> Literal["FIELD", "SIMULATION"]:
+    """Only explicit private simulation geometry selects short timing, never drop speed."""
+    return (
+        "SIMULATION"
+        if isinstance(height_reference(source.pit_id), SimulationHeightReference)
+        else "FIELD"
+    )
+
+
+def collection_settle_seconds(source: MonitoringSource) -> int:
+    settings = get_settings()
+    return (
+        settings.EDGE_V2_COLLECTION_SIMULATION_SETTLE_SECONDS
+        if collection_profile(source) == "SIMULATION"
+        else settings.EDGE_V2_COLLECTION_SETTLE_SECONDS
+    )
+
+
+async def collection_height(
+    db: AsyncSession,
+    source: MonitoringSource,
+    observation: FillObservation,
+    representative_cm: float,
+    now: datetime,
+) -> float | None:
+    """Median of per-scan maxima, then maximum across the configured sensors (cm).
+
+    This is a stable observed upper height, not an unseen whole-pit maximum. A remaining
+    high scrap point or sustained arm occlusion can still delay or bias detection.
+    """
+    if get_settings().EDGE_V2_COLLECTION_HEIGHT_BASIS == "REPRESENTATIVE":
+        return representative_cm
+    reference = height_reference(source.pit_id)
+    row = await db.get(EdgeV2Latest, (source.site_id, source.edge_id, "height_window"))
+    if reference is None or row is None or row.message_id != observation.message_id:
+        return None
+    window = HeightWindow.model_validate(row.payload)
+    if window.scope != await window_scope(db, source, now):
+        return None
+    size = get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS
+    values: list[float] = []
+    latest_times: list[datetime] = []
+    for sensor in reference_sensors(reference):
+        history = window.sensors.get(sensor)
+        if history is None or len(history.frames) != size:
+            return None
+        if any(frame.maximum_cm is None for frame in history.frames):
+            return None
+        values.append(
+            float(
+                median(frame.maximum_cm for frame in history.frames if frame.maximum_cm is not None)
+            )
+        )
+        latest_times.append(history.frames[-1].at)
+    if not values or max(latest_times) != observation.observed_to:
+        return None
+    return max(values)
 
 
 def collection_scope(source: MonitoringSource, pit: PitConfig | None) -> str | None:
@@ -26,13 +91,15 @@ def collection_scope(source: MonitoringSource, pit: PitConfig | None) -> str | N
         return None
     return digest(
         [
+            DETECTION_VERSION,
             source.model_dump(),
             method,
+            settings.EDGE_V2_COLLECTION_HEIGHT_BASIS,
             settings.EDGE_V2_COLLECTION_DROP_METERS,
             settings.EDGE_V2_COLLECTION_STABLE_BAND_METERS,
             settings.EDGE_V2_COLLECTION_CONFIRM_SECONDS,
             settings.EDGE_V2_COLLECTION_BASELINE_SECONDS,
-            settings.EDGE_V2_COLLECTION_SETTLE_SECONDS,
+            collection_settle_seconds(source),
         ]
     )
 
@@ -42,13 +109,17 @@ def invalidate(state: CollectionTracker) -> None:
     state.input_valid = False
     state.stable_since = state.stable_min_cm = state.stable_max_cm = None
     state.candidate_since = None
+    state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
     if state.phase != "COLLECTING":
         state.phase = "BASELINING"
         state.baseline_cm = None
 
 
 def advance(
-    state: CollectionTracker, height_cm: float, observed: datetime
+    state: CollectionTracker,
+    height_cm: float,
+    observed: datetime,
+    settle_seconds: int | None = None,
 ) -> list[tuple[str, dict[str, object]]]:
     settings = get_settings()
     assert settings.EDGE_V2_COLLECTION_DROP_METERS is not None
@@ -69,7 +140,32 @@ def advance(
         return events
     assert state.baseline_cm is not None
     if state.phase == "COLLECTING":
-        if stable_seconds >= settings.EDGE_V2_COLLECTION_SETTLE_SECONDS:
+        # Loading may resume while work pauses. Rising height does not require a flat
+        # plateau; only a sustained further drop restarts the quiet interval.
+        if state.progress_anchor_cm is None or state.quiet_since is None:
+            state.progress_anchor_cm, state.quiet_since = height_cm, observed
+        if (
+            height_cm > state.progress_anchor_cm
+            and stable_seconds >= settings.EDGE_V2_COLLECTION_BASELINE_SECONDS
+        ):
+            state.progress_anchor_cm = max(state.progress_anchor_cm, stable_height)
+        if state.progress_anchor_cm - height_cm >= band:
+            state.progress_candidate_since = state.progress_candidate_since or observed
+            if observed - state.progress_candidate_since >= timedelta(
+                seconds=settings.EDGE_V2_COLLECTION_CONFIRM_SECONDS
+            ):
+                state.progress_anchor_cm, state.quiet_since = height_cm, observed
+                state.progress_candidate_since = None
+        else:
+            state.progress_candidate_since = None
+        wait = (
+            settle_seconds
+            if settle_seconds is not None
+            else settings.EDGE_V2_COLLECTION_SETTLE_SECONDS
+        )
+        if state.progress_candidate_since is None and observed - state.quiet_since >= timedelta(
+            seconds=wait
+        ):
             events.append(
                 (
                     "COLLECTION_SETTLED",
@@ -83,6 +179,7 @@ def advance(
             state.baseline_cm, state.phase = stable_height, "IDLE"
             state.episode_id = None
             state.candidate_since = None
+            state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
         return events
     if (
         height_cm > state.baseline_cm
@@ -99,7 +196,9 @@ def advance(
     ):
         state.episode_id = "detected-" + digest([state.scope_token, observed.isoformat()])
         state.phase = "COLLECTING"
-        # Stable time for ending the episode starts after detection, never before it.
+        # Quiet time for ending the episode starts after detection, never before it.
+        state.quiet_since, state.progress_anchor_cm = observed, height_cm
+        state.progress_candidate_since = None
         state.stable_since, state.stable_min_cm, state.stable_max_cm = (
             observed,
             height_cm,
@@ -142,6 +241,15 @@ async def process_collection_source(
     scope = collection_scope(source, pit)
     depth = reference_depth(height_reference(source.pit_id), pit.total_depth_cm if pit else None)
     observation = snapshot.fillObservation
+    height_cm = (
+        await collection_height(
+            db, source, observation, snapshot.summary.loadPercent * depth / 100.0, now
+        )
+        if observation is not None
+        and depth is not None
+        and snapshot.summary.loadPercent is not None
+        else None
+    )
     valid = (
         scope is not None
         and depth is not None
@@ -151,6 +259,8 @@ async def process_collection_source(
         and observation is not None
         and observation.observed_to is not None
         and observation.source == "HEIGHT_SECTIONS"
+        and height_cm is not None
+        and observation.simulated == (collection_profile(source) == "SIMULATION")
     )
     state = CollectionTracker.model_validate(row.payload) if row else None
     if state and (state.pit_id != source.pit_id or state.scope_token != scope):
@@ -182,7 +292,8 @@ async def process_collection_source(
         )
     elif observed - utc(state.observed_at) > timedelta(seconds=MAX_GAP_SECONDS):
         invalidate(state)
-    events = advance(state, snapshot.summary.loadPercent * depth / 100.0, observed)
+    assert height_cm is not None
+    events = advance(state, height_cm, observed, collection_settle_seconds(source))
     for kind, detail in events:
         db.add(
             EdgeV2Transition(
@@ -198,6 +309,11 @@ async def process_collection_source(
                     "methodVersion": observation.method_version,
                     "observationId": observation.observation_id,
                     "timeBasis": observation.time_basis,
+                    "detectionVersion": DETECTION_VERSION,
+                    "heightBasis": settings.EDGE_V2_COLLECTION_HEIGHT_BASIS,
+                    "detectionProfile": collection_profile(source),
+                    "settleSeconds": collection_settle_seconds(source),
+                    "endPolicy": "NO_FURTHER_DROP",
                 },
             )
         )
