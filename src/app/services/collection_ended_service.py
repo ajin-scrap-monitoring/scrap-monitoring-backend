@@ -19,7 +19,7 @@ async def collection_ended_events(
     from_time: datetime | None = None,
     to_time: datetime | None = None,
 ) -> list[Event]:
-    """Only stable-end judgments advance the existing elapsed-time display.
+    """Only persisted automatic end judgments advance the existing elapsed-time display.
 
     The legacy type/status are compatibility fields, not a human confirmation.
     Original transitions remain the source of truth; no CollectionLog is created.
@@ -53,7 +53,7 @@ async def collection_ended_events(
             severity="info",
             status="completed",
             title="수거 종료 감지",
-            detail="높이 감소 후 안정 상태가 유지되어 백엔드가 수거 종료로 판단했습니다.",
+            detail="높이 감소 후 일정 시간 추가 감소가 확인되지 않아 수거 종료로 판단했습니다.",
             occurredAt=utc(row.occurred_at),
             resolvedAt=utc(row.occurred_at),
             collectionSource="HEIGHT_SETTLED",

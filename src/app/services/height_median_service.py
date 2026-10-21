@@ -24,6 +24,8 @@ from src.app.services.height_reference import (
 class HeightFrame(BaseModel):
     at: UtcTime
     heights: list[float | None] = Field(max_length=200)
+    # One extra scalar for collection detection; legacy frames warm up without backfill.
+    maximum_cm: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class SensorWindow(BaseModel):
@@ -103,7 +105,7 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
     return SensorWindow(
         positions=positions,
         basis=profile.coverageBasis,
-        frames=[*frames, HeightFrame(at=at, heights=heights)][-size:],
+        frames=[*frames, HeightFrame(at=at, heights=heights, maximum_cm=profile.maximum)][-size:],
     )
 
 

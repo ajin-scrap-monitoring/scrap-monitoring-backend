@@ -84,7 +84,10 @@ class Settings(BaseSettings):
     )
     EDGE_V2_COLLECTION_CONFIRM_SECONDS: int = Field(default=10, ge=1, le=300)
     EDGE_V2_COLLECTION_BASELINE_SECONDS: int = Field(default=10, ge=1, le=300)
-    EDGE_V2_COLLECTION_SETTLE_SECONDS: int = Field(default=60, ge=1, le=1800)
+    # Physical work may pause between grabs; fast timing requires explicit simulation geometry.
+    EDGE_V2_COLLECTION_SETTLE_SECONDS: int = Field(default=300, ge=1, le=1800)
+    EDGE_V2_COLLECTION_SIMULATION_SETTLE_SECONDS: int = Field(default=20, ge=1, le=1800)
+    EDGE_V2_COLLECTION_HEIGHT_BASIS: Literal["UPPER", "REPRESENTATIVE"] = "UPPER"
 
     @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")
     @classmethod

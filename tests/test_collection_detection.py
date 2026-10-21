@@ -64,13 +64,14 @@ def test_gradual_cumulative_drop_and_one_episode_for_many_grabs(detector_config)
     assert events[0][1]["confirmedCompletion"] is False
     identity = state.episode_id
     assert feed(state, [580, 560, 540, 520], 15) == []
-    settled = feed(state, [520] * 6, 19)
+    # The final further drop must first persist, then the quiet interval can elapse.
+    settled = feed(state, [520] * 7, 19)
     assert [kind for kind, _ in settled] == ["COLLECTION_SETTLED"]
     assert settled[0][1]["detectionId"] == identity
     assert settled[0][1]["confirmedCompletion"] is False
     assert state.phase == "IDLE"
     # The residual height becomes the next baseline, preventing immediate rediscovery.
-    assert feed(state, [520] * 6, 25) == []
+    assert feed(state, [520] * 6, 26) == []
 
 
 def test_short_dip_and_unstable_baseline_do_not_trigger(detector_config):
@@ -128,6 +129,7 @@ def enabled_detector(angle_context, monkeypatch):
     monkeypatch.setenv("EDGE_V2_COLLECTION_BASELINE_SECONDS", "2")
     monkeypatch.setenv("EDGE_V2_COLLECTION_CONFIRM_SECONDS", "2")
     monkeypatch.setenv("EDGE_V2_COLLECTION_SETTLE_SECONDS", "3")
+    monkeypatch.setenv("EDGE_V2_COLLECTION_SIMULATION_SETTLE_SECONDS", "3")
     monkeypatch.setenv("EDGE_V2_COLLECTION_DETECTION_ENABLED", "true")
 
     class Clock(datetime):
