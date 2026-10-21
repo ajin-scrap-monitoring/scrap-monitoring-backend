@@ -1,5 +1,7 @@
 """Public invented gradual/fast sequences, not field criteria or calibration evidence."""
 
+import json
+import math
 from datetime import datetime, timedelta
 
 import pytest
@@ -21,6 +23,7 @@ from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_operations import EdgeV2OperationsWorker
 from src.app.services.edge_v2_service import utc
 from src.app.services.monitoring_v2_service import build_snapshot, monitoring_source
+from tests import test_simulation_height as simulation
 from tests.test_collection_detection import detector_frame, event_rows
 from tests.test_collection_detection import enabled_detector as enabled_detector
 from tests.test_height_fill_pipeline import START, frame, prepare
@@ -289,3 +292,86 @@ async def test_physical_profile_worker_keeps_four_minute_pause_and_ends_after_lo
     legacy = (await client.get("/api/v1/events?pit_id=pit-demo&category=collection")).json()
     assert legacy["items"][0]["occurredAt"] == summary["lastSettledCollectionAt"]
     assert legacy["items"][0]["simulated"] is False
+
+
+@pytest.mark.parametrize("initial_percent", [85, 90])
+@pytest.mark.parametrize("drain_seconds", [10, 15])
+async def test_threshold_to_zero_fast_drain_is_not_missed_after_confirmation(
+    client, test_db_session, enabled_detector, monkeypatch, initial_percent, drain_seconds
+):
+    # Expand the existing public toy box by ten, so a 3m threshold is meaningful.
+    # These invented dimensions are unrelated to a site's geometry or measurements.
+    references = [
+        ref.model_dump(mode="json") for ref in get_settings().EDGE_V2_SIMULATION_HEIGHT_REFERENCES
+    ]
+    reference = references[0]
+    for key in ("floor_z_cm", "top_z_cm"):
+        reference[key] *= 10
+    reference["boundary_xy_cm"] = [[value * 10 for value in p] for p in reference["boundary_xy_cm"]]
+    for pose in reference["sensor_poses"].values():
+        pose["origin_cm"] = [value * 10 for value in pose["origin_cm"]]
+    monkeypatch.setenv("EDGE_V2_SIMULATION_HEIGHT_REFERENCES", json.dumps(references))
+    for key, value in {
+        "DROP_METERS": "3",
+        "STABLE_BAND_METERS": "0.2",
+        "BASELINE_SECONDS": "10",
+        "CONFIRM_SECONDS": "10",
+        "SETTLE_SECONDS": "300",
+        "SIMULATION_SETTLE_SECONDS": "20",
+    }.items():
+        monkeypatch.setenv("EDGE_V2_COLLECTION_" + key, value)
+    original_inputs = simulation.raw_inputs
+
+    def expanded_inputs(height=50):
+        configuration, measurement = original_inputs(height)
+        for sensor in measurement["sensors"]:
+            for point in sensor["scan"]["points"]:
+                # Round once at wire-mm precision; do not magnify small-box rounding.
+                angle = math.radians(point["angle_mdeg"] / 1000)
+                point["distance_mm"] = round((1000 - height * 10) / 0.8 / math.cos(angle) * 10)
+        return configuration, measurement
+
+    monkeypatch.setattr(simulation, "raw_inputs", expanded_inputs)
+    get_settings.cache_clear()
+    db = test_db_session
+    await simulation_prepare(client, db)
+    await login(client)
+    zero_ready_at = None
+    for second in range(20 + drain_seconds + 60):
+        remaining = 1 if second < 20 else max(0, 1 - (second - 19) / drain_seconds)
+        snapshot = await detector_frame(
+            client, db, enabled_detector, second, initial_percent * remaining
+        )
+        if second >= 19 + drain_seconds and snapshot.summary.loadPercent is not None:
+            if snapshot.summary.loadPercent <= 0.01:
+                assert snapshot.dataState == "FRESH" and snapshot.summary.filterState == "READY"
+                zero_ready_at = zero_ready_at or enabled_detector["now"]
+    rows = await event_rows(db)
+    assert zero_ready_at is not None
+    assert [row.kind for row in rows] == ["COLLECTION_DETECTED", "COLLECTION_SETTLED"]
+    detected, ended = rows
+    assert detected.payload["dropCm"] >= 300
+    assert detected.payload["baselineHeightCm"] == pytest.approx(initial_percent * 10, abs=1)
+    assert detected.payload["detectionId"] == ended.payload["detectionId"]
+    assert utc(ended.occurred_at) >= zero_ready_at
+    assert utc(ended.occurred_at) - utc(detected.occurred_at) >= timedelta(seconds=20)
+    result = await collection_summary(
+        db, monitoring_source("pit-demo"), now=enabled_detector["now"]
+    )
+    assert result.completedCollectionsInWindow == 0 and result.detectedCollectionsInWindow == 1
+    legacy = (await client.get("/api/v1/events?pit_id=pit-demo&category=collection")).json()
+    assert legacy["items"][0]["occurredAt"] == result.lastSettledCollectionAt.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert legacy["items"][0]["simulated"] is True
+    print(
+        json.dumps(
+            {
+                "initialPercent": initial_percent,
+                "drainSeconds": drain_seconds,
+                "zeroReadySecond": (zero_ready_at - START).total_seconds(),
+                "detectedSecond": (utc(detected.occurred_at) - START).total_seconds(),
+                "settledSecond": (utc(ended.occurred_at) - START).total_seconds(),
+            }
+        )
+    )
