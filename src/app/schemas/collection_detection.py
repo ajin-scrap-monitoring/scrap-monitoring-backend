@@ -25,6 +25,9 @@ class CollectionTracker(BaseModel):
     quiet_since: datetime | None = None
     progress_anchor_cm: float | None = None
     progress_candidate_since: datetime | None = None
+    reference_candidate_cm: float | None = None
+    reference_candidate_since: datetime | None = None
+    reference_peak_cm: float | None = None
 
 
 class DetectionSummary(BaseModel):

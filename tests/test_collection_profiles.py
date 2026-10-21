@@ -296,8 +296,9 @@ async def test_physical_profile_worker_keeps_four_minute_pause_and_ends_after_lo
 
 @pytest.mark.parametrize("initial_percent", [85, 90])
 @pytest.mark.parametrize("drain_seconds", [10, 15])
+@pytest.mark.parametrize("rising", [False, True])
 async def test_threshold_to_zero_fast_drain_is_not_missed_after_confirmation(
-    client, test_db_session, enabled_detector, monkeypatch, initial_percent, drain_seconds
+    client, test_db_session, enabled_detector, monkeypatch, initial_percent, drain_seconds, rising
 ):
     # Expand the existing public toy box by ten, so a 3m threshold is meaningful.
     # These invented dimensions are unrelated to a site's geometry or measurements.
@@ -337,12 +338,18 @@ async def test_threshold_to_zero_fast_drain_is_not_missed_after_confirmation(
     await simulation_prepare(client, db)
     await login(client)
     zero_ready_at = None
-    for second in range(20 + drain_seconds + 60):
-        remaining = 1 if second < 20 else max(0, 1 - (second - 19) / drain_seconds)
-        snapshot = await detector_frame(
-            client, db, enabled_detector, second, initial_percent * remaining
+    preparation = 120 if rising else 20
+    for second in range(preparation + drain_seconds + 60):
+        remaining = (
+            1 if second < preparation else max(0, 1 - (second - preparation + 1) / drain_seconds)
         )
-        if second >= 19 + drain_seconds and snapshot.summary.loadPercent is not None:
+        percent = (
+            30 + (initial_percent - 30) * second / (preparation - 1)
+            if rising and second < preparation
+            else initial_percent * remaining
+        )
+        snapshot = await detector_frame(client, db, enabled_detector, second, percent)
+        if second >= preparation - 1 + drain_seconds and snapshot.summary.loadPercent is not None:
             if snapshot.summary.loadPercent <= 0.01:
                 assert snapshot.dataState == "FRESH" and snapshot.summary.filterState == "READY"
                 zero_ready_at = zero_ready_at or enabled_detector["now"]
@@ -351,7 +358,14 @@ async def test_threshold_to_zero_fast_drain_is_not_missed_after_confirmation(
     assert [row.kind for row in rows] == ["COLLECTION_DETECTED", "COLLECTION_SETTLED"]
     detected, ended = rows
     assert detected.payload["dropCm"] >= 300
-    assert detected.payload["baselineHeightCm"] == pytest.approx(initial_percent * 10, abs=1)
+    if rising:
+        assert (
+            initial_percent * 10 - 120
+            <= detected.payload["baselineHeightCm"]
+            <= initial_percent * 10
+        )
+    else:
+        assert detected.payload["baselineHeightCm"] == pytest.approx(initial_percent * 10, abs=1)
     assert detected.payload["detectionId"] == ended.payload["detectionId"]
     assert utc(ended.occurred_at) >= zero_ready_at
     assert utc(ended.occurred_at) - utc(detected.occurred_at) >= timedelta(seconds=20)
@@ -368,6 +382,7 @@ async def test_threshold_to_zero_fast_drain_is_not_missed_after_confirmation(
         json.dumps(
             {
                 "initialPercent": initial_percent,
+                "risingPreparation": rising,
                 "drainSeconds": drain_seconds,
                 "zeroReadySecond": (zero_ready_at - START).total_seconds(),
                 "detectedSecond": (utc(detected.occurred_at) - START).total_seconds(),

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
@@ -13,7 +13,7 @@ from src.app.models.edge_v2_projection import EdgeV2Latest, EdgeV2Transition
 from src.app.schemas.collection_detection import CollectionTracker
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.lidar_height import SimulationHeightReference
-from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
 from src.app.services.height_fill_service import height_method
 from src.app.services.height_median_service import HeightWindow, window_scope
@@ -22,7 +22,7 @@ from src.app.services.monitoring_v2_service import build_snapshot
 
 TRACKER_KIND = "collection_tracker"
 MAX_GAP_SECONDS = 3
-DETECTION_VERSION = "UPPER_NO_FURTHER_DROP_V2"
+DETECTION_VERSION = "UPPER_RISING_BASELINE_V3"
 
 
 def collection_profile(source: MonitoringSource) -> Literal["FIELD", "SIMULATION"]:
@@ -110,9 +110,39 @@ def invalidate(state: CollectionTracker) -> None:
     state.stable_since = state.stable_min_cm = state.stable_max_cm = None
     state.candidate_since = None
     state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
+    state.reference_candidate_cm = state.reference_candidate_since = None
+    state.reference_peak_cm = None
     if state.phase != "COLLECTING":
         state.phase = "BASELINING"
         state.baseline_cm = None
+
+
+def sustained_reference(
+    state: CollectionTracker, height_cm: float, observed: datetime, band: float
+) -> float | None:
+    """Confirm a level from below while loading continues, using bounded scalars.
+
+    A rising surface need not fit in a flat stability band. The candidate level must
+    remain supported for the full baseline interval; a drop beyond the same noise
+    band restarts preparation. A brief upper spike therefore cannot raise the reference.
+    """
+    if (
+        state.reference_candidate_cm is None
+        or state.reference_candidate_since is None
+        or state.reference_peak_cm is None
+        or height_cm < state.reference_peak_cm - band
+    ):
+        state.reference_candidate_cm, state.reference_candidate_since = height_cm, observed
+        state.reference_peak_cm = height_cm
+    state.reference_peak_cm = max(state.reference_peak_cm, height_cm)
+    if observed - state.reference_candidate_since < timedelta(
+        seconds=get_settings().EDGE_V2_COLLECTION_BASELINE_SECONDS
+    ):
+        return None
+    accepted = state.reference_candidate_cm
+    state.reference_candidate_cm, state.reference_candidate_since = height_cm, observed
+    state.reference_peak_cm = height_cm
+    return accepted
 
 
 def advance(
@@ -134,9 +164,16 @@ def advance(
     stable_seconds = (observed - state.stable_since).total_seconds()
     stable_height = (low + high) / 2
     state.current_cm, state.observed_at, state.input_valid = height_cm, observed, True
+    supported_height = (
+        sustained_reference(state, height_cm, observed, band)
+        if state.phase != "COLLECTING"
+        else None
+    )
     if state.phase == "BASELINING":
         if stable_seconds >= settings.EDGE_V2_COLLECTION_BASELINE_SECONDS:
             state.baseline_cm, state.phase = stable_height, "IDLE"
+        elif supported_height is not None:
+            state.baseline_cm, state.phase = supported_height, "IDLE"
         return events
     assert state.baseline_cm is not None
     if state.phase == "COLLECTING":
@@ -180,7 +217,11 @@ def advance(
             state.episode_id = None
             state.candidate_since = None
             state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
+            state.reference_candidate_cm = state.reference_candidate_since = None
+            state.reference_peak_cm = None
         return events
+    if supported_height is not None:
+        state.baseline_cm = max(state.baseline_cm, supported_height)
     if (
         height_cm > state.baseline_cm
         and stable_seconds >= settings.EDGE_V2_COLLECTION_BASELINE_SECONDS
@@ -199,6 +240,8 @@ def advance(
         # Quiet time for ending the episode starts after detection, never before it.
         state.quiet_since, state.progress_anchor_cm = observed, height_cm
         state.progress_candidate_since = None
+        state.reference_candidate_cm = state.reference_candidate_since = None
+        state.reference_peak_cm = None
         state.stable_since, state.stable_min_cm, state.stable_max_cm = (
             observed,
             height_cm,
@@ -219,6 +262,45 @@ def advance(
     return events
 
 
+async def read_collection_input(
+    db: AsyncSession, source: MonitoringSource, now: datetime
+) -> tuple[MonitoringSnapshotV2, str | None, float | None, float | None]:
+    """Read all height/context components in the caller's database snapshot."""
+    snapshot = await build_snapshot(db, source, now)
+    pit = await db.get(PitConfig, source.pit_id)
+    scope = collection_scope(source, pit)
+    depth = reference_depth(height_reference(source.pit_id), pit.total_depth_cm if pit else None)
+    observation = snapshot.fillObservation
+    height_cm = (
+        await collection_height(
+            db, source, observation, snapshot.summary.loadPercent * depth / 100.0, now
+        )
+        if observation is not None
+        and depth is not None
+        and snapshot.summary.loadPercent is not None
+        else None
+    )
+    return snapshot, scope, depth, height_cm
+
+
+async def collection_input(
+    db: AsyncSession, source: MonitoringSource, now: datetime
+) -> tuple[MonitoringSnapshotV2, str | None, float | None, float | None]:
+    """Keep concurrent receiver commits from mixing two observation generations.
+
+    PostgreSQL's default READ COMMITTED can see a newer height window after reading
+    the observation/filter. A short, independent read-only snapshot avoids false
+    invalidation without locking receiver rows or extending any freshness allowance.
+    The caller still owns the tracker lock and atomic state/event write transaction.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return await read_collection_input(db, source, now)
+    async with AsyncSession(bind=db.bind, expire_on_commit=False) as reading:
+        await reading.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        await reading.execute(text("SET TRANSACTION READ ONLY"))
+        return await read_collection_input(reading, source, now)
+
+
 async def process_collection_source(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> None:
@@ -236,20 +318,8 @@ async def process_collection_source(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    snapshot = await build_snapshot(db, source, now)
-    pit = await db.get(PitConfig, source.pit_id)
-    scope = collection_scope(source, pit)
-    depth = reference_depth(height_reference(source.pit_id), pit.total_depth_cm if pit else None)
+    snapshot, scope, depth, height_cm = await collection_input(db, source, now)
     observation = snapshot.fillObservation
-    height_cm = (
-        await collection_height(
-            db, source, observation, snapshot.summary.loadPercent * depth / 100.0, now
-        )
-        if observation is not None
-        and depth is not None
-        and snapshot.summary.loadPercent is not None
-        else None
-    )
     valid = (
         scope is not None
         and depth is not None
