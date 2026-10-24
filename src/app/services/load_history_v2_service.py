@@ -175,7 +175,14 @@ async def compact_samples(
     for row in rows:
         for stamp, value in row.payload.get("values", {}).items():
             timestamp = datetime.fromtimestamp(int(stamp), UTC)
-            # Scalar slots have only second resolution; do not invent subsecond metadata.
+            metadata = row.payload.get("metadata", {}).get(stamp)
+            generated = datetime.fromisoformat(metadata["generatedAt"]) if metadata else None
+            precise = generated is not None and int(generated.timestamp()) == int(stamp)
+            if precise:
+                assert generated is not None
+                timestamp = generated
+            # Legacy scalar keys have only second resolution; never invent precise times.
+            # New slots carry their own true time; legacy slots keep the old null policy.
             if not start <= timestamp < end:
                 continue
             key = int(timestamp.timestamp() // seconds)
@@ -206,7 +213,7 @@ async def compact_samples(
                 group.update(
                     last_time=timestamp,
                     value=value,
-                    last=row.payload["last"],
+                    last=metadata if precise else row.payload["last"],
                     last_source=slot_source,
                     last_method=slot_method,
                 )

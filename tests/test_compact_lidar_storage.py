@@ -498,7 +498,7 @@ async def test_independent_writers_serialize_first_projection_and_replay(
             await engine.dispose()
 
 
-async def test_subminute_history_does_not_show_a_future_report(
+async def test_legacy_subminute_history_does_not_show_a_future_report(
     client,
     test_db_session,
     compact_config,
@@ -506,6 +506,12 @@ async def test_subminute_history_does_not_show_a_future_report(
     await healthy(client, compact_config)
     for second in range(10):
         await sample(client, test_db_session, compact_config, second, 70 + second)
+    # Existing persisted minutes have no per-slot metadata; do not fabricate it.
+    minute = await test_db_session.get(EdgeV2Minute, ("site-demo", "edge-demo", START))
+    legacy = dict(minute.payload)
+    legacy.pop("metadata", None)
+    minute.payload = legacy
+    await test_db_session.commit()
     history = await load_history(
         test_db_session,
         monitoring_source("pit-demo"),
