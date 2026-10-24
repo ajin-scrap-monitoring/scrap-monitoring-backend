@@ -19,6 +19,7 @@ from src.app.services.height_reference import (
     height_reference,
     reference_depth,
 )
+from src.app.services.observation_window import observation_slots
 
 
 class HeightFrame(BaseModel):
@@ -32,6 +33,7 @@ class SensorWindow(BaseModel):
     positions: list[float] = Field(default_factory=list, max_length=200)
     basis: Literal["SPATIAL_BINS", "RECEIVED_POINTS"] = "SPATIAL_BINS"
     frames: list[HeightFrame] = Field(default_factory=list, max_length=31)
+    slot_anchor_at: UtcTime | None = None
 
 
 class HeightWindow(BaseModel):
@@ -89,6 +91,7 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
         if previous.positions == positions and previous.basis == profile.coverageBasis
         else []
     )
+    anchor = previous.slot_anchor_at if frames else None
     at = profile.measuredAt
     if frames and at <= frames[-1].at:
         # A repeated scan can be displayed, but never counts as an additional observation.
@@ -97,15 +100,14 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
         return SensorWindow(positions=positions, basis=profile.coverageBasis)
     if frames and at - frames[-1].at > timedelta(seconds=1.5):
         frames = []
-    frames = [
-        f
-        for f in frames
-        if at - f.at < timedelta(seconds=size) and int(f.at.timestamp()) != int(at.timestamp())
-    ]
+        anchor = None
+    candidates = [*frames, HeightFrame(at=at, heights=heights, maximum_cm=profile.maximum)]
+    selected, anchor = observation_slots([frame.at for frame in candidates], at, size, anchor)
     return SensorWindow(
         positions=positions,
         basis=profile.coverageBasis,
-        frames=[*frames, HeightFrame(at=at, heights=heights, maximum_cm=profile.maximum)][-size:],
+        frames=[candidates[index] for index in selected],
+        slot_anchor_at=anchor,
     )
 
 

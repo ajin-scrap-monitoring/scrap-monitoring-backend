@@ -217,11 +217,15 @@ async def test_replays_same_second_and_delayed_evidence_do_not_fabricate_filter_
         payload = assessment(f"rapid-{offset}", 0.7, when)
         assert (await send(client, payload, compact_config)).status_code == 201
     row = await test_db_session.get(EdgeV2Filter, ("site-demo", "edge-demo"))
-    assert len(row.payload["samples"]) == 1 and row.payload["value"] is None
+    # Observation-aligned slots may straddle a center inside one UTC second, but a
+    # subsecond burst still cannot prepare the five-slot window or supply a value.
+    before_replay = copy.deepcopy(row.payload)
+    assert len(row.payload["samples"]) < 5 and row.payload["value"] is None
+    assert row.payload["state"] == "WARMING"
     assert (await send(client, payload, compact_config)).status_code == 200
     late = assessment("late-state", 0.99, START - timedelta(seconds=1))
     assert (await send(client, late, compact_config, START)).status_code == 201
-    assert len(row.payload["samples"]) == 1
+    assert row.payload == before_replay
     assert (await send(client, scan_message(2), compact_config)).status_code == 201
     old = scan_message(1)
     old.update(
@@ -237,6 +241,19 @@ async def test_replays_same_second_and_delayed_evidence_do_not_fabricate_filter_
     ).status_code == 201
     latest = await test_db_session.get(EdgeV2Latest, ("site-demo", "edge-demo", "measurement"))
     assert latest.message_id == "scan-message-2"
+
+
+async def test_state_filter_stays_ready_for_distinct_scans_across_utc_boundary(
+    client, test_db_session, compact_config
+):
+    await healthy(client, compact_config)
+    for index in range(20):
+        second = index + 0.999 + (0.003 if index == 8 else 0)
+        snapshot = await sample(client, test_db_session, compact_config, second, 70)
+        if index >= 4:
+            assert snapshot.dataState == "FRESH"
+            assert snapshot.summary.filterState == "READY"
+            assert snapshot.summary.loadPercent == 70
 
 
 async def test_minute_summaries_survive_session_restart_and_retain_quality(
