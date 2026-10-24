@@ -308,3 +308,23 @@ async def test_received_point_fill_retains_collection_confirmation_and_simulatio
     await legacy.test_simulation_collection_log_is_explicitly_labelled(
         client, test_db_session, angle_context
     )
+
+
+async def test_simulation_height_history_produces_a_threshold_forecast(
+    client, test_db_session, angle_context
+):
+    from src.app.services.fill_forecast_service import fill_forecast
+
+    db = test_db_session
+    await legacy.prepare(client, db)
+    # Three complete/partial minute representatives after initial filter warm-up.
+    # All scans are invented; no site dimensions or field prediction accuracy is assumed.
+    for second in range(185):
+        await legacy.frame(client, db, angle_context, second, 50 + second * 0.15)
+    data = await fill_forecast(db, monitoring_source("pit-demo"), angle_context["now"])
+    assert data.simulated and data.inputSource == "HEIGHT_SECTIONS"
+    assert data.state == "AVAILABLE", data.model_dump()
+    assert data.sampleCount == 3
+    assert 70 < data.remainingSeconds < 100
+    assert data.expectedThresholdAt > angle_context["now"]
+    assert data.trendRSquared > 0.99

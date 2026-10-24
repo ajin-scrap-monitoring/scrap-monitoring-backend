@@ -11,10 +11,10 @@
 | 최근 24시간·1시간 전 적재율 | `/api/v2/monitoring/load-history` | 유효한 해당 구간을 사용, 현재값으로 과거를 채우지 않음 |
 | LiDAR 1·2 높이 | `/api/v2/monitoring/profiles` | 센서 ID로 연결, cm 단위. API가 있는데 화면이 고정 미지원이면 화면 연결 필요 |
 | 최근 수거 후 경과 | 기존 `/api/v1/events?category=collection&page=1&pageSize=1`의 `occurredAt` | 사람의 완료 또는 자동 종료 판단 중 최신 항목. 시작 감지는 제외 |
-| 수거 통계 | `/api/v2/monitoring/collection-summary` | 사람의 완료 통계와 자동 판단 구분, 종료 기준 활동 시각은 lastCollectionActivityAt 사용 |
+| 수거 통계·평균 주기 | `/api/v2/monitoring/collection-summary` | 자동 종료 평균은 averageSettledCollectionCycleSeconds, 관리자 완료·자동 시작 통계와 구분 |
 | 현재 활성 적재율 경보 | `/api/v2/monitoring/active-alerts` | 현재 판정 기준이며 과거 알림 목록과 구분 |
 | 과거 알림·읽음 상태 | `/api/v2/monitoring/alerts`, `/api/v1/notifications` | 읽지 않은 과거 경보가 현재도 활성이라는 뜻은 아님 |
-| 예상 도달·남은 시간 | 예측 API 미구현 | 완료 시각이나 증가 속도를 임의의 고정 값으로 표시하지 않음 |
+| 예상 도달·남은 시간 | `/api/v2/monitoring/fill-forecast` | 현재 수거 임계율 기준. 가용성·기한·사유와 시뮬레이션 여부 반영 |
 
 모든 v2 조회에는 `pit_id`와 기존 로그인 세션 쿠키가 필요하다. 아래 두 API는 조회 사용자와 관리자 모두 이용할 수 있으며 `Cache-Control: no-store`를 반환한다. 기록 작성·알림 읽음 처리·외부 발송은 수행하지 않는다. API 추가만으로 다른 저장소에 있는 화면의 고정 문구가 자동으로 바뀌지는 않는다.
 
@@ -58,3 +58,7 @@
 항목의 `loadPercent`는 최신 측정 수치이며 JSON에서 소수점 셋째 자리에서 반올림한다. `measuredAt`은 그 측정 시각이다. `evaluatedAt`은 경보 판정을 완료한 관측 시각이며 경보 시작 시각이 아니다. `evaluationSource=RECENT_PERSISTED`인 짧은 처리 대기에는 두 시각이 다를 수 있다. 이때 기존 작업자의 최근 유효 판정을 유지하며 응답 사유에 `OPERATIONS_EVALUATION_PENDING`을 제공한다. 최신 관측까지 평가했으면 `CURRENT_OBSERVATION`이다. 최근 판정 허용 조건과 시간 제한은 [경보 처리 안내](V2_OPERATIONS.md#측정-갱신과-경보-갱신-시각)를 따른다. `simulated=true`인 경우 시뮬레이션임을 표시한다. 현재 단계와 피트로 만든 `id`는 표시용 키이고 DB 알림 ID와 다르다.
 
 `notificationId`는 CRITICAL에서 연결된 최근 내부 기록이 있을 때 제공하며 경보 시작 시각을 의미하지 않는다. WARNING에서는 과거 위험 알림으로 연결하지 않는다. 경보가 해제되어도 과거 알림 기록은 남고, 알림을 읽어도 현재 위험 상태가 해제되지는 않는다. 조회해도 새 DB 알림이나 이메일을 만들지 않는다. 외부 발송 연동은 별도 기능이다.
+
+## 예상 도달과 평균 수거 주기 연결
+
+[수거 임계율 예상 도달과 자동 수거 주기](FILL_FORECAST.md)의 필드·최소 표본·만료·계산 불가 규칙을 사용한다. 기존 관리자 완료 기준 평균과 자동 종료 기준 평균을 혼합하지 않는다.

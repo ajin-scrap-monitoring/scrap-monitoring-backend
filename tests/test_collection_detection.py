@@ -430,3 +430,130 @@ async def test_legacy_elapsed_keeps_last_end_during_next_collection_and_filters_
     assert latest["confirmedCompletion"] is True
     assert latest["collectionSource"] == "MANUAL_CONFIRMATION"
     assert latest["id"].startswith("evt-col-")
+
+
+async def test_settled_cycle_mean_excludes_starts_duplicates_other_scopes_and_manual_records(
+    client, test_db_session, enabled_detector
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    scope = collection_scope(source, await db.get(PitConfig, source.pit_id))
+
+    def event(second, kind="COLLECTION_SETTLED", site=None, edge=None, **changes):
+        return EdgeV2Transition(
+            site_id=site or source.site_id,
+            edge_id=edge or source.edge_id,
+            occurred_at=START + timedelta(seconds=second),
+            kind=kind,
+            payload={"pitId": source.pit_id, "scopeToken": scope, **changes},
+        )
+
+    db.add_all(
+        [
+            event(-86400),
+            event(0),
+            event(5),
+            event(15),
+            event(15),
+            event(40),
+            event(1, kind="COLLECTION_DETECTED"),
+            event(2, kind="COLLECTION_DETECTED"),
+            event(20, scopeToken="old-scope"),
+            event(21, pitId="other-pit"),
+            event(22, site="other-site"),
+            event(23, edge="other-edge"),
+            CollectionLog(
+                pit_id=source.pit_id,
+                completed_at=START + timedelta(seconds=12),
+                residual_height_cm=1,
+                operator_name="Synthetic",
+            ),
+        ]
+    )
+    await db.commit()
+    now = START + timedelta(seconds=30)
+    data = await collection_summary(db, source, window_days=1, now=now)
+    assert data.settledCollectionsInWindow == 3
+    assert data.settledCycleCount == 2
+    assert data.averageSettledCollectionCycleSeconds == 7.5
+    assert data.settledCycleReasonCodes == []
+    assert data.averageDetectedCollectionCycleSeconds == 1
+    assert data.completedCollectionsInWindow == 1
+    assert data.averageCollectionCycleSeconds is None
+    enabled_detector["now"] = now
+    await login(client)
+    body = (
+        await client.get("/api/v2/monitoring/collection-summary?pit_id=pit-demo&window_days=1")
+    ).json()
+    assert body["averageSettledCollectionCycleSeconds"] == 7.5
+    assert body["settledCollectionsInWindow"] == 3
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+async def test_settled_cycle_requires_two_ends_and_includes_window_boundaries(
+    client, test_db_session, enabled_detector, count
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    scope = collection_scope(source, await db.get(PitConfig, source.pit_id))
+    for seconds in [0, 86400][:count]:
+        db.add(
+            EdgeV2Transition(
+                site_id=source.site_id,
+                edge_id=source.edge_id,
+                occurred_at=START + timedelta(seconds=seconds),
+                kind="COLLECTION_SETTLED",
+                payload={"pitId": source.pit_id, "scopeToken": scope},
+            )
+        )
+    await db.commit()
+    data = await collection_summary(db, source, window_days=1, now=START + timedelta(days=1))
+    assert data.settledCollectionsInWindow == count
+    assert data.settledCycleCount == max(0, count - 1)
+    if count == 2:
+        assert data.averageSettledCollectionCycleSeconds == 86400
+        assert data.settledCycleReasonCodes == []
+    else:
+        assert data.averageSettledCollectionCycleSeconds is None
+        assert data.settledCycleReasonCodes
+
+
+@pytest.mark.parametrize("phase", ["CANDIDATE", "COLLECTING", "UNKNOWN"])
+async def test_forecast_hides_future_arrival_during_collection_or_unknown_tracker(
+    client, test_db_session, enabled_detector, phase
+):
+    from src.app.services.fill_forecast_service import fill_forecast
+
+    db = test_db_session
+    await simulation.prepare(client, db)
+    for second in range(5):
+        _, snapshot = await simulation.frame(client, db, enabled_detector, second, 50)
+    source = monitoring_source("pit-demo")
+    now = enabled_detector["now"]
+    scope = collection_scope(source, await db.get(PitConfig, source.pit_id))
+    state = CollectionTracker(
+        pit_id=source.pit_id,
+        scope_token=scope,
+        observed_at=now,
+        phase=phase if phase != "UNKNOWN" else "IDLE",
+        input_valid=phase != "UNKNOWN",
+    )
+    db.add(
+        EdgeV2Latest(
+            site_id=source.site_id,
+            edge_id=source.edge_id,
+            kind=TRACKER_KIND,
+            message_id=snapshot.fillObservation.message_id,
+            generated_at=now,
+            payload=state.model_dump(mode="json"),
+        )
+    )
+    await db.commit()
+    data = await fill_forecast(db, source, now)
+    assert data.simulated and data.inputSource == "HEIGHT_SECTIONS"
+    assert data.state == "UNAVAILABLE" and data.expectedThresholdAt is None
+    assert data.reasonCodes == [
+        "COLLECTION_STATE_UNAVAILABLE" if phase == "UNKNOWN" else "COLLECTION_IN_PROGRESS"
+    ]

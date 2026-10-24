@@ -108,10 +108,13 @@ async def detection_summary(
     if scope is None:
         result.detectionState = "UNKNOWN" if result.detectionEnabled else "DISABLED"
         result.detectionReasonCodes = ["DETECTION_NOT_CONFIGURED"]
+        result.settledCycleReasonCodes = ["DETECTION_NOT_CONFIGURED"]
         return result
     event = EdgeV2Transition
     detected = case((event.kind == "COLLECTION_DETECTED", event.occurred_at), else_=None)
     stamp = case((event.occurred_at >= start, detected), else_=None)
+    settled = case((event.kind == "COLLECTION_SETTLED", event.occurred_at), else_=None)
+    settled_stamp = case((event.occurred_at >= start, settled), else_=None)
     row = (
         await db.execute(
             select(
@@ -122,6 +125,9 @@ async def detection_summary(
                 func.count(stamp).label("event_count"),
                 func.min(stamp).label("first_in_window"),
                 func.max(stamp).label("last_in_window"),
+                func.count(func.distinct(settled_stamp)).label("settled_count"),
+                func.min(settled_stamp).label("first_settled_in_window"),
+                func.max(settled_stamp).label("last_settled_in_window"),
             ).where(
                 event.site_id == source.site_id,
                 event.edge_id == source.edge_id,
@@ -132,6 +138,18 @@ async def detection_summary(
             )
         )
     ).one()
+    result.settledCollectionsInWindow = int(row.settled_count)
+    result.settledCycleCount = max(0, result.settledCollectionsInWindow - 1)
+    if result.settledCycleCount:
+        result.averageSettledCollectionCycleSeconds = (
+            utc(row.last_settled_in_window) - utc(row.first_settled_in_window)
+        ).total_seconds() / result.settledCycleCount
+    else:
+        result.settledCycleReasonCodes = [
+            "INSUFFICIENT_SETTLED_COLLECTIONS_IN_WINDOW"
+            if result.settledCollectionsInWindow
+            else "NO_SETTLED_COLLECTIONS_IN_WINDOW"
+        ]
     if row.last_settled is not None:
         result.lastSettledCollectionAt = utc(row.last_settled)
         result.secondsSinceLastSettlement = int((now - utc(row.last_settled)).total_seconds())
