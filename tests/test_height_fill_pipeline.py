@@ -118,6 +118,41 @@ async def frame(client, db, clock, second, percent, valid=True, operate=True, wi
     return m, await build_snapshot(db, source, now)
 
 
+async def test_partial_height_history_keeps_the_selected_observation_metadata(
+    client, test_db_session, height_context, monkeypatch
+):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = height_context["now"]
+            return current.astimezone(tz) if tz else current.replace(tzinfo=None)
+
+    monkeypatch.setattr("src.app.services.load_history_v2_service.datetime", Clock)
+    db = test_db_session
+    await prepare(client, db)
+    selected_id = None
+    for second in range(10):
+        _, snapshot = await frame(client, db, height_context, second, 50 + second)
+        if second == 6:
+            selected_id = snapshot.fillObservation.observation_id
+    await login(client)
+    response = await client.get(
+        "/api/v2/monitoring/load-history",
+        params={
+            "pit_id": "pit-demo",
+            "from": START.isoformat(),
+            "to": (START + timedelta(seconds=7)).isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    point = response.json()["samples"][0]
+    assert point["valuePercent"] == 54 and point["valid"]
+    assert point["inputSource"] == "HEIGHT_SECTIONS" and point["assessmentId"] is None
+    assert point["observationId"] == selected_id
+    assert datetime.fromisoformat(point["generatedAt"]) == START + timedelta(seconds=6)
+    assert datetime.fromisoformat(point["observedAt"]) == START + timedelta(seconds=6)
+
+
 async def test_height_spike_history_and_wire_provenance(client, test_db_session, height_context):
     db = test_db_session
     await prepare(client, db)
@@ -333,10 +368,12 @@ async def test_unverified_height_never_falls_back_to_an_enabled_edge_value(
     assert await db.scalar(select(func.count()).select_from(AlertLog)) == 0
 
 
+@pytest.mark.parametrize("retain_metadata", [True, False])
 async def test_observation_gap_restarts_filter_and_partial_history_keeps_honest_metadata(
     client,
     test_db_session,
     height_context,
+    retain_metadata,
 ):
     db = test_db_session
     await prepare(client, db)
@@ -345,14 +382,25 @@ async def test_observation_gap_restarts_filter_and_partial_history_keeps_honest_
     for second in range(10, 15):
         _, snapshot = await frame(client, db, height_context, second, 80)
         assert snapshot.summary.loadPercent == (80 if second == 14 else None)
+    if not retain_metadata:
+        row = await db.get(EdgeV2Minute, ("site-demo", "edge-demo", START))
+        legacy = copy.deepcopy(row.payload)
+        legacy.pop("metadata", None)
+        row.payload = legacy
+        await db.commit()
     history = await load_history(
         db, monitoring_source("pit-demo"), START, START + timedelta(seconds=4.5), 60
     )
     sample = history.samples[0]
     assert sample.valuePercent == 50 and sample.valid
-    assert sample.generatedAt is sample.observedAt is sample.observationId is None
+    if retain_metadata:
+        assert sample.generatedAt == sample.observedAt == START + timedelta(seconds=4)
+        assert sample.observationId is not None
+        assert "COMPACT_SUBMINUTE_METADATA_NOT_RETAINED" not in sample.reasonCodes
+    else:
+        assert sample.generatedAt is sample.observedAt is sample.observationId is None
+        assert "COMPACT_SUBMINUTE_METADATA_NOT_RETAINED" in sample.reasonCodes
     assert sample.inputSource == "HEIGHT_SECTIONS"
-    assert "COMPACT_SUBMINUTE_METADATA_NOT_RETAINED" in sample.reasonCodes
 
 
 async def test_new_boot_invalidates_ready_window_immediately(

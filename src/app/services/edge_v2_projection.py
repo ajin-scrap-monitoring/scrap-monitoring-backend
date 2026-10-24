@@ -424,6 +424,20 @@ async def project_input(
     second = int(assessment.generated_at.timestamp())
     values = dict(data.get("values", {}))
     values[str(second)] = filtered
+    # Keep actual times/IDs on the same bounded scalar keys, not STATE bodies or scans.
+    # Partial-range queries must not borrow the minute's newer last observation.
+    metadata = {key: item for key, item in data.get("metadata", {}).items() if key in values}
+    metadata[str(second)] = {
+        key: sample[key]
+        for key in (
+            "generatedAt",
+            "observedAt",
+            "assessmentId",
+            "observationId",
+            "dataState",
+            "reasonCodes",
+        )
+    }
     sources = dict(data.get("sources", {}))
     methods = dict(data.get("methods", {}))
     sources[str(second)] = assessment.source
@@ -432,6 +446,7 @@ async def project_input(
     data.update(
         last=sample,
         values=values,
+        metadata=metadata,
         sources=sources,
         methods=methods,
         valid_count=len(valid_values),

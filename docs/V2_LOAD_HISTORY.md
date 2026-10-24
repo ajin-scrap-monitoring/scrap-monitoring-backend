@@ -46,6 +46,10 @@ GET /api/v2/monitoring/load-history?pit_id=pit-demo
 
 부분 분 범위에서 원래 정밀 시각·ID를 보존하지 않았다면 `generatedAt`, `observedAt`, `assessmentId`는 null이고 `COMPACT_SUBMINUTE_METADATA_NOT_RETAINED`를 표시한다. 숫자 슬롯이 유효하면 `valid=true`와 숫자는 유지하며 bucket 위치로 표시할 수 있다. 이 조건을 원문 STATE의 시각 누락까지 확장하거나 원래 시각을 만들어내지 않는다.
 
+새로 수집하는 분 이력은 각 초별 숫자와 같은 키에 실제 생성·관측 시각, 원본 판정/관측 ID, 데이터 상태와 이유를 함께 보존한다. 숫자와 메타데이터는 같은 트랜잭션에서 교체하며 분마다 최대60개다. 스캔 배열이나 전체 STATE 본문을 추가 저장하지 않고 새 테이블·마이그레이션도 만들지 않는다. 같은 초에 새 값이 선택되면 해당 메타데이터도 함께 교체한다.
+
+정밀 시각이 보존된 슬롯은 실제 생성 시각으로 `[from, to)`를 검사한다. 예를 들어 같은 초라도 요청 종료 뒤에 생성된 값은 포함하지 않으며, 이전 초의 보존된 실제 값을 선택할 수 있다. 이미 교체된 같은 초의 이전 값이나 미보관 시각을 복원하지 않는다. 이전 형식의 분이나 일부 슬롯에 메타데이터가 없다면 위의 기존 nullable 규칙을 유지한다. 새 수집부터 개선되므로 과거의 상세 시각 누락이 소급 복구되는 것은 아니다.
+
 높이 모드에서는 `inputSource=HEIGHT_SECTIONS`, 별도 `observationId`를 사용하고 assessmentId는 null이다. 서로 다른 유효 출처/방법의 숫자가 같은 bucket에 섞이면 `MIXED`/null과 `FILL_METHOD_CHANGED_WITHIN_BUCKET`을 반환한다. [높이 판정 연결](HEIGHT_FILL_PIPELINE.md)과 [대시보드 연결 안내](DASHBOARD_API_GUIDE.md)를 참고한다.
 
 ## 선택과 유효성 기준
