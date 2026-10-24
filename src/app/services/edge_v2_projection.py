@@ -1,6 +1,6 @@
 """Transactional, bounded observations; immutable receipt/artifact hashes remain separate."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any
 
@@ -20,6 +20,7 @@ from src.app.models.edge_v2_projection import (
 from src.app.schemas.edge_v2 import Assessment, Envelope, Measurement, StatusReport
 from src.app.schemas.fill_observation import FillObservation
 from src.app.services.edge_v2_service import utc
+from src.app.services.observation_window import observation_slots
 
 
 async def lock_projection(db: AsyncSession, payload: Envelope) -> EdgeV2Filter:
@@ -292,6 +293,8 @@ async def project_input(
             )
         )
     samples = list(previous.get("samples", [])) if previous.get("scope") == scope else []
+    anchor_text = previous.get("slot_anchor_at") if previous.get("scope") == scope else None
+    anchor = datetime.fromisoformat(anchor_text) if anchor_text else None
     filtered: float | None = None
     filter_state = "UNAVAILABLE"
     if valid and observed is not None:
@@ -301,18 +304,14 @@ async def project_input(
             # Increasing generated_at cannot turn an old observation into a new sample.
             valid = False
             samples = []
+            anchor = None
         else:
             if last_observed and observed - datetime.fromisoformat(last_observed) > timedelta(
                 seconds=1.5
             ):
                 samples = []
+                anchor = None
             second = int(timestamp)
-            samples = [
-                s
-                for s in samples
-                if timestamp - settings.EDGE_V2_MEDIAN_WINDOW_SECONDS < s["at"]
-                and s["second"] != second
-            ]
             samples.append(
                 {
                     "at": timestamp,
@@ -320,7 +319,13 @@ async def project_input(
                     "value": value,
                 }
             )
-            samples = samples[-settings.EDGE_V2_MEDIAN_WINDOW_SECONDS :]
+            selected, anchor = observation_slots(
+                [datetime.fromtimestamp(sample["at"], UTC) for sample in samples],
+                observed,
+                settings.EDGE_V2_MEDIAN_WINDOW_SECONDS,
+                anchor,
+            )
+            samples = [samples[index] for index in selected]
             filter_state = "WARMING"
             if len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS:
                 # Height bins have already been filtered in cm. Derive the ratio once;
@@ -333,6 +338,7 @@ async def project_input(
                 filter_state = "READY" if filtered is not None else "WARMING"
     else:
         samples = []
+        anchor = None
     above_since = None
     if filtered is not None and filtered >= threshold:
         if (
@@ -366,6 +372,7 @@ async def project_input(
     row.payload = {
         "scope": scope,
         "samples": samples,
+        "slot_anchor_at": anchor.isoformat() if anchor else None,
         "state": filter_state,
         "message_id": assessment.message_id,
         "value": filtered,
