@@ -11,6 +11,7 @@ from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
 from src.app.models.metric import ScrapMetric
 from src.app.schemas.history import (
+    CollectionScope,
     CollectionThresholdSample,
     Event,
     EventPage,
@@ -189,6 +190,7 @@ class HistoryService:
         page: int,
         pageSize: int,
         db: AsyncSession,
+        collection_scope: CollectionScope = "current",
     ) -> EventPage:
         """List paginated operational events ordered by occurredAt descending."""
         events: list[Event] = []
@@ -223,7 +225,15 @@ class HistoryService:
 
             # The existing dashboard reads only ended collections for its elapsed clock.
             # Starts stay in the v2 detection history and never replace the previous end.
-            events.extend(await collection_ended_events(db, pit_id, from_time, to_time))
+            events.extend(
+                await collection_ended_events(
+                    db,
+                    pit_id,
+                    from_time,
+                    to_time,
+                    include_previous_scopes=collection_scope == "all",
+                )
+            )
 
         # 2. Alerts
         if category in ("all", "alert"):

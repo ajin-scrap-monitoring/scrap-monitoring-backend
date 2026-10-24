@@ -557,3 +557,241 @@ async def test_forecast_hides_future_arrival_during_collection_or_unknown_tracke
     assert data.reasonCodes == [
         "COLLECTION_STATE_UNAVAILABLE" if phase == "UNKNOWN" else "COLLECTION_IN_PROGRESS"
     ]
+
+
+async def test_all_collection_scopes_restore_old_history_without_changing_elapsed(
+    client, test_db_session, enabled_detector
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    scope = collection_scope(source, await db.get(PitConfig, source.pit_id))
+    enabled_detector["now"] = START + timedelta(seconds=30)
+
+    def ended(second, **changes):
+        return EdgeV2Transition(
+            site_id=source.site_id,
+            edge_id=source.edge_id,
+            occurred_at=START + timedelta(seconds=second),
+            kind="COLLECTION_SETTLED",
+            payload={
+                "pitId": source.pit_id,
+                "scopeToken": scope,
+                "detectionId": f"scope-end-{second}",
+                "simulated": True,
+                **changes,
+            },
+        )
+
+    db.add_all(
+        [
+            ended(0),
+            ended(
+                10,
+                scopeToken="previous-scope",
+                detectionVersion="OLD_VERSION",
+                heightBasis="REPRESENTATIVE",
+                detectionProfile="SIMULATION",
+                settleSeconds=60,
+                endPolicy="NO_FURTHER_DROP",
+            ),
+            ended(20),
+            ended(25, pitId="other-pit"),
+            ended(40),
+        ]
+    )
+    await db.commit()
+    await login(client)
+    url = "/api/v1/events?pit_id=pit-demo&category=collection&pageSize=100"
+    original = (await client.get(url)).json()
+    expanded = (await client.get(url + "&collection_scope=all")).json()
+    assert original["page"]["totalItems"] == 2
+    assert expanded["page"]["totalItems"] == 3
+    old = next(e for e in expanded["items"] if e["detectionId"] == "scope-end-10")
+    assert old["collectionCriteria"]["scopeToken"] == "previous-scope"
+    assert old["collectionCriteria"]["matchesCurrentScope"] is False
+    assert old["collectionCriteria"]["detectionVersion"] == "OLD_VERSION"
+    assert old["collectionCriteria"]["heightBasis"] == "REPRESENTATIVE"
+    assert old["collectionCriteria"]["settleSeconds"] == 60
+    assert old["confirmedCompletion"] is False
+    assert original["items"][0]["detectionId"] == "scope-end-20"
+    summary = await collection_summary(db, source, now=enabled_detector["now"])
+    assert summary.lastSettledCollectionAt == START + timedelta(seconds=20)
+    assert summary.settledCollectionsInWindow == 2
+
+
+async def test_previous_scope_alone_cannot_reset_current_elapsed(
+    client, test_db_session, enabled_detector
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    enabled_detector["now"] = START + timedelta(seconds=30)
+    db.add(
+        EdgeV2Transition(
+            site_id=source.site_id,
+            edge_id=source.edge_id,
+            occurred_at=START + timedelta(seconds=20),
+            kind="COLLECTION_SETTLED",
+            payload={
+                "pitId": source.pit_id,
+                "scopeToken": "previous-only",
+                "detectionId": "old-only",
+            },
+        )
+    )
+    await db.commit()
+    await login(client)
+    url = "/api/v1/events?pit_id=pit-demo&category=collection"
+    assert (await client.get(url)).json()["items"] == []
+    expanded = (await client.get(url + "&collection_scope=all")).json()
+    assert len(expanded["items"]) == 1
+    summary = await collection_summary(db, source, now=enabled_detector["now"])
+    assert summary.lastSettledCollectionAt is None
+    assert summary.averageSettledCollectionCycleSeconds is None
+    assert summary.lastCollectionActivityAt is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [{}, {"scopeToken": 42, "settleSeconds": True, "detectionVersion": [], "heightBasis": {}}],
+)
+async def test_history_survives_removed_reference_and_missing_original_criteria(
+    client, test_db_session, enabled_detector, monkeypatch, metadata
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    enabled_detector["now"] = START + timedelta(seconds=30)
+    db.add(
+        EdgeV2Transition(
+            site_id=source.site_id,
+            edge_id=source.edge_id,
+            occurred_at=START,
+            kind="COLLECTION_SETTLED",
+            payload={"pitId": source.pit_id, **metadata},
+        )
+    )
+    await db.commit()
+    for key in [
+        "EDGE_V2_COLLECTION_DETECTION_ENABLED",
+        "EDGE_V2_HEIGHT_FILL_ENABLED",
+        "EDGE_V2_HEIGHT_MEDIAN_ENABLED",
+    ]:
+        monkeypatch.setenv(key, "false")
+    monkeypatch.setenv("EDGE_V2_HEIGHT_REFERENCES", "[]")
+    monkeypatch.setenv("EDGE_V2_SIMULATION_HEIGHT_REFERENCES", "[]")
+    get_settings.cache_clear()
+    await login(client)
+    url = "/api/v1/events?pit_id=pit-demo&category=collection"
+    assert (await client.get(url)).json()["items"] == []
+    response = await client.get(url + "&collection_scope=all")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert all(value is None for value in item["collectionCriteria"].values())
+    assert item["detectionId"] is None
+    assert (
+        await client.get(url.replace("pit-demo", "unconfigured") + "&collection_scope=all")
+    ).json()["items"] == []
+
+
+async def test_all_scope_time_boundaries_pages_and_other_sources(
+    client, test_db_session, enabled_detector
+):
+    from datetime import timezone
+
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    enabled_detector["now"] = START + timedelta(seconds=30)
+    rows = [
+        EdgeV2Transition(
+            site_id=source.site_id,
+            edge_id=source.edge_id,
+            occurred_at=START + timedelta(seconds=second),
+            kind="COLLECTION_SETTLED",
+            payload={
+                "pitId": source.pit_id,
+                "scopeToken": "earlier",
+                "detectionId": f"old-{second}",
+            },
+        )
+        for second in [0, 5, 10, 15, 20, 40]
+    ]
+    other = EdgeV2Transition(
+        site_id="other",
+        edge_id=source.edge_id,
+        occurred_at=START,
+        kind="COLLECTION_SETTLED",
+        payload={"pitId": source.pit_id},
+    )
+    started = EdgeV2Transition(
+        site_id=source.site_id,
+        edge_id=source.edge_id,
+        occurred_at=START,
+        kind="COLLECTION_DETECTED",
+        payload={"pitId": source.pit_id},
+    )
+    db.add_all([*rows, other, started])
+    await db.commit()
+    await login(client)
+    parameters = {
+        "pit_id": source.pit_id,
+        "category": "collection",
+        "collection_scope": "all",
+        "from": (START + timedelta(seconds=5)).astimezone(timezone(timedelta(hours=9))).isoformat(),
+        "to": (START + timedelta(seconds=15)).isoformat(),
+        "pageSize": 1,
+    }
+    found = []
+    for page in [1, 2, 3, 4]:
+        data = (await client.get("/api/v1/events", params={**parameters, "page": page})).json()
+        assert data["page"]["totalItems"] == data["page"]["totalPages"] == 3
+        found.extend(item["detectionId"] for item in data["items"])
+    assert found == ["old-15", "old-10", "old-5"]
+    assert (await client.get("/api/v1/events", params={**parameters, "category": "alert"})).json()[
+        "items"
+    ] == []
+    assert (
+        await client.get("/api/v1/events", params={**parameters, "collection_scope": "invalid"})
+    ).status_code == 422
+
+
+async def test_all_scopes_keep_manual_completion_and_original_ids(
+    client, test_db_session, enabled_detector
+):
+    db = test_db_session
+    await simulation.prepare(client, db)
+    source = monitoring_source("pit-demo")
+    enabled_detector["now"] = START + timedelta(seconds=30)
+    db.add_all(
+        [
+            EdgeV2Transition(
+                site_id=source.site_id,
+                edge_id=source.edge_id,
+                occurred_at=START,
+                kind="COLLECTION_SETTLED",
+                payload={"pitId": source.pit_id, "scopeToken": "old"},
+            ),
+            CollectionLog(
+                pit_id=source.pit_id,
+                completed_at=START + timedelta(seconds=10),
+                residual_height_cm=1,
+                operator_name="Synthetic",
+            ),
+        ]
+    )
+    await db.commit()
+    await login(client)
+    url = "/api/v1/events?pit_id=pit-demo&category=collection&collection_scope=all"
+    data = (await client.get(url)).json()
+    assert data["page"]["totalItems"] == 2
+    manual, automatic = data["items"]
+    assert manual["collectionSource"] == "MANUAL_CONFIRMATION" and manual["confirmedCompletion"]
+    assert manual["collectionCriteria"] is None
+    assert (
+        automatic["collectionSource"] == "HEIGHT_SETTLED" and not automatic["confirmedCompletion"]
+    )
+    assert automatic["id"].startswith("evt-auto-col-")
+    assert (await client.get(url)).json() == data
+    assert await db.scalar(select(func.count()).select_from(CollectionLog)) == 1

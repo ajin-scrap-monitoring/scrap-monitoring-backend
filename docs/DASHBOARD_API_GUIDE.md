@@ -111,3 +111,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 ## 오류·복구 이력
 
 기존 `/api/v1/events?category=error&pit_id=...`에 v2 장치·측정 입력 상태 변화도 포함한다. stateAtOccurrence/statusBasis/reasonCodes로 중단·복구·준비와 현재 상태를 구분한다. 과거 피트 정보가 없는 항목의 CURRENT_ASSIGNMENT와 미보관 simulated=null도 그대로 보존한다. 자세한 기준은 [오류·복구 이력](ERROR_RECOVERY_HISTORY.md)을 따른다.
+
+## 이전 기준의 수거 이력
+
+이력 화면의 전체/수거 조회는 `/api/v1/events?pit_id=...&collection_scope=all`로 이전 감지 기준의 종료도 포함할 수 있다. 현황의 최근 수거 경과는 옵션을 생략해 current 기본값을 유지한다. collectionCriteria에서 원래 기준과 현재 기준 비교를 확인하고 미보관 필드는 null로 표시한다. 자세한 연결 기준은 [수거 이력 범위](COLLECTION_HISTORY_SCOPES.md)를 따른다.

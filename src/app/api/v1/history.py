@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.db.session import get_db_session
-from src.app.schemas.history import EventPage, LoadHistory
+from src.app.schemas.history import CollectionScope, EventPage, LoadHistory
 from src.app.services.history_service import history_service
 
 history_router = APIRouter(prefix="/history", tags=["History"])
@@ -51,6 +51,9 @@ async def list_operational_events(
     ),
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=10, ge=1, le=100, alias="pageSize", description="Page size"),
+    collection_scope: CollectionScope = Query(
+        default="current", description="Automatic collection criteria: current or all historical"
+    ),
     pit_id: str = Query(default="pit-01", description="Pit identifier"),
     db: AsyncSession = Depends(get_db_session),
 ) -> EventPage:
@@ -63,4 +66,5 @@ async def list_operational_events(
         page=page,
         pageSize=page_size,
         db=db,
+        collection_scope=collection_scope,
     )
