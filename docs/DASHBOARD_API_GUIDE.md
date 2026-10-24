@@ -107,3 +107,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 ## 예상 도달·평균 수거 주기
 
 `GET /api/v2/monitoring/fill-forecast?pit_id=...`의 expectedThresholdAt/remainingSeconds는 현재 설정된 수거 임계율에 대한 추정이다. state·validUntil·reasonCodes와 현재 snapshot 유효성을 함께 반영한다. `collection-summary`의 averageSettledCollectionCycleSeconds는 자동 종료→다음 종료 평균이며 기존 관리자 완료 기준 필드와 구분한다. 단위·결측·산출 방법은 [연결 계약](FILL_FORECAST.md)을 따른다. LiDAR 등 기존 전달 항목과 함께 화면 조회·매핑을 연결한다.
+
+## 오류·복구 이력
+
+기존 `/api/v1/events?category=error&pit_id=...`에 v2 장치·측정 입력 상태 변화도 포함한다. stateAtOccurrence/statusBasis/reasonCodes로 중단·복구·준비와 현재 상태를 구분한다. 과거 피트 정보가 없는 항목의 CURRENT_ASSIGNMENT와 미보관 simulated=null도 그대로 보존한다. 자세한 기준은 [오류·복구 이력](ERROR_RECOVERY_HISTORY.md)을 따른다.

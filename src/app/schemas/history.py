@@ -83,6 +83,15 @@ class Event(BaseModel):
     confirmedCompletion: bool | None = None
     simulated: bool | None = None
     detectionId: str | None = None
+    eventSource: Literal["EDGE_V2_TRANSITION"] | None = None
+    transitionId: int | None = None
+    transitionKind: Literal["DEVICE_STATE_CHANGED", "MEASUREMENT_VALIDITY_CHANGED"] | None = None
+    stateAtOccurrence: (
+        Literal["UNAVAILABLE", "RECOVERED", "PREPARING", "DEGRADED", "UNKNOWN"] | None
+    ) = None
+    statusBasis: Literal["AT_OCCURRENCE"] | None = None
+    pitAttribution: Literal["RECORDED", "CURRENT_ASSIGNMENT"] | None = None
+    reasonCodes: list[str] = Field(default_factory=list)
 
 
 class PageMetadata(BaseModel):
