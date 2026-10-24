@@ -20,6 +20,7 @@ from src.app.schemas.history import (
 )
 from src.app.schemas.monitoring import LoadSample
 from src.app.services.collection_ended_service import collection_ended_events
+from src.app.services.error_history_service import error_history_events
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -278,6 +279,8 @@ class HistoryService:
                         recordingId=None,
                     )
                 )
+
+            events.extend(await error_history_events(db, pit_id, from_time, to_time))
 
         # Event IDs explicitly link recordings; overlapping time windows are not evidence.
         jobs = (

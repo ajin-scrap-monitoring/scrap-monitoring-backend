@@ -150,6 +150,14 @@ async def project(
         if height_median_enabled():
             await invalidate_on_status(db, payload, utc(receipt.received_at), same_instance)
         if old_status is not None and old_status != payload.overall_state:
+            assigned_pit = next(
+                (
+                    s.pit_id
+                    for s in get_settings().EDGE_V2_MONITORING_SOURCES
+                    if (s.site_id, s.edge_id) == (payload.site_id, payload.edge_id)
+                ),
+                None,
+            )
             db.add(
                 EdgeV2Transition(
                     site_id=payload.site_id,
@@ -158,6 +166,7 @@ async def project(
                     kind="DEVICE_STATE_CHANGED",
                     payload={
                         "previous": old_status,
+                        "pitId": assigned_pit,
                         "current": payload.overall_state,
                         "messageId": payload.message_id,
                         "reasonCodes": payload.reason_codes,
@@ -358,6 +367,8 @@ async def project_input(
                 kind="MEASUREMENT_VALIDITY_CHANGED",
                 payload={
                     "previousValid": previous["input_valid"],
+                    "pitId": assignment.pit_id if assignment else None,
+                    "simulated": assessment.simulated,
                     "currentValid": valid,
                     "assessmentId": assessment.assessment_id
                     if assessment.source == "EDGE_STATE"
