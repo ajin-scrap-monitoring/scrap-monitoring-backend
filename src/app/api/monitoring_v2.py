@@ -13,6 +13,7 @@ from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
 from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
 from src.app.schemas.collection_summary_v2 import CollectionSummaryV2
+from src.app.schemas.fill_forecast import FillForecastV2
 from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
@@ -26,6 +27,7 @@ from src.app.schemas.session import Session
 from src.app.services.active_alerts_v2_service import active_fill_alerts
 from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_history import alerts, collection_events, state_events
+from src.app.services.fill_forecast_service import fill_forecast
 from src.app.services.load_history_v2_service import load_history
 from src.app.services.monitoring_v2_service import build_snapshot, lidar_profiles, monitoring_source
 from src.app.services.session_service import SESSION_COOKIE_NAME
@@ -64,6 +66,14 @@ async def get_collection_summary(
 ) -> CollectionSummaryV2:
     response.headers["Cache-Control"] = "no-store"
     return await collection_summary(db, source, window_days)
+
+
+@router.get("/fill-forecast", response_model=FillForecastV2)
+async def get_fill_forecast(
+    response: Response, session: CurrentSession, source: Source, db: Database
+) -> FillForecastV2:
+    response.headers["Cache-Control"] = "no-store"
+    return await fill_forecast(db, source)
 
 
 @router.get("/profiles", response_model=LidarProfilePageV2)

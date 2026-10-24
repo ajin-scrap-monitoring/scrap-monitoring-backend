@@ -103,3 +103,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 [시뮬레이션 높이 API 안내](SIMULATION_HEIGHT_API.md)에 기존 세 API의 연결 필드와 합성 출처 표시, 개발 환경 활성화 조건을 정리했다. 높이는 기존 height 필드를 사용하며, 화면에서 중앙값을 다시 계산하지 않는다.
 
 기존 현황의 ‘최근 수거 후 경과’는 `/api/v1/events?category=collection&page=1&pageSize=1`의 종료 시각을 사용한다. 자동 수거 시작은 제외하고, 추가 감소가 일정 시간 확인되지 않아 종료로 판단한 항목만 `collectionSource=HEIGHT_SETTLED / confirmedCompletion=false`로 제공한다. 별도 화면 수정 없이 이 시각부터 경과 시간을 계산하며, 상세 조건은 [수거 감지](HEIGHT_COLLECTION_DETECTION.md)를 참고한다.
+
+## 예상 도달·평균 수거 주기
+
+`GET /api/v2/monitoring/fill-forecast?pit_id=...`의 expectedThresholdAt/remainingSeconds는 현재 설정된 수거 임계율에 대한 추정이다. state·validUntil·reasonCodes와 현재 snapshot 유효성을 함께 반영한다. `collection-summary`의 averageSettledCollectionCycleSeconds는 자동 종료→다음 종료 평균이며 기존 관리자 완료 기준 필드와 구분한다. 단위·결측·산출 방법은 [연결 계약](FILL_FORECAST.md)을 따른다. LiDAR 등 기존 전달 항목과 함께 화면 조회·매핑을 연결한다.

@@ -135,6 +135,9 @@ async def load_history(
             sample.generatedAt = assessment.generated_at
             sample.observedAt = assessment.observed_to
             sample.assessmentId = assessment.assessment_id
+            sample.methodVersion = (
+                assessment.fill_estimate.method_version if assessment.fill_estimate else None
+            )
             sample.valuePercent = value
             sample.valid = value is not None
             sample.dataState = state

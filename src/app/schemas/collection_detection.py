@@ -42,6 +42,10 @@ class DetectionSummary(BaseModel):
     secondsSinceLastSettlement: int | None = Field(default=None, ge=0)
     detectedCollectionsInWindow: int = Field(default=0, ge=0)
     averageDetectedCollectionCycleSeconds: float | None = Field(default=None, ge=0)
+    settledCollectionsInWindow: int = Field(default=0, ge=0)
+    settledCycleCount: int = Field(default=0, ge=0)
+    averageSettledCollectionCycleSeconds: float | None = Field(default=None, ge=0)
+    settledCycleReasonCodes: list[str] = Field(default_factory=list)
     detectionSimulated: bool | None = None
     detectionReasonCodes: list[str] = Field(default_factory=list)
     detectionProfile: Literal["FIELD", "SIMULATION"] = "FIELD"
