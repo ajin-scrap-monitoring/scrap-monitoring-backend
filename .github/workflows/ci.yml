@@ -47,6 +47,7 @@ jobs:
         run: uv run pytest -v
 
       - name: Verify PostgreSQL API and storage
+        timeout-minutes: 35
         run: uv run python -m tests.integration.verify_postgresql_api
 
       - name: Verify Docker image build

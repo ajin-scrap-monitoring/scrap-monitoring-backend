@@ -25,6 +25,19 @@ EventType = Literal[
     "video_delay",
 ]
 EventStatus = Literal["active", "resolved", "completed"]
+CollectionScope = Literal["current", "all"]
+
+
+class CollectionCriteria(BaseModel):
+    """Only retained original criteria; absent historic fields are never reconstructed."""
+
+    scopeToken: str | None = None
+    matchesCurrentScope: bool | None = None
+    detectionVersion: str | None = None
+    heightBasis: str | None = None
+    detectionProfile: str | None = None
+    settleSeconds: int | None = Field(default=None, gt=0)
+    endPolicy: str | None = None
 
 
 class CollectionThresholdSample(BaseModel):
@@ -83,6 +96,7 @@ class Event(BaseModel):
     confirmedCompletion: bool | None = None
     simulated: bool | None = None
     detectionId: str | None = None
+    collectionCriteria: CollectionCriteria | None = None
     eventSource: Literal["EDGE_V2_TRANSITION"] | None = None
     transitionId: int | None = None
     transitionKind: Literal["DEVICE_STATE_CHANGED", "MEASUREMENT_VALIDITY_CHANGED"] | None = None

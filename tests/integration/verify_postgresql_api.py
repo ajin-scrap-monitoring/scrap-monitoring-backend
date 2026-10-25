@@ -72,7 +72,9 @@ def main() -> int:
             [sys.executable, "-m", "pytest", "--postgresql", "-v", *sys.argv[1:]],
             cwd=ROOT,
             env=environment,
-            timeout=600,
+            # Include pytest startup, collection, fixture teardown and process exit.
+            # The complete PostgreSQL suite can exceed ten minutes on a CI runner.
+            timeout=1800,
             check=False,
         ).returncode
     finally:
