@@ -22,6 +22,8 @@ uv run python -m tests.integration.verify_postgresql_api tests/test_auth_storage
 
 GitHub CI는 SQLite 전체 테스트 이후 동일한 PostgreSQL 검증 명령을 실행한다. 실패하면 PR 검증도 실패한다. 직접 실행하는 `pytest --postgresql`은 전용 테스트 DB의 `TEST_POSTGRES_URL`이 필요하므로, 일상적인 검증에는 위 도구를 사용한다. 실제 계정·현장 데이터·운영 DB 주소를 테스트에 넣지 않는다.
 
+전체 pytest 프로세스에는 시작·수집·fixture 정리·종료를 포함해 최대30분을 허용한다. CI의 해당 단계는 임시 DB 준비와 컨테이너 정리까지 포함해35분으로 제한한다. 테스트가 모두 통과하더라도 프로세스 종료 전에 제한을 넘기면 실패하므로 전체 실행에 맞는 여유를 둔다. 제한 초과나 테스트 실패 시에도 임시 컨테이너·볼륨을 제거하며, 검사 대상이나 실패 판정 기준을 줄이지 않는다.
+
 ## 확인 범위
 
 - 계정 비밀번호 해시, 세션 만료·비활성화·권한·비밀번호 변경 후 세션 해제
