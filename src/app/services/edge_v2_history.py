@@ -17,6 +17,7 @@ from src.app.schemas.monitoring_v2 import (
     V2Alert,
     V2AlertPage,
 )
+from src.app.services.alert_lifecycle_service import alert_lifecycles
 from src.app.services.edge_v2_service import utc
 
 
@@ -129,9 +130,11 @@ async def alerts(
     )
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = (await db.execute(query.order_by(AlertLog.id.desc()).offset(offset).limit(limit))).all()
+    lifecycles = await alert_lifecycles(db, source.pit_id, [log.id for log, _, _, _ in rows])
     return V2AlertPage(
         items=[
             V2Alert(
+                lifecycle=lifecycles[log.id],
                 eventId=f"evt-alt-{log.id}",
                 notificationId=f"notif-{log.id}",
                 assessmentId=link.assessment_id if kind != "lidar_measurement" else None,

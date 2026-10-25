@@ -24,7 +24,7 @@ EventType = Literal[
     "device_error",
     "video_delay",
 ]
-EventStatus = Literal["active", "resolved", "completed"]
+EventStatus = Literal["active", "resolved", "completed", "unknown"]
 CollectionScope = Literal["current", "all"]
 
 
@@ -91,6 +91,7 @@ class Event(BaseModel):
     detail: str
     occurredAt: datetime
     resolvedAt: datetime | None = None
+    resolutionObservedAt: datetime | None = None
     recordingId: str | None = None
     collectionSource: Literal["MANUAL_CONFIRMATION", "HEIGHT_SETTLED"] | None = None
     confirmedCompletion: bool | None = None
@@ -103,7 +104,9 @@ class Event(BaseModel):
     stateAtOccurrence: (
         Literal["UNAVAILABLE", "RECOVERED", "PREPARING", "DEGRADED", "UNKNOWN"] | None
     ) = None
-    statusBasis: Literal["AT_OCCURRENCE"] | None = None
+    statusBasis: (
+        Literal["AT_OCCURRENCE", "CURRENT_EVALUATION", "PERSISTED_RESOLUTION", "UNVERIFIED"] | None
+    ) = None
     pitAttribution: Literal["RECORDED", "CURRENT_ASSIGNMENT"] | None = None
     reasonCodes: list[str] = Field(default_factory=list)
 

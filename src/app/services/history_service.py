@@ -20,6 +20,7 @@ from src.app.schemas.history import (
     PageMetadata,
 )
 from src.app.schemas.monitoring import LoadSample
+from src.app.services.alert_lifecycle_service import alert_lifecycles
 from src.app.services.collection_ended_service import collection_ended_events
 from src.app.services.error_history_service import error_history_events
 
@@ -245,18 +246,31 @@ class HistoryService:
             alt_stmt = alt_stmt.order_by(desc(AlertLog.triggered_at))
 
             alt_res = await db.execute(alt_stmt)
-            for a in alt_res.scalars().all():
+            alert_rows = alt_res.scalars().all()
+            lifecycles = await alert_lifecycles(db, pit_id, [a.id for a in alert_rows])
+            for a in alert_rows:
+                lifecycle = lifecycles[a.id]
                 events.append(
                     Event(
                         id=f"evt-alt-{a.id}",
                         type="collection_required",
                         category="alert",
                         severity="error",
-                        status="resolved",
+                        status="resolved"
+                        if lifecycle.state == "RESOLVED"
+                        else "active"
+                        if lifecycle.state == "ACTIVE"
+                        else "unknown",
                         title="수거 필요",
                         detail=a.message,
                         occurredAt=_ensure_utc(a.triggered_at),
-                        resolvedAt=None,
+                        resolvedAt=lifecycle.resolvedAt,
+                        resolutionObservedAt=lifecycle.resolutionObservedAt,
+                        statusBasis="PERSISTED_RESOLUTION"
+                        if lifecycle.state == "RESOLVED"
+                        else "CURRENT_EVALUATION"
+                        if lifecycle.state == "ACTIVE"
+                        else "UNVERIFIED",
                         recordingId=None,
                     )
                 )
@@ -281,11 +295,12 @@ class HistoryService:
                         type="measurement_error",
                         category="error",
                         severity="error",
-                        status="resolved",
+                        status="unknown",
                         title="센서 데이터 이상",
                         detail="LiDAR 측정 센서 이상 감지",
                         occurredAt=_ensure_utc(m.measured_at),
                         resolvedAt=None,
+                        statusBasis="UNVERIFIED",
                         recordingId=None,
                     )
                 )

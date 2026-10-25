@@ -115,3 +115,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 ## 이전 기준의 수거 이력
 
 이력 화면의 전체/수거 조회는 `/api/v1/events?pit_id=...&collection_scope=all`로 이전 감지 기준의 종료도 포함할 수 있다. 현황의 최근 수거 경과는 옵션을 생략해 current 기본값을 유지한다. collectionCriteria에서 원래 기준과 현재 기준 비교를 확인하고 미보관 필드는 null로 표시한다. 자세한 연결 기준은 [수거 이력 범위](COLLECTION_HISTORY_SCOPES.md)를 따른다.
+
+## 경보 해제 상태
+
+일반 이벤트의 경보 status는 active/resolved/unknown을 구분하며, statusBasis와 resolvedAt/resolutionObservedAt으로 근거를 제공한다. v2 alerts에는 같은 의미의 lifecycle을 추가한다. 과거 미보관 해제를 현재값으로 채우지 않고, 읽음/전송 상태와 구분한다. [경보 이력 상태](ALERT_RESOLUTION_HISTORY.md)의 유효성·단절·프론트 표시 기준을 따른다.

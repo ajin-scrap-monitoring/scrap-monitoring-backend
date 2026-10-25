@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.app.schemas.alert_lifecycle import AlertLifecycle
 from src.app.schemas.edge_v2 import Assessment, DeviceStatus, Identifier
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.presentation import DisplayPercent
@@ -125,6 +126,7 @@ class StateEventPageV2(BaseModel):
 
 
 class V2Alert(BaseModel):
+    lifecycle: AlertLifecycle = Field(default_factory=AlertLifecycle)
     simulated: bool = False
     eventId: str
     notificationId: str
