@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from src.app.api.daily_recordings import router as daily_recordings_router
 from src.app.api.edge_v2 import router as edge_v2_router
+from src.app.api.event_recordings import router as event_recordings_router
 from src.app.api.monitoring_v2 import router as monitoring_v2_router
 from src.app.api.v1 import api_v1_router
 
@@ -13,3 +14,4 @@ root_api_router.include_router(edge_v2_router)
 root_api_router.include_router(monitoring_v2_router)
 
 root_api_router.include_router(daily_recordings_router)
+root_api_router.include_router(event_recordings_router)
