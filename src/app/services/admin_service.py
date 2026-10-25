@@ -183,7 +183,7 @@ class AdminService:
             changes["name"] = payload.name
         if payload.team is not None:
             changes["team"] = payload.team
-        if payload.phone is not None:
+        if "phone" in payload.model_fields_set:
             changes["phone"] = payload.phone
         if payload.enabled is not None:
             changes["enabled"] = payload.enabled
