@@ -1,8 +1,8 @@
 """Administration and alert settings schemas conforming to proposal/openapi.yaml."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.app.schemas.history import PageMetadata
 from src.app.schemas.monitoring import PreCollectionAlert
@@ -78,16 +78,30 @@ class NotificationRecipientCreate(BaseModel):
 class NotificationRecipientPatch(BaseModel):
     """Payload for partially updating a notification recipient."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
-    name: str | None = None
-    team: str | None = None
+    name: str | None = Field(default=None, min_length=1)
+    team: str | None = Field(default=None, min_length=1)
     email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     phone: str | None = None
     enabled: bool | None = None
-    channels: list[NotificationChannel] | None = None
+    channels: list[NotificationChannel] | None = Field(default=None, min_length=1)
     subscriptionMode: Literal["global", "custom"] | None = None
     eventTypes: list[ConfigurableAlertEventType] | None = None
+
+    @model_validator(mode="after")
+    def validate_patch(self) -> Self:
+        """Omitted values stay unchanged; only the optional phone can be cleared."""
+        if not self.model_fields_set:
+            raise ValueError("At least one recipient field is required")
+        for field in self.model_fields_set - {"phone"}:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} must not be null")
+        for field in ("channels", "eventTypes"):
+            values = getattr(self, field)
+            if values is not None and len(values) != len(set(values)):
+                raise ValueError(f"{field} must contain unique values")
+        return self
 
 
 class NotificationRecipientPage(BaseModel):

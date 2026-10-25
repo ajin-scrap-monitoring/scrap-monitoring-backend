@@ -207,6 +207,103 @@ async def test_recipient_rejects_stale_etag_without_overwriting(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_recipient_phone_clear_is_persisted_and_omission_preserves_it(
+    client: AsyncClient, test_engine
+) -> None:
+    """PATCH distinguishes clearing the phone from editing an unrelated field."""
+    created = await client.post(
+        "/api/v1/notification-recipients",
+        json={
+            "name": "Synthetic phone recipient",
+            "team": "Test",
+            "email": "phone-clear@example.com",
+            "phone": "000-0000-0000",
+            "channels": ["email"],
+            "eventTypes": ["collection_required"],
+        },
+    )
+    assert created.status_code == 201
+    identifier = created.json()["id"]
+    path = f"/api/v1/notification-recipients/{identifier}"
+    original_etag = created.headers["ETag"]
+    edited = await client.patch(path, json={"team": "Updated"}, headers={"If-Match": original_etag})
+    assert edited.status_code == 200
+    assert edited.json()["phone"] == "000-0000-0000"
+    stale = await client.patch(path, json={"phone": None}, headers={"If-Match": original_etag})
+    assert stale.status_code == 412
+    cleared = await client.patch(
+        path, json={"phone": None}, headers={"If-Match": edited.headers["ETag"]}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["phone"] is None
+    assert cleared.json()["team"] == "Updated"
+    assert cleared.headers["ETag"] != edited.headers["ETag"]
+    async with async_sessionmaker(test_engine)() as db:
+        record = await db.get(NotificationRecipientModel, identifier)
+        assert record is not None and record.phone is None
+    listed = (await client.get("/api/v1/notification-recipients")).json()["items"]
+    assert next(item for item in listed if item["id"] == identifier)["phone"] is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_recipient_patch_does_not_change_saved_preferences(
+    client: AsyncClient,
+) -> None:
+    """Invalid partial forms cannot silently erase required recipient preferences."""
+    created = await client.post(
+        "/api/v1/notification-recipients",
+        json={
+            "name": "Synthetic validation recipient",
+            "team": "Test",
+            "email": "patch-validation@example.com",
+            "channels": ["email"],
+            "eventTypes": ["collection_required"],
+        },
+    )
+    assert created.status_code == 201
+    identifier = created.json()["id"]
+    path = f"/api/v1/notification-recipients/{identifier}"
+    invalid = [
+        {},
+        {"unknown": "value"},
+        {"team": "Changed", "unknown": "value"},
+        {"name": ""},
+        {"team": ""},
+        {"channels": []},
+        {"channels": ["email", "email"]},
+        {"eventTypes": ["collection_required", "collection_required"]},
+        *(
+            {field: None}
+            for field in (
+                "name",
+                "team",
+                "email",
+                "enabled",
+                "channels",
+                "subscriptionMode",
+                "eventTypes",
+            )
+        ),
+    ]
+    for payload in invalid:
+        rejected = await client.patch(
+            path, json=payload, headers={"If-Match": created.headers["ETag"]}
+        )
+        assert rejected.status_code == 422, payload
+    listed = (await client.get("/api/v1/notification-recipients")).json()["items"]
+    assert next(item for item in listed if item["id"] == identifier) == created.json()
+    # An empty custom event selection and false are valid values, not omissions.
+    valid = await client.patch(
+        path,
+        json={"enabled": False, "subscriptionMode": "custom", "eventTypes": []},
+        headers={"If-Match": created.headers["ETag"]},
+    )
+    assert valid.status_code == 200
+    assert valid.json()["enabled"] is False
+    assert valid.json()["eventTypes"] == []
+
+
+@pytest.mark.asyncio
 async def test_recipient_rejects_version_change_during_save(test_engine, monkeypatch) -> None:
     """A concurrent commit after the read still wins over an in-flight stale save."""
     import asyncio
