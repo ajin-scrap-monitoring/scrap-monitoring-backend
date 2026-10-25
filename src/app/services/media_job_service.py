@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from src.app.db.session import get_sessionmaker
 from src.app.models.media_job import MediaClipJob
 from src.app.schemas.media_service import ClipDetail, ClipReceipt, ClipRequest
 from src.app.services.media_client import MediaServiceError, media_client
+from src.app.services.v2_event_clip_service import AUTO_CATEGORIES, automatic_request_block
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,16 @@ def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
     job.clip_id = str(snapshot.clip_id)
     job.status = snapshot.status
-    job.snapshot = snapshot.model_dump(mode="json")
+    origin = (
+        {
+            key: value
+            for key, value in (job.snapshot or {}).items()
+            if key in ("_v2Context", "_v2Simulated", "_v2Collection")
+        }
+        if job.category in AUTO_CATEGORIES
+        else {}
+    )
+    job.snapshot = {**snapshot.model_dump(mode="json"), **origin}
     job.error_code = None
     # Retained ready files can later expire or be deleted outside the backend.
     # They are refreshed by explicit reads, not polled every two seconds forever.
@@ -77,6 +87,20 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
             snapshot: ClipReceipt = await media_client.get_clip(UUID(job.clip_id))
             status_code = 200
         else:
+            if job.category in AUTO_CATEGORIES:
+                blocked = automatic_request_block(job, datetime.now(UTC))
+                if blocked:
+                    # A lost create response may already have produced a clip. Recover
+                    # it by GET, never by a late POST which could film the wrong time.
+                    if job.attempts > 1 and blocked != "MEDIA_CLIP_SOURCE_CHANGED":
+                        page = await media_client.list_clips(
+                            {"camera_id": job.camera_id, "event_id": job.event_id, "limit": 1}
+                        )
+                        if page.items:
+                            apply_snapshot(job, page.items[0])
+                            await db.commit()
+                            return 200
+                    raise MediaServiceError(409, blocked)
             status_code, snapshot = await media_client.create_clip(
                 ClipRequest(event_id=job.event_id, camera_id=job.camera_id)
             )
@@ -103,6 +127,7 @@ class MediaJobWorker:
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
         self.lock = asyncio.Lock()
+        self._v2_event_token: str | None = None
 
     def start(self) -> None:
         if get_settings().MEDIA_SERVICE_URL and self._task is None:
@@ -120,6 +145,14 @@ class MediaJobWorker:
 
     async def run_once(self, db: AsyncSession) -> None:
         """Bound each sweep; next_attempt_at survives application restarts."""
+        async with self.lock:
+            if get_settings().MEDIA_V2_EVENT_CLIPS_ENABLED:
+                from src.app.services.v2_event_clip_service import queue_recent_events
+
+                self._v2_event_token = self._v2_event_token or uuid4().hex
+                await queue_recent_events(db, self._v2_event_token, datetime.now(UTC))
+            else:
+                self._v2_event_token = None
         ids = (
             await db.scalars(
                 select(MediaClipJob.id)
@@ -162,7 +195,11 @@ media_job_worker = MediaJobWorker()
 
 
 def job_snapshot(job: MediaClipJob) -> ClipReceipt | ClipDetail | None:
-    if job.snapshot is None:
+    if job.snapshot is None or (
+        job.category in AUTO_CATEGORIES
+        and "_v2Context" in job.snapshot
+        and "clip_id" not in job.snapshot
+    ):
         return None
     if "recording_policy" in job.snapshot:
         return ClipDetail.model_validate(job.snapshot)

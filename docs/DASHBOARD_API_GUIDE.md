@@ -123,3 +123,5 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 ## 단독 녹화·이벤트 클립의 기간 조회
 
 `GET /api/v1/recordings?from=...&to=...`는 조회 구간과 겹치는 영상을 반환한다. 영상 종료 시각이 from 이상이고 영상 시작 시각이 to 미만인 조건이며, 한쪽 조건만 전달해도 적용한다. 단독 녹화 인덱스와 이벤트 클립에 같은 기준을 사용하고 피트·유형 필터, 정렬·페이지 계약을 유지한다. 날짜 녹화의 한국 날짜 기준 from_date/to_date 계약은 [날짜 녹화 안내](DAILY_RECORDINGS.md)를 따른다.
+
+v2 수거 시작·경보·오류 클립은 기존 collection/alert/error 유형으로 제공한다. 수거의 eventOccurredAt/eventEndedAt은 감지 구간, startedAt/endedAt은 영상 구간이며 서로 다를 수 있다. eventWindowCovered가 false 또는 null이면 전체 수거 영상으로 표시하지 않는다. 활성화·출처·현재 미디어의 고정 길이 제약은 [v2 이벤트 영상](V2_EVENT_CLIPS.md)을 따른다.

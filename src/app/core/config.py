@@ -222,6 +222,8 @@ class Settings(BaseSettings):
     MEDIA_PIT_ID: str = Field(default="pit-01", min_length=1, max_length=50)
     MEDIA_REQUEST_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0.0, le=30.0)
     MEDIA_POLL_INTERVAL_SECONDS: float = Field(default=2.0, ge=1.0, le=60.0)
+    MEDIA_V2_EVENT_CLIPS_ENABLED: bool = False
+    MEDIA_V2_EVENT_CLIP_MAX_DELAY_SECONDS: int = Field(default=30, ge=1, le=300)
 
     @model_validator(mode="after")
     def validate_media_configuration(self) -> "Settings":

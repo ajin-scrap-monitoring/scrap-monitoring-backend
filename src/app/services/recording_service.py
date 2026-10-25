@@ -15,6 +15,7 @@ from src.app.schemas.media_service import ClipDetail
 from src.app.schemas.recording import Recording, RecordingPage, RecordingStatus
 from src.app.services.media_client import media_client
 from src.app.services.media_job_service import apply_snapshot, job_snapshot, media_job_worker
+from src.app.services.v2_event_clip_service import collection_end, recording_category
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -91,13 +92,16 @@ class RecordingService:
         # The separate /media/clips endpoint preserves the remote opaque cursor.
         job_stmt = select(MediaClipJob).where(MediaClipJob.pit_id == pit_id)
         for job in (await db.scalars(job_stmt)).all():
-            if job.clip_id is None or (category != "all" and job.category != category):
+            if job.clip_id is None or (
+                category != "all" and recording_category(job.category) != category
+            ):
                 continue
             recording = self._format_media_job(job)
             if from_time and recording.endedAt < _ensure_utc(from_time):
                 continue
             if to_time and recording.startedAt >= _ensure_utc(to_time):
                 continue
+            await self._event_window(recording, job, db)
             recordings.append(recording)
         recordings.sort(key=lambda recording: (recording.startedAt, recording.id), reverse=True)
 
@@ -134,7 +138,9 @@ class RecordingService:
                 detail = await media_client.get_clip(UUID(recording_id))
                 apply_snapshot(job, detail)
                 await db.commit()
-                return self._format_media_job(job)
+                recording = self._format_media_job(job)
+                await self._event_window(recording, job, db)
+                return recording
 
         event_cat = await self._resolve_event_category(r.pit_id, r.start_time, r.end_time, db)
         started_at = _ensure_utc(r.start_time)
@@ -202,14 +208,19 @@ class RecordingService:
             if detail and detail.actual_start_at and detail.actual_end_at
             else None
         )
-        category: EventCategory = "alert" if job.category == "alert" else "collection"
+        category = recording_category(job.category)
+        title_prefix = "수거 시작 영상" if job.category == "v2_collection" else "이벤트 녹화"
         return Recording(
             id=job.clip_id or job.event_id,
             startedAt=started_at,
             endedAt=ended_at,
             durationSeconds=duration,
             eventCategory=category,
-            title=f"이벤트 녹화 {started_at.strftime('%Y-%m-%d')}",
+            eventOccurredAt=_ensure_utc(job.occurred_at),
+            eventSimulated=(job.snapshot or {}).get("_v2Simulated")
+            if isinstance((job.snapshot or {}).get("_v2Simulated"), bool)
+            else None,
+            title=f"{title_prefix} {started_at.strftime('%Y-%m-%d')}",
             detail=job.event_id,
             widthPixels=None,
             heightPixels=None,
@@ -228,6 +239,25 @@ class RecordingService:
             else [],
             errorCode=detail.error.code if detail and detail.error else job.error_code,
         )
+
+    @staticmethod
+    async def _event_window(recording: Recording, job: MediaClipJob, db: AsyncSession) -> None:
+        if job.category != "v2_collection":
+            return
+        ended = await collection_end(db, job, datetime.now(UTC))
+        recording.eventEndedAt = ended
+        detail = job_snapshot(job)
+        if ended is None or not isinstance(detail, ClipDetail) or detail.status != "ready":
+            return
+        if detail.actual_start_at is None or detail.actual_end_at is None:
+            return
+        began = _ensure_utc(job.occurred_at)
+        if not detail.actual_start_at <= began <= ended <= detail.actual_end_at or any(
+            g.start_at < ended and g.end_at > began for g in detail.gaps
+        ):
+            recording.eventWindowCovered = False
+        elif detail.coverage == "complete":
+            recording.eventWindowCovered = True
 
     async def _resolve_event_category(
         self,
