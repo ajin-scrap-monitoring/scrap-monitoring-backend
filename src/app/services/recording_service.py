@@ -21,7 +21,7 @@ def _ensure_utc(dt: datetime) -> datetime:
     """Ensure datetime has UTC timezone."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
-    return dt
+    return dt.astimezone(UTC)
 
 
 class RecordingService:
@@ -40,9 +40,9 @@ class RecordingService:
         """List paginated recordings ordered by startedAt descending."""
         stmt = select(MediaIndex).where(MediaIndex.pit_id == pit_id)
         if from_time:
-            stmt = stmt.where(MediaIndex.start_time >= _ensure_utc(from_time))
+            stmt = stmt.where(MediaIndex.end_time >= _ensure_utc(from_time))
         if to_time:
-            stmt = stmt.where(MediaIndex.end_time <= _ensure_utc(to_time))
+            stmt = stmt.where(MediaIndex.start_time < _ensure_utc(to_time))
 
         stmt = stmt.order_by(desc(MediaIndex.start_time))
         res = await db.execute(stmt)

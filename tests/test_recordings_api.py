@@ -59,3 +59,87 @@ async def test_recordings_list_and_get_by_id(client: AsyncClient) -> None:
     # 4. Query non-existent recording ID returns 404
     not_found_resp = await client.get("/api/v1/recordings/NON-EXISTENT")
     assert not_found_resp.status_code == 404
+
+
+@pytest.fixture
+async def overlapping_legacy_recording(client):
+    payload = {
+        "segment_id": "synthetic-overlap",
+        "pit_id": "synthetic-pit",
+        "start_time": "2030-01-01T09:00:00Z",
+        "end_time": "2030-01-01T10:00:00Z",
+        "file_path": "/synthetic/clip.mp4",
+        "file_size_bytes": 1024,
+        "duration_seconds": 3600,
+    }
+    assert (await client.post("/api/v1/media/recordings/complete", json=payload)).status_code == 201
+    return payload
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        ({"from": "2030-01-01T09:30:00Z", "to": "2030-01-01T09:45:00Z"}, 1),
+        ({"from": "2030-01-01T08:30:00Z", "to": "2030-01-01T09:30:00Z"}, 1),
+        ({"from": "2030-01-01T09:30:00Z", "to": "2030-01-01T10:30:00Z"}, 1),
+        ({"from": "2030-01-01T09:00:00Z", "to": "2030-01-01T10:00:00Z"}, 1),
+        ({"from": "2030-01-01T08:00:00Z", "to": "2030-01-01T09:00:00Z"}, 0),
+        # Keep the existing event-clip contract: end >= from and start < to.
+        ({"from": "2030-01-01T10:00:00Z", "to": "2030-01-01T11:00:00Z"}, 1),
+        ({"from": "2030-01-01T10:00:00.000001Z"}, 0),
+        ({"from": "2030-01-01T09:30:00Z"}, 1),
+        ({"to": "2030-01-01T09:30:00Z"}, 1),
+        ({"from": "2030-01-01T18:30:00+09:00", "to": "2030-01-01T18:45:00+09:00"}, 1),
+    ],
+)
+async def test_overlapping_legacy_recording_time_filters(
+    client, overlapping_legacy_recording, bounds, expected
+):
+    response = await client.get("/api/v1/recordings", params={"pit_id": "synthetic-pit", **bounds})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["page"]["totalItems"] == expected
+    assert [item["id"] for item in data["items"]] == (["synthetic-overlap"] if expected else [])
+
+
+async def test_overlapping_legacy_recording_pagination_and_pit_category_filters(
+    client, overlapping_legacy_recording
+):
+    original = overlapping_legacy_recording
+    for identifier, pit, start, end in [
+        ("synthetic-later", "synthetic-pit", "09:20:00", "09:50:00"),
+        ("synthetic-before", "synthetic-pit", "08:00:00", "08:30:00"),
+        ("synthetic-after", "synthetic-pit", "10:30:00", "11:00:00"),
+        ("synthetic-other-pit", "other-pit", "09:20:00", "09:50:00"),
+    ]:
+        payload = {
+            **original,
+            "segment_id": identifier,
+            "pit_id": pit,
+            "start_time": f"2030-01-01T{start}Z",
+            "end_time": f"2030-01-01T{end}Z",
+            "duration_seconds": 1800,
+        }
+        assert (
+            await client.post("/api/v1/media/recordings/complete", json=payload)
+        ).status_code == 201
+    params = {
+        "pit_id": "synthetic-pit",
+        "from": "2030-01-01T09:30:00Z",
+        "to": "2030-01-01T09:45:00Z",
+        "category": "collection",
+        "pageSize": 1,
+    }
+    ids = []
+    for page in (1, 2):
+        response = await client.get("/api/v1/recordings", params={**params, "page": page})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["page"]["totalItems"] == data["page"]["totalPages"] == 2
+        ids.extend(item["id"] for item in data["items"])
+    assert ids == ["synthetic-later", "synthetic-overlap"]
+    for category in ("alert", "error"):
+        data = (
+            await client.get("/api/v1/recordings", params={**params, "category": category})
+        ).json()
+        assert data["items"] == [] and data["page"]["totalItems"] == 0
