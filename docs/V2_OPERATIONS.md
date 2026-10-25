@@ -30,7 +30,7 @@ DB 초기화 시 `edge_v2_operations`와 `edge_v2_alert_links` 두 테이블을 
 
 위험 상태가 지속되어도 마지막 경보부터 30분 동안 추가 기록을 만들지 않는다. 재시작과 동일 메시지 재전송은 쿨다운을 초기화하지 않는다. 30분 뒤 새로운 유효 STATE도 위험 상태이면 경보를 추가할 수 있다. 수치가 낮아졌다 다시 위험해져도 쿨다운은 유지한다. 읽음 처리는 쿨다운을 해제하지 않는다.
 
-경보는 기존 알림함 `/api/v1/notifications`에 `collection_required`, `severity: error`로 표시하고 기존 읽음 처리 API를 사용한다. `channel: LOG`, `status: RECORDED`는 DB 기록을 뜻한다. SMTP·문자 등의 외부 발송 성공을 뜻하지 않는다. 외부 발송과 v2 자동 카메라 녹화 연결은 별도 후속 작업이다. 미디어 서비스가 설정되어 있어도 이 작업자는 영상 요청을 생성하지 않는다.
+경보는 기존 알림함 `/api/v1/notifications`에 `collection_required`, `severity: error`로 표시하고 기존 읽음 처리 API를 사용한다. `channel: LOG`, `status: RECORDED`는 DB 기록을 뜻한다. SMTP·문자 등의 외부 발송 성공을 뜻하지 않는다. 외부 발송은 별도 후속 작업이다. 미디어 서비스가 설정되어 있어도 이 판정 작업자는 영상 요청을 생성하지 않는다. 선택적 자동 연결은 별도 미디어 작업자가 [v2 이벤트 영상](V2_EVENT_CLIPS.md)의 기본 비활성 설정에 따라 처리한다.
 
 스냅샷과 SSE의 `operations`는 비활성화 시 null이다. 활성화 시 `lastKnownState`, `lastEvaluatedAt`, `lastAlertAt`, `notificationId`를 제공한다. 현재 STATE의 평가가 끝나고 신선하면 `effectiveState`에 NORMAL/WARNING/CRITICAL을 표시한다. 새 관측이 먼저 도착한 짧은 평가 대기에도 동일 장비·설정·입력 종류의 완료된 판정이 3초 미만이면 유지한다. 관측 TTL이 더 짧으면 그 시간을 따른다. 아직 평가 기록이 없거나 허용 시간을 넘긴 대기, 데이터 지연·연결 불명은 UNKNOWN, 판정 불가는 ERROR다. 마지막 정상 판정과 마지막 알림은 근거 확인을 위해 유지한다. 원본 적재율과 경보 평가 상태는 별개이므로 화면에서 둘을 구분한다.
 

@@ -316,8 +316,32 @@ class HistoryService:
             )
         ).all()
         recordings_by_event = {job.event_id: job.clip_id for job in jobs}
+        source = next(
+            (s for s in get_settings().EDGE_V2_MONITORING_SOURCES if s.pit_id == pit_id), None
+        )
+        collection_clips = {}
+        for job in jobs:
+            data = (job.snapshot or {}).get("_v2Collection")
+            if (
+                job.category == "v2_collection"
+                and source is not None
+                and isinstance(data, dict)
+                and data.get("siteId") == source.site_id
+                and data.get("edgeId") == source.edge_id
+                and isinstance(data.get("detectionId"), str)
+                and isinstance(data.get("scopeToken"), str)
+            ):
+                collection_clips[(data["detectionId"], data["scopeToken"])] = job.clip_id
         for event in events:
             event.recordingId = recordings_by_event.get(event.id)
+            if (
+                event.recordingId is None
+                and event.collectionSource == "HEIGHT_SETTLED"
+                and event.collectionCriteria is not None
+            ):
+                event.recordingId = collection_clips.get(
+                    (event.detectionId, event.collectionCriteria.scopeToken)
+                )
 
         # Sort all events by occurredAt descending
         events.sort(key=lambda e: e.occurredAt, reverse=True)

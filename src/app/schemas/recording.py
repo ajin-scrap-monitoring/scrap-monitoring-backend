@@ -20,6 +20,10 @@ class Recording(BaseModel):
     endedAt: datetime
     durationSeconds: int | None = Field(ge=0)
     eventCategory: EventCategory
+    eventOccurredAt: datetime | None = None
+    eventEndedAt: datetime | None = None
+    eventWindowCovered: bool | None = None
+    eventSimulated: bool | None = None
     title: str
     detail: str
     containerFormat: str = "mp4"

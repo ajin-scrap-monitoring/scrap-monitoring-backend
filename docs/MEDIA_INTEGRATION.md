@@ -90,6 +90,8 @@ docker compose -f docker-compose.yml -f docker-compose.media.yml up -d --build
 
 ## 검증
 
+v2 수거 시작·경보·오류의 선택적 자동 영상 연결과 수거 전체 구간의 미디어 계약 제약은 [v2 이벤트 영상](V2_EVENT_CLIPS.md)을 따른다. 기본 비활성 상태이며, 기존 고정 길이 클립을 전체 수거 구간 영상으로 간주하지 않는다.
+
 ```bash
 uv run ruff check .
 uv run ruff format --check .
