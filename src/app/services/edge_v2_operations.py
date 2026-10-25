@@ -14,6 +14,11 @@ from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Transition
 from src.app.models.log import AlertLog
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.services.alert_lifecycle_service import (
+    advance_episode,
+    invalidate_episode,
+    record_alert,
+)
 from src.app.services.collection_detection_service import process_collection_source
 from src.app.services.edge_v2_service import utc
 from src.app.services.monitoring_v2_service import build_snapshot
@@ -52,8 +57,11 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         )
     fill = snapshot.summary.loadPercent
     if snapshot.dataState != "FRESH" or assessment is None or fill is None:
+        changed = await invalidate_episode(db, source)
         if row and row.critical_since is not None:
             row.critical_since = None
+            changed = True
+        if changed:
             await db.commit()
         return
     observed_at = assessment.observed_to
@@ -77,6 +85,8 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
     if not 0 <= warn <= recovery < critical <= 100:
         # Bad settings never create a notification or reset an existing alarm.
         logger.error("Invalid v2 operational thresholds; source evaluation skipped")
+        if await invalidate_episode(db, source):
+            await db.commit()
         return
     previous = row.state if row and same_source else "NORMAL"
     pending = None
@@ -141,6 +151,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
                 },
             )
         )
+    episode = await advance_episode(db, source, snapshot, assessment, previous, current, now)
     cooldown = timedelta(seconds=get_settings().ALERT_COOLDOWN_SECONDS)
     if current == "CRITICAL" and (
         row.last_alert_at is None or now - utc(row.last_alert_at) >= cooldown
@@ -172,6 +183,8 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         )
         row.last_alert_at = now
         row.last_alert_id = alert.id
+        assert episode is not None
+        record_alert(db, source, episode, alert.id, assessment, now)
     await db.commit()
 
 

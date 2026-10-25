@@ -328,3 +328,24 @@ async def test_simulation_height_history_produces_a_threshold_forecast(
     assert 70 < data.remainingSeconds < 100
     assert data.expectedThresholdAt > angle_context["now"]
     assert data.trendRSquared > 0.99
+
+
+async def test_simulated_height_alert_has_real_recovery_evidence(
+    client, test_db_session, angle_context
+):
+    from sqlalchemy import select
+
+    from src.app.models.log import AlertLog
+    from src.app.services.alert_lifecycle_service import alert_lifecycles
+
+    db = test_db_session
+    await legacy.prepare(client, db)
+    for second in range(14):
+        await legacy.frame(client, db, angle_context, second, 95 if second < 9 else 50)
+    alerts = (await db.scalars(select(AlertLog))).all()
+    assert len(alerts) == 1
+    result = await alert_lifecycles(db, "pit-demo", [alerts[0].id], angle_context["now"])
+    resolved = result[alerts[0].id]
+    assert resolved.state == "RESOLVED", resolved.model_dump()
+    assert resolved.resolvedAt is not None and resolved.resolutionObservedAt is not None
+    assert resolved.resolutionObservedAt <= resolved.resolvedAt
