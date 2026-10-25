@@ -119,3 +119,7 @@ compact 조회가 분 중간에서 잘리면 숫자는 남아 있어도 원래 �
 ## 경보 해제 상태
 
 일반 이벤트의 경보 status는 active/resolved/unknown을 구분하며, statusBasis와 resolvedAt/resolutionObservedAt으로 근거를 제공한다. v2 alerts에는 같은 의미의 lifecycle을 추가한다. 과거 미보관 해제를 현재값으로 채우지 않고, 읽음/전송 상태와 구분한다. [경보 이력 상태](ALERT_RESOLUTION_HISTORY.md)의 유효성·단절·프론트 표시 기준을 따른다.
+
+## 단독 녹화·이벤트 클립의 기간 조회
+
+`GET /api/v1/recordings?from=...&to=...`는 조회 구간과 겹치는 영상을 반환한다. 영상 종료 시각이 from 이상이고 영상 시작 시각이 to 미만인 조건이며, 한쪽 조건만 전달해도 적용한다. 단독 녹화 인덱스와 이벤트 클립에 같은 기준을 사용하고 피트·유형 필터, 정렬·페이지 계약을 유지한다. 날짜 녹화의 한국 날짜 기준 from_date/to_date 계약은 [날짜 녹화 안내](DAILY_RECORDINGS.md)를 따른다.
