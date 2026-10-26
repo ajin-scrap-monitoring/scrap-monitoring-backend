@@ -199,6 +199,122 @@ async def test_collection_reuses_archive_and_returns_exact_seek_positions(
     assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
 
 
+async def test_ten_second_event_uses_zero_based_time_in_a_late_started_seventeen_hour_archive(
+    client, test_db_session, archive
+):
+    midnight = datetime.combine(BASE.astimezone(KST).date(), time(), KST).astimezone(UTC)
+    recording_start = midnight + timedelta(hours=7)
+    recording_end = midnight + timedelta(days=1)
+    event_start = midnight + timedelta(hours=14, minutes=13, seconds=20)
+    identifier = await cycle(test_db_session, event_start, event_start + timedelta(seconds=10))
+    archive["days"] = [day([(recording_start, recording_end, 0, 17 * 3600)])]
+    await login(client)
+    response = await client.get(f"{API}/{identifier}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "AVAILABLE"
+    assert body["requestedSeconds"] == body["playbackSeconds"] == 10
+    assert len(body["parts"]) == 1
+    part = body["parts"][0]
+    assert (part["startSeconds"], part["endSeconds"]) == (26000, 26010)
+    assert (part["relativeStartSeconds"], part["relativeEndSeconds"]) == (0, 10)
+    assert part["fromAt"] == event_start.isoformat().replace("+00:00", "Z")
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
+
+
+async def test_hundreds_of_events_page_without_loss_and_share_one_daily_recording(
+    client, test_db_session, archive
+):
+    midnight = datetime.combine(BASE.astimezone(KST).date(), time(), KST).astimezone(UTC)
+    recording_start = midnight + timedelta(hours=7)
+    archive["days"] = [day([(recording_start, midnight + timedelta(days=1), 0, 17 * 3600)])]
+    expected = {"collection": set(), "alert": set(), "error": set()}
+    models = []
+    for index in range(123):
+        start = recording_start + timedelta(seconds=(index // 2) * 800)
+        payload = {
+            "pitId": "pit-demo",
+            "detectionId": f"synthetic-{index}",
+            "scopeToken": "synthetic-pagination",
+            "simulated": True,
+        }
+        common = {"site_id": "site-demo", "edge_id": "edge-demo"}
+        detected = EdgeV2Transition(
+            **common, kind="COLLECTION_DETECTED", occurred_at=start, payload=payload
+        )
+        settled = EdgeV2Transition(
+            **common,
+            kind="COLLECTION_SETTLED",
+            occurred_at=start + timedelta(seconds=10),
+            payload=payload,
+        )
+        alarm = AlertLog(
+            pit_id="pit-demo",
+            triggered_at=start + timedelta(seconds=40),
+            fill_ratio_percent=95,
+            channel="LOG",
+            status="RECORDED",
+            message="Synthetic",
+        )
+        fault = EdgeV2Transition(
+            **common,
+            kind="DEVICE_STATE_CHANGED",
+            occurred_at=start + timedelta(seconds=80),
+            payload={
+                "pitId": "pit-demo",
+                "previous": "HEALTHY",
+                "current": "MEASUREMENT_UNAVAILABLE",
+                "simulated": True,
+            },
+        )
+        test_db_session.add_all([detected, settled, alarm, fault])
+        models.append((detected, alarm, fault))
+    await test_db_session.flush()
+    for detected, alarm, fault in models:
+        expected["collection"].add(f"evt-auto-col-start-{detected.id}")
+        expected["alert"].add(f"evt-alt-{alarm.id}")
+        expected["error"].add(f"evt-v2-transition-{fault.id}")
+    await test_db_session.commit()
+    expected["all"] = set.union(*expected.values())
+    await login(client)
+    selected = []
+    for category, identifiers in expected.items():
+        received = []
+        pages = (len(identifiers) + 99) // 100
+        params = {
+            "from": midnight.isoformat(),
+            "to": (midnight + timedelta(days=1)).isoformat(),
+            "category": category,
+            "pageSize": 100,
+        }
+        for page in range(1, pages + 2):
+            response = await client.get(API, params={**params, "page": page})
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["page"]["totalItems"] == len(identifiers)
+            assert body["page"]["totalPages"] == pages
+            received.extend(item["eventId"] for item in body["items"])
+            if page == 1 and category != "all":
+                selected.append(body["items"][0]["eventId"])
+            if page > pages:
+                assert body["items"] == []
+        assert len(received) == len(set(received)) == len(identifiers)
+        assert set(received) == identifiers
+    assert archive["requests"] == []  # Listing never creates or fetches media.
+    recording_ids = set()
+    for identifier in selected:
+        response = await client.get(f"{API}/{identifier}")
+        assert response.status_code == 200, response.text
+        replay = response.json()
+        assert replay["state"] == "AVAILABLE"
+        assert replay["parts"][0]["relativeStartSeconds"] == 0
+        assert replay["parts"][-1]["relativeEndSeconds"] == replay["playbackSeconds"]
+        recording_ids.update(part["recordingId"] for part in replay["parts"])
+    assert len(recording_ids) == 1
+    assert len(archive["requests"]) == 3
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
+
+
 async def test_gap_after_event_start_does_not_seek_as_if_wall_time_were_playback_time(
     client, test_db_session, archive
 ):
@@ -216,6 +332,10 @@ async def test_gap_after_event_start_does_not_seek_as_if_wall_time_were_playback
     body = (await client.get(f"{API}/{identifier}")).json()
     assert body["state"] == "PARTIAL" and body["coveredSeconds"] == body["playbackSeconds"] == 50
     assert body["parts"][1]["startSeconds"] == 20
+    assert [(p["relativeStartSeconds"], p["relativeEndSeconds"]) for p in body["parts"]] == [
+        (0, 20),
+        (20, 50),
+    ]
     assert body["unavailableIntervals"][0]["reasonCode"] == "CAMERA_DISCONNECTED"
 
 
@@ -248,6 +368,10 @@ async def test_korean_midnight_uses_two_existing_recordings(client, test_db_sess
     body = response.json()
     assert body["state"] == "AVAILABLE" and body["coveredSeconds"] == 10 and len(body["parts"]) == 2
     assert [p["startSeconds"] for p in body["parts"]] == [15, 0]
+    assert [(p["relativeStartSeconds"], p["relativeEndSeconds"]) for p in body["parts"]] == [
+        (0, 5),
+        (5, 10),
+    ]
     assert len({p["recordingId"] for p in body["parts"]}) == 2
     assert len(archive["requests"]) == 2  # The fixture deliberately returns one date per page.
 
@@ -311,6 +435,10 @@ async def test_point_timestamp_interval_keeps_its_playback_span_without_fake_wal
         body["state"] == "PARTIAL" and body["coveredSeconds"] == 0 and body["playbackSeconds"] == 2
     )
     assert body["parts"][0]["mapping"] == "POINT_TIMESTAMP"
+    assert (body["parts"][0]["relativeStartSeconds"], body["parts"][0]["relativeEndSeconds"]) == (
+        0,
+        2,
+    )
     assert body["parts"][0]["fromAt"] == body["parts"][0]["toAt"]
 
 

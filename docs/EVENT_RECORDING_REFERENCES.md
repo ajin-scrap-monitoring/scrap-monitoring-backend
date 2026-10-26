@@ -34,7 +34,7 @@
 | requestedSeconds | 요청한 실제 시각 구간 길이. 종료 불명은 null |
 | coveredSeconds | 재생 근거로 확인한 실제 시각 구간의 합집합 길이 |
 | playbackSeconds | 재생할 부분들의 영상 재생 시간 합계. 실제 시각 길이와 다를 수 있음 |
-| parts | 실제 날짜 recordingId/recordingDate, 인증된 playbackPath, fromAt/toAt, startSeconds/endSeconds |
+| parts | 실제 날짜 recordingId/recordingDate, 인증된 playbackPath, fromAt/toAt, startSeconds/endSeconds, relativeStartSeconds/relativeEndSeconds |
 | unavailableIntervals | 확인된 GAP·확보 여부 미확인 UNCONFIRMED·FUTURE·MISSING·EXPIRED 구간과 사유 |
 | downloadPath | 현재 null. 이벤트 구간 MP4 추출은 미지원 |
 
@@ -47,6 +47,38 @@
 ## 프론트 연결
 
 녹화 탭의 수거·알림·오류는 새 목록 API를 사용하고, 항목 선택 시 상세를 조회한다. 기존 날짜 HLS 플레이어를 재사용해 part.startSeconds에서 재생하고 endSeconds에서 정지하거나 다음 part로 이동한다. 다운로드 URL이나 전체 수거 영상이 없으면 만들어내지 않는다. 표시 시간대는 Asia/Seoul이며 서버 UTC 원문은 유지한다. 새 API 추가만으로 기존 프론트의 요청·플레이어 선택이 자동으로 바뀌지는 않는다.
+
+### 구간 기준 재생바
+
+`startSeconds/endSeconds`는 원본 날짜 HLS에서 이동할 위치다. `relativeStartSeconds/relativeEndSeconds`는 **선택한 이벤트의 확보된 영상만 순서대로 이어 붙인 0초 기준 위치**다. 첫 part는0초로 시작하고 마지막 relativeEndSeconds는 playbackSeconds와 같다. 자정에 날짜 영상이 바뀌어도 이벤트 재생바는 이어진다. 이 필드는 JSON 메타데이터이며 영상 파일을 생성하거나 복사하지 않는다.
+
+합성 예: 오전07:00부터 자정까지17시간 녹화한 영상에서14:13:20~14:13:30을 선택한 경우 다음 재생 정보를 사용한다.
+
+```json
+{
+  "playbackSeconds": 10,
+  "parts": [{
+    "startSeconds": 26000,
+    "endSeconds": 26010,
+    "relativeStartSeconds": 0,
+    "relativeEndSeconds": 10
+  }]
+}
+```
+
+위 예의 재생바는 `0:00 / 0:10`이며 촬영 시각은 별도로 표시한다. 원본 video.duration이나 자정부터 경과한 초를 구간 길이로 사용하지 않는다. 날짜 영상을 video 요소에 연결하는 것만으로 기본 재생바가10초로 바뀌지는 않는다. 프론트는 구간 기준 재생바와 탐색 처리를 연결한다.
+
+- 현재 구간 시간: `relativeStartSeconds + (video.currentTime - startSeconds)`. 표시값은 해당 part 범위 안으로 제한한다.
+- 탐색: 사용자 위치를 `[0, playbackSeconds]`로 제한하고, 해당 위치를 포함하는 part를 찾는다. 원본 이동 위치는 `startSeconds + (사용자 위치 - relativeStartSeconds)`다. 경계에서는 다음 part를 선택하며, 마지막 끝에서는 정지한다.
+- 재생: 날짜 HLS 준비 후 해당 startSeconds로 이동한다. endSeconds에 도달하면 다음 part의 시작으로 이동하거나 마지막이면 일시 정지한다. 재생·탐색·다시 재생 모두 구간 밖으로 이동하지 않도록 처리한다. 실제 화면의 제어 구현이 필요하며 API가 브라우저를 자동으로 정지시키지는 않는다.
+- 누락: 총60초 중10초가 없으면 확보된 영상의 재생바는50초다. 실제 요청 길이 requestedSeconds와 누락 표시를 함께 유지한다. 없는10초를 영상으로 채우거나 실제 시각이 연속인 것처럼 표시하지 않는다.
+- 진행 중: OPEN은 asOf까지의 임시 구간이며 조회를 갱신하면 길이가 늘어날 수 있다. PARTIAL의 POINT_TIMESTAMP도 원래 재생 길이를 보존하며 연속 촬영 시각으로 늘리지 않는다.
+
+### 100건을 넘는 이벤트
+
+pageSize 최대100은 한 번의 요청 크기이며 전체 이벤트 개수의 상한이 아니다. page를1부터 page.totalPages까지 바꿔 조회한다. 기본20건 또는 화면 크기에 맞는 페이지를 사용하고, 목록 조회 때 모든 상세/HLS를 미리 가져오지 않는다. 사용자가 선택한 eventId의 상세만 요청한다. 동일한 날짜 recordingId를 수백 개 이벤트가 공유할 수 있다.
+
+첫 응답의 from/to와 category·pit_id·문맥 길이·pageSize를 후속 페이지에도 유지한다. 기간이나 필터를 바꾸면1페이지부터 다시 조회한다. 목록은 실시간 DB 조회이므로 늦은 기록 도착과 상태 변경을 포함하는 고정 스냅샷은 아니다. 갱신할 때 eventId로 선택을 유지하고, 단순 누적 목록이면 중복을 제거한 뒤 다시 조회한다. 목록 건수는 영상 전체가 확보된 건수가 아니며 각 항목의 상세 state를 확인한다.
 
 기존 `/api/v1/recordings`와 실제 클립의 recordingId 의미는 유지한다. 새 eventId를 실제 미디어 UUID인 것처럼 넣지 않는다. 상시 영상 공유 방식에서는 `MEDIA_V2_EVENT_CLIPS_ENABLED=false`를 유지한다. 이 설정을 켜면 이전 선택 기능이 별도 클립을 만들 수 있다.
 
