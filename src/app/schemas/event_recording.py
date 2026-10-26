@@ -47,6 +47,18 @@ class ReplayPart(BaseModel):
     toAt: datetime
     startSeconds: float = Field(ge=0, allow_inf_nan=False)
     endSeconds: float = Field(gt=0, allow_inf_nan=False)
+    relativeStartSeconds: float = Field(
+        default=0,
+        ge=0,
+        allow_inf_nan=False,
+        description="Start on the event's zero-based playable timeline, excluding missing spans",
+    )
+    relativeEndSeconds: float = Field(
+        default=0,
+        ge=0,
+        allow_inf_nan=False,
+        description="End on the event's zero-based playable timeline, excluding missing spans",
+    )
     mapping: Literal["LINEAR", "POINT_TIMESTAMP"] = "LINEAR"
 
 

@@ -292,7 +292,10 @@ async def replay_event_recording(
         current = until
     result.parts.sort(key=lambda part: (part.fromAt, part.recordingDate, part.startSeconds))
     result.coveredSeconds = _duration(covered)
-    result.playbackSeconds = sum(part.endSeconds - part.startSeconds for part in result.parts)
+    for part in result.parts:
+        part.relativeStartSeconds = result.playbackSeconds
+        result.playbackSeconds += part.endSeconds - part.startSeconds
+        part.relativeEndSeconds = result.playbackSeconds
     complete = not _remaining(start, end, covered) and not result.unavailableIntervals
     if complete and event.windowState != "OPEN":
         result.state = "AVAILABLE"
