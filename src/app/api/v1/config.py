@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.admin_access import private_response, require_admin_change
 from src.app.api.v1.session import get_session
+from src.app.core.alert_thresholds import validate_alert_thresholds
 from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.config import PitConfig
@@ -73,27 +74,36 @@ async def update_pit_config(
     db: AsyncSession = Depends(get_db_session),
 ) -> PitConfigResponse:
     """Update threshold limits or physical depth of a scrap pit."""
-    stmt = select(PitConfig).where(PitConfig.id == pit_id)
+    stmt = (
+        select(PitConfig)
+        .where(PitConfig.id == pit_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     result = await db.execute(stmt)
     pit = result.scalar_one_or_none()
 
+    settings = get_settings()
+    warning = payload.warning_threshold_percent
+    if warning is None:
+        warning = pit.warning_threshold_percent if pit else settings.DEFAULT_WARNING_THRESHOLD
+    critical = payload.critical_threshold_percent
+    if critical is None:
+        critical = pit.critical_threshold_percent if pit else settings.DEFAULT_CRITICAL_THRESHOLD
+    # Validate the combined values before changing an existing row or creating one.
+    try:
+        validate_alert_thresholds(warning, critical)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+
     if not pit:
         # Create new configuration entry
-        settings = get_settings()
         pit = PitConfig(
             id=pit_id,
             name=payload.name or f"구덩이 {pit_id}",
             total_depth_cm=payload.total_depth_cm or 300.0,
-            warning_threshold_percent=(
-                payload.warning_threshold_percent
-                if payload.warning_threshold_percent is not None
-                else settings.DEFAULT_WARNING_THRESHOLD
-            ),
-            critical_threshold_percent=(
-                payload.critical_threshold_percent
-                if payload.critical_threshold_percent is not None
-                else settings.DEFAULT_CRITICAL_THRESHOLD
-            ),
+            warning_threshold_percent=warning,
+            critical_threshold_percent=critical,
         )
         db.add(pit)
     else:
