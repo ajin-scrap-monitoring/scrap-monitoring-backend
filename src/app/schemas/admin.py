@@ -4,6 +4,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.app.core.alert_thresholds import validate_alert_thresholds
 from src.app.schemas.history import PageMetadata
 from src.app.schemas.monitoring import PreCollectionAlert
 
@@ -41,6 +42,14 @@ class AlertSettingsUpdate(BaseModel):
     maximumRepeatCount: int = Field(ge=1, default=3)
     recoveryNotificationEnabled: bool = True
     eventTypes: list[ConfigurableAlertEventType] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_thresholds(self) -> Self:
+        """Reject settings that the existing operational evaluator cannot use."""
+        validate_alert_thresholds(
+            self.preCollectionAlert.thresholdPercent, self.collectionThresholdPercent
+        )
+        return self
 
 
 class NotificationRecipient(BaseModel):
