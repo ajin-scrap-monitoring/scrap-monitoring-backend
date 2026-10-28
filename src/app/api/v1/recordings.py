@@ -6,13 +6,17 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import require_recording_session
 from src.app.db.session import get_db_session
 from src.app.schemas.recording import Recording, RecordingPage
 from src.app.services.recording_service import recording_service
 
 router = APIRouter(
-    prefix="/recordings", tags=["Recordings"], dependencies=[Depends(require_recording_session)]
+    prefix="/recordings",
+    tags=["Recordings"],
+    dependencies=[Depends(require_recording_session)],
+    responses=error_responses(401, 422, *MEDIA_ERROR_CODES, media=True),
 )
 
 

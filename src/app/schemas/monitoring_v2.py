@@ -1,7 +1,7 @@
 """Dashboard v2 contract: unknown values stay null and source judgments remain visible."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,6 +68,20 @@ class CollectionEventPage(BaseModel):
     offset: int
 
 
+class LidarProfileSampleV2(TypedDict):
+    """One received or spatially grouped point; unavailable positions remain null.
+
+    Angle metadata is present only for SENSOR_ANGLE samples. Keep dictionary semantics
+    for the projection/filter pipeline and omit absent keys from existing responses.
+    """
+
+    positionRatio: Annotated[float | None, Field(ge=0, le=1)]
+    height: Annotated[float | None, Field(ge=0, description="Height in cm")]
+    valid: bool
+    angleMdeg: NotRequired[int]
+    sourceIndex: NotRequired[int]
+
+
 class LidarProfileV2(BaseModel):
     """No height is inferred from a reflection coordinate or an unverified floor distance.
 
@@ -91,7 +105,7 @@ class LidarProfileV2(BaseModel):
     # Angle samples stay current; only the representative scan mean is filtered in time.
     filteredAverage: float | None = None
     summaryValuePolicy: Literal["PROFILE_MEAN", "SCAN_MEAN_TEMPORAL_MEDIAN"] = "PROFILE_MEAN"
-    samples: list[dict[str, float | int | bool | None]] = Field(default_factory=list)
+    samples: list[LidarProfileSampleV2] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
     coverageRatio: float = Field(default=0, ge=0, le=1)
     sectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)

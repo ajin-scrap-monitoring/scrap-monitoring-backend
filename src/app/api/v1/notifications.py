@@ -6,13 +6,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.admin_access import CurrentSession, private_response
+from src.app.api.errors import error_responses
 from src.app.db.session import get_db_session
 from src.app.schemas.notification import Notification, NotificationPage, NotificationUpdate
 from src.app.schemas.session import Session
 from src.app.services.notification_service import notification_service
 
 router = APIRouter(
-    prefix="/notifications", tags=["Notifications"], dependencies=[Depends(private_response)]
+    prefix="/notifications",
+    tags=["Notifications"],
+    dependencies=[Depends(private_response)],
+    responses=error_responses(401, 422, 503),
 )
 
 
@@ -55,6 +59,7 @@ async def list_notifications(
     "/{notificationId}",
     response_model=Notification,
     summary="Update the current user's notification state",
+    responses=error_responses(403, 404),
 )
 async def update_notification(
     session: NotificationSession,
@@ -81,6 +86,7 @@ async def update_notification(
     "/read-all",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Mark all current notifications as read",
+    responses=error_responses(403),
 )
 async def mark_all_notifications_read(
     session: NotificationSession,

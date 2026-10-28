@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.session import get_session
 from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
@@ -44,7 +45,9 @@ from src.app.services.media_job_service import (
 )
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
-router = APIRouter(prefix="/media", tags=["Media Control"])
+router = APIRouter(
+    prefix="/media", tags=["Media Control"], responses=error_responses(401, 422, 503)
+)
 CurrentSession = Annotated[Session, Depends(get_session)]
 Database = Annotated[AsyncSession, Depends(get_db_session)]
 CameraId = Annotated[str, Query(pattern=r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")]
@@ -98,7 +101,11 @@ async def verify_media_access(session: CurrentSession) -> Response:
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
-@router.get("/cameras/{camera_id}/recording-policy", response_model=RecordingPolicy)
+@router.get(
+    "/cameras/{camera_id}/recording-policy",
+    response_model=RecordingPolicy,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
 async def get_recording_policy(camera_id: CameraPath, session: CurrentSession) -> RecordingPolicy:
     return await media_client.get_policy(camera_id)
 
@@ -107,12 +114,18 @@ async def get_recording_policy(camera_id: CameraPath, session: CurrentSession) -
     "/cameras/{camera_id}/recording-policy",
     response_model=RecordingPolicy,
     dependencies=[Depends(require_media_admin)],
+    responses=error_responses(403, *MEDIA_ERROR_CODES, media=True),
 )
 async def put_recording_policy(camera_id: CameraPath, policy: RecordingPolicy) -> RecordingPolicy:
     return await media_client.put_policy(camera_id, policy)
 
 
-@router.post("/clips", dependencies=[Depends(require_media_admin)])
+@router.post(
+    "/clips",
+    response_model=ClipReceipt,
+    dependencies=[Depends(require_media_admin)],
+    responses={202: {"model": ClipReceipt}, **error_responses(403, *MEDIA_ERROR_CODES, media=True)},
+)
 async def request_event_clip(payload: ClipRequest, db: Database) -> JSONResponse:
     """Request an existing backend event; retries cannot invent a second event ID."""
     settings = get_settings()
@@ -188,7 +201,11 @@ async def list_clip_jobs(
     ]
 
 
-@router.get("/clips", response_model=ClipPage)
+@router.get(
+    "/clips",
+    response_model=ClipPage,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
 async def list_media_clips(
     session: CurrentSession,
     camera_id: CameraId | None = None,
@@ -220,7 +237,11 @@ async def list_media_clips(
     return await media_client.list_clips(params)
 
 
-@router.get("/clips/{clip_id}", response_model=ClipDetail)
+@router.get(
+    "/clips/{clip_id}",
+    response_model=ClipDetail,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
 async def get_media_clip(clip_id: UUID, session: CurrentSession, db: Database) -> ClipDetail:
     async with media_job_worker.lock:
         detail = await media_client.get_clip(clip_id)
@@ -231,7 +252,12 @@ async def get_media_clip(clip_id: UUID, session: CurrentSession, db: Database) -
         return detail
 
 
-@router.delete("/clips/{clip_id}", status_code=204, dependencies=[Depends(require_media_admin)])
+@router.delete(
+    "/clips/{clip_id}",
+    status_code=204,
+    dependencies=[Depends(require_media_admin)],
+    responses=error_responses(403, *MEDIA_ERROR_CODES, media=True),
+)
 async def delete_media_clip(clip_id: UUID, db: Database) -> Response:
     async with media_job_worker.lock:
         await media_client.delete_clip(clip_id)

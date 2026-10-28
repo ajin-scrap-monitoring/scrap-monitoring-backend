@@ -144,7 +144,7 @@ def filtered_page(
                 if (ready and sample["valid"] and all(v is not None for v in heights))
                 else None
             )
-            sample.update(height=value, valid=value is not None)
+            sample.update({"height": value, "valid": value is not None})
             if value is not None:
                 values.append(value)
         if values:

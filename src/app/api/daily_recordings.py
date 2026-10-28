@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BeforeValidator
 
+from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import CurrentSession, require_media_admin
 from src.app.schemas.daily_recording import DailyPage, DailyPolicy, DailyRecording, DailyStatus
 from src.app.schemas.session import Session
@@ -30,6 +31,7 @@ router = APIRouter(
     prefix="/api/v2/recordings/daily",
     tags=["Daily Recordings"],
     dependencies=[Depends(disable_cache)],
+    responses=error_responses(401, 422, *MEDIA_ERROR_CODES, media=True),
 )
 
 
@@ -48,7 +50,12 @@ async def get_daily_policy(session: CurrentSession) -> DailyPolicy:
     return await daily_recording_service.policy()
 
 
-@router.put("/policy", response_model=DailyPolicy, dependencies=[Depends(require_media_admin)])
+@router.put(
+    "/policy",
+    response_model=DailyPolicy,
+    dependencies=[Depends(require_media_admin)],
+    responses=error_responses(403),
+)
 async def put_daily_policy(policy: DailyPolicy) -> DailyPolicy:
     return await daily_recording_service.policy(policy)
 
@@ -84,7 +91,7 @@ async def get_daily_recording(recording_id: UUID, session: CurrentSession) -> Da
 @router.post(
     "/{recording_id}/exports",
     response_model=DailyRecording,
-    responses={202: {"model": DailyRecording}},
+    responses={202: {"model": DailyRecording}, **error_responses(403)},
     dependencies=[Depends(require_daily_csrf)],
 )
 async def prepare_daily_download(recording_id: UUID) -> JSONResponse:
@@ -99,7 +106,12 @@ async def prepare_daily_download(recording_id: UUID) -> JSONResponse:
     )
 
 
-@router.delete("/{recording_id}", status_code=204, dependencies=[Depends(require_media_admin)])
+@router.delete(
+    "/{recording_id}",
+    status_code=204,
+    dependencies=[Depends(require_media_admin)],
+    responses=error_responses(403),
+)
 async def delete_daily_recording(recording_id: UUID) -> Response:
     await daily_recording_service.delete(recording_id)
     return Response(status_code=204, headers={"Cache-Control": "no-store"})

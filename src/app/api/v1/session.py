@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import error_responses
 from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.schemas.session import LoginRequest, Session
@@ -43,7 +44,12 @@ class SessionRoute(APIRoute):
         return safe_handler
 
 
-router = APIRouter(prefix="/session", tags=["Session"], route_class=SessionRoute)
+router = APIRouter(
+    prefix="/session",
+    tags=["Session"],
+    route_class=SessionRoute,
+    responses=error_responses(401, 422, 503),
+)
 Database = Annotated[AsyncSession, Depends(get_db_session)]
 
 
@@ -123,6 +129,7 @@ async def create_session(
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses=error_responses(403),
     summary="Delete the current browser session",
 )
 async def delete_session(

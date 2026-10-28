@@ -10,7 +10,7 @@ from src.app.schemas.lidar_height import (
     SimulationHeightReference,
     SimulationSensorPose,
 )
-from src.app.schemas.monitoring_v2 import LidarProfileV2
+from src.app.schemas.monitoring_v2 import LidarProfileSampleV2, LidarProfileV2
 
 XY = tuple[float, float]
 
@@ -157,7 +157,7 @@ def simulation_profile(
     for point in (
         sorted(scan.points, key=lambda p: (p.angle_mdeg, p.index)) if by_angle else scan.points
     ):
-        sample: dict[str, float | int | bool | None] = {
+        sample: LidarProfileSampleV2 = {
             "angleMdeg": point.angle_mdeg,
             "sourceIndex": point.index,
             "positionRatio": None,
@@ -198,7 +198,7 @@ def simulation_profile(
             continue
         value = float(max(0, min(depth, height)))
         if by_angle:
-            sample.update(positionRatio=ratio, height=value, valid=True)
+            sample.update({"positionRatio": ratio, "height": value, "valid": True})
             values.append(value)
         else:
             bins[min(len(bins) - 1, int(ratio * len(bins)))].append(value)
