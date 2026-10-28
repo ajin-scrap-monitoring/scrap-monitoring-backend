@@ -23,6 +23,7 @@ from src.app.schemas.monitoring import LoadSample
 from src.app.services.alert_lifecycle_service import alert_lifecycles
 from src.app.services.collection_ended_service import collection_ended_events
 from src.app.services.error_history_service import error_history_events
+from src.app.services.history_recording_links import recording_event_links
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -352,6 +353,9 @@ class HistoryService:
         start_idx = (page - 1) * pageSize
         end_idx = start_idx + pageSize
         paged_items = events[start_idx:end_idx]
+        links = await recording_event_links(db, pit_id, paged_items)
+        for event in paged_items:
+            event.recordingEventId = links.get(event.id)
 
         return EventPage(
             items=paged_items,

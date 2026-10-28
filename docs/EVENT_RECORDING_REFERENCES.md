@@ -24,6 +24,23 @@
 - windowKind는 COLLECTION_CYCLE 또는 EVENT_CONTEXT, windowState는 CLOSED/OPEN/UNKNOWN/POINT다. simulated=null은 출처 미보관이며 false로 채우지 않는다. 과거 피트가 미보관된 변화는 현재 장치 연결 기준 CURRENT_ASSIGNMENT를 유지한다.
 - 카메라-피트 연결은 현재 설정 기준이다. 카메라 재배치 이전의 물리적 관측 영역까지 검증한 의미가 아니다.
 
+### 이력에서 영상으로 이동
+
+`GET /api/v1/events`의 각 항목은 nullable `recordingEventId`를 제공한다. 값이 있으면
+`GET /api/v2/recordings/events/{recordingEventId}`로 상세를 조회한다. 자동 수거 이력의
+`id=evt-auto-col-{종료기록ID}`를 녹화 ID로 사용하거나 숫자로 시작 기록을 추측하지 않는다.
+백엔드는 같은 현장·장치·피트·detectionId·scopeToken의 시작 기록과 최초 종료 시각을 대조한다.
+시작이 없거나 시작·종료 연결이 모호하면 `recordingEventId=null`이다. 과거 감지 기준을
+포함한 이력도 각 기록에 보관된 기준으로 연결하며, 이력 조회 기간 이전의 시작도 찾는다.
+
+알림·수동 완료·오류는 녹화 이벤트 조회에서도 확인되는 경우 이력 ID와 같은 값을 제공한다.
+현재 피트에 미디어가 설정되지 않았으면 이력 조회는 정상 응답하고 연결 필드는 null이다.
+이력 페이지에 포함된 항목만 DB에서 연결을 확인하며 미디어 조회나 클립 생성은 하지 않는다.
+
+`recordingEventId`는 이벤트 메타데이터의 연결 근거다. 실제 영상의 확보·삭제·만료 여부를
+보장하지 않으므로 상세의 `state`, `parts`, `reasonCodes`를 확인한다. 기존 `recordingId`는
+별도 클립의 실제 미디어 UUID를 유지하며 두 필드를 서로 대체하지 않는다.
+
 ## 재생 응답
 
 `source=DAILY_RECORDING`, event, asOf, effectiveTo와 다음 정보를 제공한다.
