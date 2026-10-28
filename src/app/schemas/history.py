@@ -93,6 +93,13 @@ class Event(BaseModel):
     resolvedAt: datetime | None = None
     resolutionObservedAt: datetime | None = None
     recordingId: str | None = None
+    recordingEventId: str | None = Field(
+        default=None,
+        description=(
+            "Event ID for GET /api/v2/recordings/events/{event_id}; "
+            "null when no unambiguous reference exists. Does not guarantee available footage."
+        ),
+    )
     collectionSource: Literal["MANUAL_CONFIRMATION", "HEIGHT_SETTLED"] | None = None
     confirmedCompletion: bool | None = None
     simulated: bool | None = None

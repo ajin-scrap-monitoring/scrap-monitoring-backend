@@ -111,6 +111,7 @@ def event_table(
     after: int,
     active: tuple[str, str] | None,
     only_id: str | None = None,
+    only_ids: set[str] | None = None,
 ) -> Subquery:
     prefix, number = "", 0
     if only_id is not None:
@@ -137,6 +138,22 @@ def event_table(
             return
         if only_id is not None:
             filters = [*filters, model.id == number]
+        if only_ids is not None:
+            # History enrichment checks only the requested page, using primary keys.
+            numbers = [
+                int(raw)
+                for identifier in only_ids
+                for candidate, _, raw in [identifier.rpartition("-")]
+                if candidate == id_prefix
+                and raw.isascii()
+                and raw.isdecimal()
+                and not raw.startswith("0")
+                and len(raw) <= 19
+                and int(raw) <= 9223372036854775807
+            ]
+            if not numbers:
+                return
+            filters = [*filters, model.id.in_(numbers)]
         if lower is not None:
             if cycle:
                 ongoing = and_(ended.is_(None), occurred >= lower)
