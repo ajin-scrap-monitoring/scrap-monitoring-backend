@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BeforeValidator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.errors import error_responses
@@ -51,6 +52,14 @@ def get_source(
 Source = Annotated[MonitoringSource, Depends(get_source)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=10000)]
+
+
+def parse_history_interval(value: object) -> object:
+    """Query numbers arrive as text; validate the integer enum after conversion."""
+    return int(value) if isinstance(value, str) else value
+
+
+HistoryIntervalQuery = Annotated[HistoryInterval, BeforeValidator(parse_history_interval)]
 
 
 @router.get("/active-alerts", response_model=ActiveFillAlertPageV2)
@@ -123,7 +132,7 @@ async def get_load_history(
     db: Database,
     from_time: Annotated[datetime | None, Query(alias="from")] = None,
     to_time: Annotated[datetime | None, Query(alias="to")] = None,
-    bucket_seconds: Annotated[HistoryInterval | None, Query()] = None,
+    bucket_seconds: Annotated[HistoryIntervalQuery | None, Query()] = None,
 ) -> LoadHistoryV2:
     response.headers["Cache-Control"] = "no-store"
     return await load_history(db, source, from_time, to_time, bucket_seconds)

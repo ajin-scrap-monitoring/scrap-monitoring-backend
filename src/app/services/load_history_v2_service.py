@@ -1,6 +1,8 @@
 """Indexed time-range query and SQL reduction before loading historical STATE payloads."""
 
+import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -19,9 +21,10 @@ from src.app.schemas.load_history_v2 import (
     LoadHistoryV2,
 )
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.services.compact_history_queries import compact_aggregate_query
 
 MAX_POINTS = 1441
-INTERVALS: tuple[HistoryInterval, ...] = (60, 300, 900, 3600)
+INTERVALS: tuple[HistoryInterval, ...] = (60, 300, 900, 3600, 7200, 21600, 86400)
 
 
 def history_window(
@@ -40,8 +43,8 @@ def history_window(
         raise HTTPException(422, "HISTORY_TIME_OUT_OF_RANGE") from None
     if end > now + timedelta(seconds=5):
         raise HTTPException(422, "HISTORY_FUTURE_RANGE")
-    if not timedelta(0) < end - start <= timedelta(days=7):
-        raise HTTPException(422, "HISTORY_RANGE_MUST_BE_WITHIN_7_DAYS")
+    if not timedelta(0) < end - start <= timedelta(days=90):
+        raise HTTPException(422, "HISTORY_RANGE_MUST_BE_WITHIN_90_DAYS")
     choices = (interval,) if interval is not None else INTERVALS
     for seconds in choices:
         points = math.ceil(end.timestamp() / seconds) - math.floor(start.timestamp() / seconds)
@@ -163,18 +166,56 @@ async def load_history(
 async def compact_samples(
     db: AsyncSession, source: MonitoringSource, start: datetime, end: datetime, seconds: int
 ) -> dict[int, tuple[datetime, dict[str, Any]]]:
-    """Bounded seven-day query of minute rows; no periodic STATE or point arrays needed."""
-    rows = await db.scalars(
-        select(EdgeV2Minute)
-        .where(
-            EdgeV2Minute.site_id == source.site_id,
-            EdgeV2Minute.edge_id == source.edge_id,
-            EdgeV2Minute.bucket_start >= start.replace(second=0, microsecond=0),
-            EdgeV2Minute.bucket_start < end,
-        )
-        .order_by(EdgeV2Minute.bucket_start)
-    )
+    """SQL-reduced history and at most two boundary minutes, without point arrays."""
+    start_minute = start.replace(second=0, microsecond=0)
+    end_minute = end.replace(second=0, microsecond=0)
+    whole_start = start_minute + timedelta(minutes=1) if start != start_minute else start
     grouped: dict[int, dict[str, Any]] = {}
+    aggregate = await db.execute(
+        compact_aggregate_query(db, source, whole_start, end_minute, seconds)
+    )
+    for summary in aggregate.mappings():
+        metadata, fallback = summary["metadata"], summary["fallback"]
+        # PostgreSQL returns JSON objects; SQLite's JSON functions return encoded text.
+        metadata = json.loads(metadata) if isinstance(metadata, str) else metadata
+        fallback = json.loads(fallback) if isinstance(fallback, str) else fallback
+        timestamp = datetime.fromtimestamp(summary["stamp"], UTC)
+        generated = datetime.fromisoformat(metadata["generatedAt"]) if metadata else None
+        precise = generated is not None and int(generated.timestamp()) == summary["stamp"]
+        grouped[int(summary["bucket"])] = {
+            "total": summary["total"] or 0.0,
+            "count": summary["count"],
+            "invalid": summary["invalid"],
+            "minimum": summary["minimum"],
+            "maximum": summary["maximum"],
+            "sources": {summary["source"]} if summary["source"] is not None else set(),
+            "methods": {summary["method"]} if summary["method"] is not None else set(),
+            "mixed": summary["source_count"] > 1 or summary["method_count"] > 1,
+            "simulated": bool(summary["simulated"]),
+            "last_time": generated if precise else timestamp,
+            "value": summary["value"],
+            "last": metadata if precise else fallback,
+            "last_source": summary["last_source"] or "EDGE_STATE",
+            "last_method": summary["last_method"],
+        }
+    boundaries = set()
+    if start != start_minute:
+        boundaries.add(start_minute)
+    if end != end_minute:
+        boundaries.add(end_minute)
+    rows: Sequence[EdgeV2Minute] = ()
+    if boundaries:
+        rows = (
+            await db.scalars(
+                select(EdgeV2Minute)
+                .where(
+                    EdgeV2Minute.site_id == source.site_id,
+                    EdgeV2Minute.edge_id == source.edge_id,
+                    EdgeV2Minute.bucket_start.in_(boundaries),
+                )
+                .order_by(EdgeV2Minute.bucket_start)
+            )
+        ).all()
     for row in rows:
         for stamp, value in row.payload.get("values", {}).items():
             timestamp = datetime.fromtimestamp(int(stamp), UTC)
@@ -192,11 +233,15 @@ async def compact_samples(
             group = grouped.setdefault(
                 key,
                 {
-                    "values": [],
+                    "total": 0.0,
+                    "count": 0,
+                    "minimum": None,
+                    "maximum": None,
                     "invalid": 0,
                     "sources": set(),
                     "methods": set(),
                     "simulated": False,
+                    "mixed": False,
                 },
             )
             slot_source = row.payload.get("sources", {}).get(stamp, "EDGE_STATE")
@@ -206,7 +251,14 @@ async def compact_samples(
             ):
                 group["simulated"] = True
             if value is not None:
-                group["values"].append(value)
+                group["total"] += value
+                group["count"] += 1
+                group["minimum"] = (
+                    min(group["minimum"], value) if group["minimum"] is not None else value
+                )
+                group["maximum"] = (
+                    max(group["maximum"], value) if group["maximum"] is not None else value
+                )
                 group["sources"].add(slot_source)
                 if slot_method is not None:
                     group["methods"].add(slot_method)
@@ -227,12 +279,12 @@ async def compact_samples(
         metadata_retained = start <= generated < end and int(generated.timestamp()) == int(
             group["last_time"].timestamp()
         )
-        values = group["values"]
+        count = group["count"]
         value = group["value"]
-        mixed = len(group["sources"]) > 1 or len(group["methods"]) > 1
+        mixed = group["mixed"] or len(group["sources"]) > 1 or len(group["methods"]) > 1
         input_source = next(iter(group["sources"]), group["last_source"]) if not mixed else "MIXED"
         if mixed:
-            values, value = [], None
+            value = None
         data = {
             "generatedAt": generated if metadata_retained else None,
             "observedAt": last["observedAt"] if metadata_retained else None,
@@ -255,13 +307,11 @@ async def compact_samples(
             else last["reasonCodes"]
             if metadata_retained
             else ["COMPACT_SUBMINUTE_METADATA_NOT_RETAINED"],
-            "averagePercent": sum(values) / len(values) if values else None,
-            "minimumPercent": min(values) if values else None,
-            "maximumPercent": max(values) if values else None,
-            "validSamples": len(values),
-            "invalidSamples": group["invalid"] + len(group["values"])
-            if mixed
-            else group["invalid"],
+            "averagePercent": group["total"] / count if count and not mixed else None,
+            "minimumPercent": group["minimum"] if not mixed else None,
+            "maximumPercent": group["maximum"] if not mixed else None,
+            "validSamples": count if not mixed else 0,
+            "invalidSamples": group["invalid"] + count if mixed else group["invalid"],
             "valuePolicy": "MEDIAN_MINUTE",
         }
         result[key] = (generated if metadata_retained else group["last_time"], data)
