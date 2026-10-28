@@ -223,6 +223,9 @@ async def test_bounded_sql_selects_use_time_range_and_rank(client, test_db_sessi
         result = await history(test_db_session, end=START + timedelta(minutes=2))
     finally:
         event.remove(test_engine.sync_engine, "before_cursor_execute", capture)
+    if test_engine.dialect.name == "postgresql":
+        assert "set_config('jit'" in statements[0]
+        statements = statements[1:]
     assert len(statements) == 2
     assert "row_number() OVER" in statements[0]
     assert "generated_at >=" in statements[0] and "generated_at <" in statements[0]

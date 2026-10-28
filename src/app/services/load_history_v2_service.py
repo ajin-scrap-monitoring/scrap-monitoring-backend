@@ -1,5 +1,6 @@
 """Indexed time-range query and SQL reduction before loading historical STATE payloads."""
 
+import asyncio
 import json
 import math
 from collections.abc import Sequence
@@ -7,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import extract, func, select
+from sqlalchemy import extract, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
@@ -22,8 +24,10 @@ from src.app.schemas.load_history_v2 import (
 )
 from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.services.compact_history_queries import compact_aggregate_query
+from src.app.services.compact_history_stream import compact_stream_groups
 
 MAX_POINTS = 1441
+HISTORY_QUERY_TIMEOUT_MILLISECONDS = 20000
 INTERVALS: tuple[HistoryInterval, ...] = (60, 300, 900, 3600, 7200, 21600, 86400)
 
 
@@ -93,6 +97,36 @@ async def load_history(
 ) -> LoadHistoryV2:
     now = now or datetime.now(UTC)
     start, end, seconds = history_window(from_time, to_time, interval, now)
+    if db.get_bind().dialect.name == "postgresql":
+        # Request-local settings reset on commit/rollback, never changing the DB globally.
+        await db.execute(
+            text(
+                "SELECT set_config('jit', 'off', true), "
+                "set_config('statement_timeout', :budget, true)"
+            ),
+            {"budget": str(HISTORY_QUERY_TIMEOUT_MILLISECONDS)},
+        )
+    try:
+        if db.get_bind().dialect.name == "postgresql":
+            async with asyncio.timeout(HISTORY_QUERY_TIMEOUT_MILLISECONDS / 1000):
+                return await _read_history(db, source, start, end, seconds, now)
+        return await _read_history(db, source, start, end, seconds, now)
+    except TimeoutError:
+        raise HTTPException(503, "HISTORY_QUERY_TIMEOUT") from None
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "57014":
+            raise HTTPException(503, "HISTORY_QUERY_TIMEOUT") from None
+        raise
+
+
+async def _read_history(
+    db: AsyncSession,
+    source: MonitoringSource,
+    start: datetime,
+    end: datetime,
+    seconds: HistoryInterval,
+    now: datetime,
+) -> LoadHistoryV2:
     message = EdgeV2Message
     bucket = func.floor(extract("epoch", message.generated_at) / seconds)
     ranked = (
@@ -166,7 +200,11 @@ async def load_history(
 async def compact_samples(
     db: AsyncSession, source: MonitoringSource, start: datetime, end: datetime, seconds: int
 ) -> dict[int, tuple[datetime, dict[str, Any]]]:
-    """SQL-reduced history and at most two boundary minutes, without point arrays."""
+    """Bounded history without retaining all minute payloads in application memory."""
+    if db.get_bind().dialect.name == "postgresql":
+        return _compact_result(
+            await compact_stream_groups(db, source, start, end, seconds), start, end
+        )
     start_minute = start.replace(second=0, microsecond=0)
     end_minute = end.replace(second=0, microsecond=0)
     whole_start = start_minute + timedelta(minutes=1) if start != start_minute else start
@@ -272,6 +310,12 @@ async def compact_samples(
                     last_source=slot_source,
                     last_method=slot_method,
                 )
+    return _compact_result(grouped, start, end)
+
+
+def _compact_result(
+    grouped: dict[int, dict[str, Any]], start: datetime, end: datetime
+) -> dict[int, tuple[datetime, dict[str, Any]]]:
     result: dict[int, tuple[datetime, dict[str, Any]]] = {}
     for key, group in grouped.items():
         last = group["last"]
