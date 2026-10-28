@@ -11,6 +11,12 @@ from src.app.schemas.history import PageMetadata
 ReferenceCategory = Literal["collection", "alert", "error"]
 
 
+class EventPlaybackSummary(BaseModel):
+    state: Literal["AVAILABLE", "PARTIAL", "PROCESSING", "UNAVAILABLE", "UNKNOWN"]
+    playbackSeconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    reasonCodes: list[str] = Field(default_factory=list)
+
+
 class EventRecording(BaseModel):
     eventId: str
     pitId: str
@@ -27,6 +33,9 @@ class EventRecording(BaseModel):
     stateAtOccurrence: str | None = None
     pitAttribution: Literal["RECORDED", "CURRENT_ASSIGNMENT"] = "RECORDED"
     reasonCodes: list[str] = Field(default_factory=list)
+    playback: EventPlaybackSummary | None = Field(
+        default=None, description="Opt-in list summary; null when include_playback is false"
+    )
 
 
 class EventRecordingPage(BaseModel):

@@ -4,7 +4,7 @@
 
 ## API
 
-로그인 세션이 필요하고 모든 응답은 `Cache-Control: no-store`다. 현재 `MEDIA_PIT_ID`와 `MEDIA_CAMERA_ID`의 명시적 연결을 사용한다. 다른 피트는404, 미디어 주소 미설정은503이다. 목록은 미디어 서버에 요청하지 않고 DB 메타데이터만 조회한다.
+로그인 세션이 필요하고 모든 응답은 `Cache-Control: no-store`다. 현재 `MEDIA_PIT_ID`와 `MEDIA_CAMERA_ID`의 명시적 연결을 사용한다. 다른 피트는404, 미디어 주소 미설정은503이다. 기본 목록은 미디어 서버에 요청하지 않고 DB 메타데이터만 조회한다. 선택적 재생 요약은 아래 계약을 따른다.
 
 - `GET /api/v2/recordings/events`: 이벤트 구간 목록.
 - `GET /api/v2/recordings/events/{event_id}`: 해당 구간에서 실제 재생 가능한 날짜 영상·재생 위치 조회.
@@ -104,3 +104,36 @@ pageSize 최대100은 한 번의 요청 크기이며 전체 이벤트 개수의 
 이벤트 구간만 MP4로 내보내려면 사용자가 다운로드할 때 미디어 서비스에 구간 추출을 요청하는 기능이 추가로 필요하다. 현재 하루 MP4 준비 API를 이벤트 구간 다운로드로 대신 제공하지 않는다. 응답은 downloadReasonCode=EVENT_RANGE_EXPORT_UNSUPPORTED다. 백엔드가 영상 바이트를 읽어 잘라내거나 상시 영상을 이중 저장하지 않는다.
 
 저장 용량 문제로 애초에 확보하지 못한 영상은 이 연결로 복원되지 않는다. 실제 API의 저장·누락 메타데이터를 그대로 판단하며, 날짜만으로 영상 유무를 단정하지 않는다.
+
+
+## 목록 재생 요약
+
+`GET /api/v2/recordings/events?include_playback=true`로 현재 페이지의 각 항목에
+`playback`을 함께 요청할 수 있다. 기본값 false에서는 `playback: null`이며 미디어 조회가 없다.
+기존 필터·페이지·문맥 길이를 그대로 적용한다. `playback`은 다음 구조다.
+
+```json
+{"state": "PARTIAL", "playbackSeconds": 10.0, "reasonCodes": ["COVERAGE_UNCONFIRMED"]}
+```
+
+- 정상 계산 시 state는 상세와 같은 AVAILABLE/PARTIAL/PROCESSING/UNAVAILABLE이다.
+  playbackSeconds는 확보된 재생 구간의 합이며 실제 촬영 시각 차이나 날짜 전체 길이가 아니다.
+  0초와 null을 구분한다. 부분 재생·진행 중·시각이 한 점인 표본도 상세와 같은 규칙을 사용한다.
+- 미디어 응답 실패·잘못된 메타데이터·처리 한도로 확인하지 못하면 UNKNOWN,
+  playbackSeconds=null 및 reasonCodes를 반환한다. 이를 ‘영상 없음’으로 표시하지 않는다.
+  이벤트 목록·건수·페이지는 유지된다. 원격 오류 원문이나 내부 주소는 전달하지 않는다.
+- 요청별로 같은 한국 날짜의 메타데이터를 공유한다. 연속 날짜는 하나의 조회 범위로 묶고,
+  서로 떨어진 날짜 사이의 전체 기간을 불필요하게 읽지 않는다. 항목마다 상세 API를 호출하지 않는다.
+  전역 캐시는 없으므로 삭제·녹화 진행 상태는 다음 요청에서 다시 확인한다.
+- 한 페이지에서 최대7개 한국 날짜, 미디어 요청 최대8회(페이지 넘김 포함),
+  메타데이터의 가용 구간+누락 구간 합계20000개, 미디어 조회 전체10초를 적용한다.
+  날짜는 목록 순서대로 배정한다. 날짜 한도 초과 항목은 PLAYBACK_SUMMARY_DATE_LIMIT,
+  요청/메타데이터 한도는 PLAYBACK_SUMMARY_LIMIT, 시간 초과는 PLAYBACK_SUMMARY_TIMEOUT이다.
+  이벤트와 겹치는 구간만 비교하며 페이지 전체의 구간 탐색·비교 작업은200000단위로 제한하며 초과 항목은 PLAYBACK_SUMMARY_WORK_LIMIT이다.
+  상세의2000구간 한도에 걸린 요약도 UNKNOWN/EVENT_REPLAY_SEGMENT_LIMIT이다.
+  불완전한 미디어 페이지에서 누락된 날짜를 영상 없음으로 확정하지 않는다.
+- 요약은 해당 목록 응답의 asOf 기준이다. 선택 후 상세에서 최신 parts와 재생 상태를 다시 확인한다.
+  목록에는 HLS 경로·parts를 추가하지 않는다. 긴 기간의 여러 날짜가 한 페이지에 섞여 UNKNOWN이
+  많으면 날짜 범위를 좁히거나 선택 항목의 상세를 조회한다.
+
+추가 클립·파일·DB 작업을 만들지 않으며 영상 바이트를 중계하지 않는다.
