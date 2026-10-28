@@ -39,9 +39,19 @@ async def list_events(
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
     before_seconds: ContextSeconds = 30,
     after_seconds: ContextSeconds = 30,
+    include_playback: bool = False,
 ) -> EventRecordingPage:
     return await list_event_recordings(
-        db, pit_id, category, from_time, to_time, page, page_size, before_seconds, after_seconds
+        db,
+        pit_id,
+        category,
+        from_time,
+        to_time,
+        page,
+        page_size,
+        before_seconds,
+        after_seconds,
+        include_playback,
     )
 
 

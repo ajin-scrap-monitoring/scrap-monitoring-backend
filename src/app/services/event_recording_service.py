@@ -1,5 +1,6 @@
 """Read existing events and daily archive metadata without creating media jobs."""
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7,8 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.schemas.daily_recording import DailyRecording
+from src.app.schemas.daily_recording import DailyPage, DailyRecording
 from src.app.schemas.event_recording import (
+    EventRecording,
     EventRecordingPage,
     EventRecordingReplay,
     ReplayPart,
@@ -46,6 +48,7 @@ async def list_event_recordings(
     page_size: int,
     before: int,
     after: int,
+    include_playback: bool = False,
 ) -> EventRecordingPage:
     _context(before, after)
     now = datetime.now(UTC)
@@ -69,8 +72,13 @@ async def list_event_recordings(
         .mappings()
         .all()
     )
+    items = [reference(row, pit, before, after, active) for row in rows]
+    if include_playback:
+        from src.app.services.event_playback_summary import add_playback_summaries
+
+        await add_playback_summaries(items, now)
     return EventRecordingPage(
-        items=[reference(row, pit, before, after, active) for row in rows],
+        items=items,
         page=PageMetadata(
             page=page,
             pageSize=page_size,
@@ -110,7 +118,13 @@ def _duration(intervals: list[tuple[datetime, datetime]]) -> float:
     return total
 
 
-async def _archive_days(start: datetime, end: datetime, now: datetime) -> list[DailyRecording]:
+async def _archive_days(
+    start: datetime,
+    end: datetime,
+    now: datetime,
+    *,
+    fetch_page: Callable[[dict[str, str | int]], Awaitable[DailyPage]] | None = None,
+) -> list[DailyRecording]:
     end = min(end, now)
     if end <= start:
         return []
@@ -126,7 +140,7 @@ async def _archive_days(start: datetime, end: datetime, now: datetime) -> list[D
     items: list[DailyRecording] = []
     seen_ids, seen_dates, cursors = set(), set(), set()
     for _ in range(8):
-        page = await daily_recording_service.list(params)
+        page = await (fetch_page or daily_recording_service.list)(params)
         for item in page.items:
             if (
                 item.recording_id in seen_ids
@@ -265,6 +279,16 @@ async def replay_event_recording(
     if row is None:
         raise HTTPException(404, "EVENT_NOT_FOUND")
     event = reference(row, pit, before, after, active)
+    days = []
+    if event.windowState != "UNKNOWN" and (event.windowTo or now) > event.windowFrom:
+        days = await _archive_days(event.windowFrom, event.windowTo or now, now)
+    return resolve_event_replay(event, now, days)
+
+
+def resolve_event_replay(
+    event: EventRecording, now: datetime, days: list[DailyRecording]
+) -> EventRecordingReplay:
+    """Use the same coverage and zero-based timeline rules for detail and list summaries."""
     result = EventRecordingReplay(event=event, state="UNAVAILABLE", asOf=now)
     if event.windowState == "UNKNOWN":
         result.reasonCodes = event.reasonCodes
@@ -275,7 +299,6 @@ async def replay_event_recording(
     if end <= start:
         result.reasonCodes = ["EVENT_WINDOW_EMPTY"]
         return result
-    days = await _archive_days(start, end, now)
     by_date = {day.recording_date: day for day in days}
     covered = []
     current = start
