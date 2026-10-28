@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.app.schemas.monitoring_v2 import MonitoringSource
 from src.app.schemas.presentation import DisplayPercent
 
-HistoryInterval = Literal[60, 300, 900, 3600]
+HistoryInterval = Literal[60, 300, 900, 3600, 7200, 21600, 86400]
 HistoryDataState = Literal["AVAILABLE", "LIMITED", "UNAVAILABLE", "STALE", "UNKNOWN", "NO_DATA"]
 
 

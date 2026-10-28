@@ -33,7 +33,7 @@
 ## 화면 조회
 
 - 기존 snapshot/SSE는 중앙값과 준비 상태를 노출한다. 기존 세션 인증을 유지한다.
-- 기존 load-history는 원문 이력과 새 분 요약을 함께 읽는다. 대표값은 마지막 값이며 평균·최소·최대/유효·무효 수를 추가한다. 새 요약의 `valuePolicy`는 MEDIAN_MINUTE, 기존 원문은 RAW_STATE다. 빈 구간은 null이며 최대 7일/1441점 제한은 유지한다.
+- 기존 load-history는 원문 이력과 새 분 요약을 함께 읽는다. 대표값은 마지막 값이며 평균·최소·최대/유효·무효 수를 추가한다. 새 요약의 `valuePolicy`는 MEDIAN_MINUTE, 기존 원문은 RAW_STATE다. 빈 구간은 null이며 최대90일/1441점으로 조회한다. [장기간 이력 조회](LONG_LOAD_HISTORY.md)의 SQL 집계와 간격 규칙을 따른다.
 - 분 중간에서 잘라 조회하면 초 슬롯의 값은 남아 있어도 원래 판정 ID/정밀 시각이 없을 수 있다. 해당 필드는 null이고 COMPACT_SUBMINUTE_METADATA_NOT_RETAINED를 명시한다. 미래 판정이나 임의 시각으로 채우지 않는다.
 - `GET /api/v2/monitoring/state-events?pit_id=...&limit=20&offset=0`: 오류/복구/적재 상태 변화. 기존 수거 EVENT 개정과 경보 조회도 유지한다.
 - `GET /api/v2/monitoring/profiles?pit_id=...`: 센서별 최신 관측 시각·설정/보정 버전·바닥 기준값. 별도 검증 기준을 등록하지 않으면 평균/최소/최대는 null, samples는 빈 배열, calibrationState는 UNVERIFIED다. 명시적인 좌표계·바닥·측정 구간과 검증 보정이 있으면 [높이 프로필](LIDAR_HEIGHT_PROFILES.md)을 계산한다. 기본 설정의 이 화면용 계산은 STATE·시간 중앙값·분 이력·수거 판정에 입력되지 않는다. 선택적 단면 입력 연결은 [HEIGHT_FILL_PIPELINE.md](HEIGHT_FILL_PIPELINE.md)를 따른다.

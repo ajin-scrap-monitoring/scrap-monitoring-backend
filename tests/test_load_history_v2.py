@@ -163,7 +163,7 @@ async def test_half_open_microsecond_range_and_partial_buckets(client, test_db_s
         {"to": "2026-01-01T00:00:00"},
         {"from": "2026-01-02T00:00:00Z", "to": "2026-01-01T00:00:00Z"},
         {"from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:00Z"},
-        {"from": "2026-01-01T00:00:00Z", "to": "2026-01-09T00:00:00Z"},
+        {"from": "2026-01-01T00:00:00Z", "to": "2026-04-02T00:00:00Z"},
         {"from": "2026-01-01T00:00:00Z", "to": "2026-01-08T00:00:00Z", "bucket_seconds": 60},
         {"bucket_seconds": 1},
         {"to": "9999-12-31T23:59:59Z"},
