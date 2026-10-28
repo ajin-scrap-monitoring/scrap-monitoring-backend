@@ -22,6 +22,4 @@ class CollectionSummaryV2(DetectionSummary):
     reasonCodes: list[str] = Field(default_factory=list)
     lastCollectionActivityAt: datetime | None = None
     secondsSinceLastCollectionActivity: int | None = Field(default=None, ge=0)
-    activitySource: Literal["CONFIRMED_COMPLETION", "HEIGHT_DETECTION", "HEIGHT_SETTLED"] | None = (
-        None
-    )
+    activitySource: Literal["CONFIRMED_COMPLETION", "HEIGHT_SETTLED"] | None = None

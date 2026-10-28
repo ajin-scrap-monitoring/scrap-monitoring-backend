@@ -1,5 +1,7 @@
 # 라이다 v2 대시보드 API
 
+표본 타입과 오류 응답 모델은 [대시보드 응답 명세](DASHBOARD_RESPONSE_CONTRACT.md)를 참고한다.
+
 [최신 관측 모드](COMPACT_LIDAR_STORAGE.md)를 켜면 표시 적재율에 중앙값을 적용하고 준비/오류는 null로 표시한다. 최신 프로필의 보정 상태와 상태 사건 조회 API도 제공한다.
 
 v2 수신 데이터의 현재 판정과 장비 상태를 읽는 API다. 프론트엔드에서 아래 API를 호출하고 새로운 응답의 null·상태 값을 표시하도록 연결해야 한다. 기존 `/api/v1/monitoring/*`와 `/api/v1/stream/*`의 경로·응답·데이터 선택은 유지한다. v2 수신 데이터를 기존 `ScrapMetric`으로 변환하지 않는다.

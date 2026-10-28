@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.admin_access import private_response, require_admin_change
+from src.app.api.errors import error_responses
 from src.app.api.v1.session import get_session
 from src.app.core.alert_thresholds import validate_alert_thresholds
 from src.app.core.config import get_settings
@@ -16,6 +17,7 @@ router = APIRouter(
     prefix="/config",
     tags=["Configuration"],
     dependencies=[Depends(get_session), Depends(private_response)],
+    responses=error_responses(401, 422, 503),
 )
 
 
@@ -44,7 +46,12 @@ async def list_pit_configs(db: AsyncSession = Depends(get_db_session)) -> list[P
     return [PitConfigResponse.model_validate(p) for p in pits]
 
 
-@router.get("/pits/{pit_id}", response_model=PitConfigResponse, summary="Get pit configuration")
+@router.get(
+    "/pits/{pit_id}",
+    response_model=PitConfigResponse,
+    summary="Get pit configuration",
+    responses=error_responses(404),
+)
 async def get_pit_config(
     pit_id: str,
     db: AsyncSession = Depends(get_db_session),
@@ -67,6 +74,7 @@ async def get_pit_config(
     response_model=PitConfigResponse,
     summary="Update pit configuration",
     dependencies=[Depends(require_admin_change)],
+    responses=error_responses(403),
 )
 async def update_pit_config(
     pit_id: str,

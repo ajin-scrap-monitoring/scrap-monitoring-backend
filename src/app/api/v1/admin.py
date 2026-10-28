@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Resp
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.admin_access import private_response, require_admin_change, require_administrator
+from src.app.api.errors import error_responses
 from src.app.db.session import get_db_session
 from src.app.schemas.admin import (
     AlertSettings,
@@ -18,13 +19,22 @@ from src.app.services.admin_service import admin_service
 
 admin_dependencies = [Depends(require_administrator), Depends(private_response)]
 settings_router = APIRouter(
-    prefix="/settings", tags=["Administration"], dependencies=admin_dependencies
+    prefix="/settings",
+    tags=["Administration"],
+    dependencies=admin_dependencies,
+    responses=error_responses(401, 403, 422, 503),
 )
 recipients_router = APIRouter(
-    prefix="/notification-recipients", tags=["Administration"], dependencies=admin_dependencies
+    prefix="/notification-recipients",
+    tags=["Administration"],
+    dependencies=admin_dependencies,
+    responses=error_responses(401, 403, 422, 503),
 )
 notifications_admin_router = APIRouter(
-    prefix="/notifications", tags=["Administration"], dependencies=admin_dependencies
+    prefix="/notifications",
+    tags=["Administration"],
+    dependencies=admin_dependencies,
+    responses=error_responses(401, 403, 422, 503),
 )
 
 
@@ -51,6 +61,7 @@ async def get_alert_settings(
     response_model=AlertSettings,
     summary="Replace alert settings",
     dependencies=[Depends(require_admin_change)],
+    responses=error_responses(412, 428),
 )
 async def replace_alert_settings(
     payload: AlertSettingsUpdate,
@@ -91,6 +102,7 @@ async def list_notification_recipients(
     status_code=status.HTTP_201_CREATED,
     summary="Create a notification recipient",
     dependencies=[Depends(require_admin_change)],
+    responses=error_responses(409),
 )
 async def create_notification_recipient(
     payload: NotificationRecipientCreate,
@@ -109,6 +121,7 @@ async def create_notification_recipient(
     response_model=NotificationRecipient,
     summary="Update a notification recipient",
     dependencies=[Depends(require_admin_change)],
+    responses=error_responses(404, 409, 412),
 )
 async def update_notification_recipient(
     payload: NotificationRecipientPatch,
@@ -136,6 +149,7 @@ async def update_notification_recipient(
     status_code=status.HTTP_202_ACCEPTED,
     summary="Record a test notification request",
     dependencies=[Depends(require_admin_change)],
+    responses=error_responses(404),
 )
 async def send_test_notification(
     payload: TestNotificationRequest,

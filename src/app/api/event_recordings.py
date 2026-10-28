@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import CurrentSession
 from src.app.db.session import get_db_session
 from src.app.schemas.event_recording import EventRecordingPage, EventRecordingReplay
@@ -20,6 +21,7 @@ router = APIRouter(
     prefix="/api/v2/recordings/events",
     tags=["Event Recordings"],
     dependencies=[Depends(disable_cache)],
+    responses=error_responses(401, 404, 422, 503, media=True),
 )
 Database = Annotated[AsyncSession, Depends(get_db_session)]
 ContextSeconds = Annotated[int, Query(ge=0, le=300)]
@@ -43,7 +45,11 @@ async def list_events(
     )
 
 
-@router.get("/{event_id}", response_model=EventRecordingReplay)
+@router.get(
+    "/{event_id}",
+    response_model=EventRecordingReplay,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
 async def replay_event(
     session: CurrentSession,
     db: Database,

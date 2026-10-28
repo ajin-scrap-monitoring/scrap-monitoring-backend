@@ -9,6 +9,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, R
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import error_responses
 from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
 from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
@@ -32,7 +33,11 @@ from src.app.services.load_history_v2_service import load_history
 from src.app.services.monitoring_v2_service import build_snapshot, lidar_profiles, monitoring_source
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
-router = APIRouter(prefix="/api/v2/monitoring", tags=["Monitoring v2"])
+router = APIRouter(
+    prefix="/api/v2/monitoring",
+    tags=["Monitoring v2"],
+    responses=error_responses(401, 404, 422, 503),
+)
 Database = Annotated[AsyncSession, Depends(get_db_session)]
 CurrentSession = Annotated[Session, Depends(get_session)]
 
