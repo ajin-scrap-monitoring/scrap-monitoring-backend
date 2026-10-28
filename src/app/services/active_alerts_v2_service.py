@@ -6,15 +6,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.alert_policy import AlertPolicy
 from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2, ActiveFillAlertV2
-from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
+from src.app.services.active_health_service import apply_starts, health_conditions
 from src.app.services.monitoring_v2_service import build_snapshot
 
 
 async def active_fill_alerts(
-    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+    db: AsyncSession,
+    source: MonitoringSource,
+    now: datetime | None = None,
+    *,
+    include_health: bool = False,
 ) -> ActiveFillAlertPageV2:
     now = now or datetime.now(UTC)
     snapshot = await build_snapshot(db, source, now)
+    result = await _fill_alerts(db, source, snapshot, now)
+    if include_health:
+        result.scope = "ALL"
+        health, result.coverage = health_conditions(snapshot, now)
+        result.items.extend(health)
+    await apply_starts(db, source, snapshot, result.items, now)
+    return result
+
+
+async def _fill_alerts(
+    db: AsyncSession, source: MonitoringSource, snapshot: MonitoringSnapshotV2, now: datetime
+) -> ActiveFillAlertPageV2:
     operations = snapshot.operations
     state = operations.effectiveState if operations else "UNKNOWN"
     result = ActiveFillAlertPageV2(pitId=source.pit_id, computedAt=now, evaluationState=state)

@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -64,10 +64,14 @@ HistoryIntervalQuery = Annotated[HistoryInterval, BeforeValidator(parse_history_
 
 @router.get("/active-alerts", response_model=ActiveFillAlertPageV2)
 async def get_active_alerts(
-    response: Response, session: CurrentSession, source: Source, db: Database
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    scope: Literal["FILL_OPERATIONS", "ALL"] = "FILL_OPERATIONS",
 ) -> ActiveFillAlertPageV2:
     response.headers["Cache-Control"] = "no-store"
-    return await active_fill_alerts(db, source)
+    return await active_fill_alerts(db, source, include_health=scope == "ALL")
 
 
 @router.get("/collection-summary", response_model=CollectionSummaryV2)
