@@ -88,6 +88,11 @@ class MediaClient:
                 "PLAYBACK_NOT_READY",
                 "EXPORT_NOT_READY",
                 "RECORDING_ACTIVE",
+                "RECORDING_NOT_ENABLED",
+                "RECORDING_NOT_READY",
+                "RECORDING_NOT_FOUND_AT_TIME",
+                "EVENT_TIME_IN_FUTURE",
+                "CLIP_PREPARATION_FAILED",
                 "EXPORT_IN_PROGRESS",
                 "DAILY_RECORDING_DELETED",
                 "DAILY_RECORDING_EXPIRED",
@@ -118,7 +123,12 @@ class MediaClient:
                 pass
             if response.status_code in (401, 403):
                 raise MediaServiceError(502, "MEDIA_AUTH_FAILED")
-            retryable = response.status_code in (408, 429) or response.status_code >= 500
+            retryable = (
+                response.status_code in (408, 429)
+                or response.status_code >= 500
+                or response.status_code == 409
+                and code == "RECORDING_NOT_READY"
+            )
             public_status = (
                 response.status_code
                 if response.status_code

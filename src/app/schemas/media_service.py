@@ -1,10 +1,20 @@
 """Camera media service v1 JSON contract; video bytes remain outside FastAPI."""
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 ClipStatus = Literal["collecting", "processing", "ready", "failed", "deleted", "expired"]
 ClipCoverage = Literal["complete", "partial", "none"]
@@ -26,7 +36,7 @@ class RecordingPolicy(BaseModel):
         return self
 
 
-class ClipRequest(BaseModel):
+class ClipIdentity(BaseModel):
     """Stable backend event identity, reused on every retry."""
 
     model_config = ConfigDict(extra="forbid")
@@ -42,6 +52,34 @@ class ClipRequest(BaseModel):
         return value
 
 
+class EventClipRequest(ClipIdentity):
+    use_event_time: bool = Field(default=False, strict=True)
+
+
+class ClipRequest(ClipIdentity):
+    event_at: AwareDatetime | None = None
+
+    @field_serializer("event_at")
+    def event_timestamp(self, value: datetime | None) -> str | None:
+        return event_time_text(value) if value is not None else None
+
+    @model_serializer(mode="wrap")
+    def omit_legacy_time(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        if self.event_at is None:
+            result.pop("event_at", None)
+        return result
+
+
+def event_time_utc(value: datetime) -> datetime:
+    value = value.astimezone(UTC)
+    return value.replace(microsecond=(value.microsecond // 1000) * 1000)
+
+
+def event_time_text(value: datetime) -> str:
+    return event_time_utc(value).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 class ClipReceipt(BaseModel):
     """Creation receipt is not confirmation that a playable file exists."""
 
@@ -52,6 +90,23 @@ class ClipReceipt(BaseModel):
     accepted_at: AwareDatetime
     requested_start_at: AwareDatetime
     requested_end_at: AwareDatetime
+    event_at: AwareDatetime | None = None
+
+    @field_validator("event_at")
+    @classmethod
+    def normalize_event_time(cls, value: datetime | None) -> datetime | None:
+        return value.astimezone(UTC) if value is not None else None
+
+    @field_serializer("event_at")
+    def event_timestamp(self, value: datetime | None) -> str | None:
+        return event_time_text(value) if value is not None else None
+
+    @model_serializer(mode="wrap")
+    def omit_legacy_time(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        if self.event_at is None:
+            result.pop("event_at", None)
+        return result
 
     @field_validator("accepted_at", "requested_start_at", "requested_end_at")
     @classmethod
@@ -62,6 +117,10 @@ class ClipReceipt(BaseModel):
     def validate_window(self) -> "ClipReceipt":
         if self.requested_start_at >= self.requested_end_at:
             raise ValueError("The requested recording interval must be nonempty")
+        if self.event_at is not None and not (
+            self.requested_start_at <= self.event_at <= self.requested_end_at
+        ):
+            raise ValueError("Event time must be inside the requested interval")
         return self
 
 
@@ -139,3 +198,4 @@ class ClipJobResponse(BaseModel):
     next_attempt_at: datetime | None
     error_code: str | None
     clip: ClipReceipt | ClipDetail | None
+    time_basis: Literal["ACCEPTED_AT", "EVENT_OCCURRED_AT"] = "ACCEPTED_AT"

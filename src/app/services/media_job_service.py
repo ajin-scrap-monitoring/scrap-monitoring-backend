@@ -11,7 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.config import get_settings
 from src.app.db.session import get_sessionmaker
 from src.app.models.media_job import MediaClipJob
-from src.app.schemas.media_service import ClipDetail, ClipReceipt, ClipRequest
+from src.app.schemas.media_service import (
+    ClipDetail,
+    ClipReceipt,
+    ClipRequest,
+    event_time_text,
+    event_time_utc,
+)
+from src.app.services.edge_v2_service import digest, utc
 from src.app.services.media_client import MediaServiceError, media_client
 from src.app.services.v2_event_clip_service import AUTO_CATEGORIES, automatic_request_block
 
@@ -19,7 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 async def enqueue_event_clip(
-    db: AsyncSession, event_id: str, pit_id: str, category: str, occurred_at: datetime
+    db: AsyncSession,
+    event_id: str,
+    pit_id: str,
+    category: str,
+    occurred_at: datetime,
+    *,
+    use_event_time: bool = False,
 ) -> MediaClipJob | None:
     """Insert in the event transaction; media failures cannot block sensor collection.
 
@@ -44,11 +57,43 @@ async def enqueue_event_clip(
         occurred_at=occurred_at,
         status="pending",
         attempts=0,
+        snapshot={
+            "_eventTimeRequest": {
+                "version": 1,
+                "eventAt": event_time_text(utc(occurred_at)),
+                "sourceToken": event_time_source(),
+            }
+        }
+        if use_event_time
+        else None,
         next_attempt_at=datetime.now(UTC),
     )
     db.add(job)
     await db.flush()
     return job
+
+
+def event_time_source() -> str:
+    settings = get_settings()
+    return digest([settings.MEDIA_SERVICE_URL, settings.MEDIA_CAMERA_ID, settings.MEDIA_PIT_ID])
+
+
+def event_time_requested(job: MediaClipJob) -> bool:
+    return job.snapshot is not None and "_eventTimeRequest" in job.snapshot
+
+
+def requested_event_time(job: MediaClipJob) -> datetime | None:
+    if not event_time_requested(job):
+        return None
+    context = (job.snapshot or {}).get("_eventTimeRequest")
+    if not isinstance(context, dict) or context.get("version") != 1:
+        raise MediaServiceError(409, "MEDIA_TIME_CONTEXT_INVALID")
+    if context.get("sourceToken") != event_time_source():
+        raise MediaServiceError(409, "MEDIA_CLIP_SOURCE_CHANGED")
+    expected = event_time_utc(utc(job.occurred_at))
+    if context.get("eventAt") != event_time_text(expected):
+        raise MediaServiceError(409, "MEDIA_TIME_CONTEXT_INVALID")
+    return expected
 
 
 def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
@@ -57,17 +102,20 @@ def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
     if job.clip_id and job.clip_id != str(snapshot.clip_id):
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+    expected_time = requested_event_time(job)
+    if snapshot.event_at != expected_time:
+        raise MediaServiceError(502, "MEDIA_TIME_BASIS_MISMATCH")
     job.clip_id = str(snapshot.clip_id)
     job.status = snapshot.status
-    origin = (
-        {
-            key: value
-            for key, value in (job.snapshot or {}).items()
-            if key in ("_v2Context", "_v2Simulated", "_v2Collection")
-        }
-        if job.category in AUTO_CATEGORIES
-        else {}
-    )
+    origin = {
+        key: value
+        for key, value in (job.snapshot or {}).items()
+        if key == "_eventTimeRequest"
+        or (
+            job.category in AUTO_CATEGORIES
+            and key in ("_v2Context", "_v2Simulated", "_v2Collection")
+        )
+    }
     job.snapshot = {**snapshot.model_dump(mode="json"), **origin}
     job.error_code = None
     # Retained ready files can later expire or be deleted outside the backend.
@@ -83,6 +131,7 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
     """Dispatch or poll one persisted job, recording failures before returning."""
     job.attempts += 1
     try:
+        event_at = requested_event_time(job)
         if job.clip_id:
             snapshot: ClipReceipt = await media_client.get_clip(UUID(job.clip_id))
             status_code = 200
@@ -102,7 +151,11 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
                             return 200
                     raise MediaServiceError(409, blocked)
             status_code, snapshot = await media_client.create_clip(
-                ClipRequest(event_id=job.event_id, camera_id=job.camera_id)
+                ClipRequest(
+                    event_id=job.event_id,
+                    camera_id=job.camera_id,
+                    event_at=event_at,
+                )
             )
         apply_snapshot(job, snapshot)
         await db.commit()
@@ -196,8 +249,11 @@ media_job_worker = MediaJobWorker()
 
 def job_snapshot(job: MediaClipJob) -> ClipReceipt | ClipDetail | None:
     if job.snapshot is None or (
-        job.category in AUTO_CATEGORIES
-        and "_v2Context" in job.snapshot
+        (
+            job.category in AUTO_CATEGORIES
+            and "_v2Context" in job.snapshot
+            or event_time_requested(job)
+        )
         and "clip_id" not in job.snapshot
     ):
         return None

@@ -30,8 +30,8 @@ from src.app.schemas.media_service import (
     ClipJobResponse,
     ClipPage,
     ClipReceipt,
-    ClipRequest,
     ClipStatus,
+    EventClipRequest,
     RecordingPolicy,
 )
 from src.app.schemas.session import Session
@@ -39,6 +39,7 @@ from src.app.services.media_client import MediaServiceError, media_client
 from src.app.services.media_job_service import (
     apply_snapshot,
     enqueue_event_clip,
+    event_time_requested,
     job_snapshot,
     media_job_worker,
     process_job,
@@ -126,7 +127,7 @@ async def put_recording_policy(camera_id: CameraPath, policy: RecordingPolicy) -
     dependencies=[Depends(require_media_admin)],
     responses={202: {"model": ClipReceipt}, **error_responses(403, *MEDIA_ERROR_CODES, media=True)},
 )
-async def request_event_clip(payload: ClipRequest, db: Database) -> JSONResponse:
+async def request_event_clip(payload: EventClipRequest, db: Database) -> JSONResponse:
     """Request an existing backend event; retries cannot invent a second event ID."""
     settings = get_settings()
     if not settings.MEDIA_SERVICE_URL:
@@ -161,11 +162,20 @@ async def request_event_clip(payload: ClipRequest, db: Database) -> JSONResponse
             if event is None or event.pit_id != settings.MEDIA_PIT_ID:
                 raise HTTPException(404, "EVENT_NOT_FOUND")
             job = await enqueue_event_clip(
-                db, payload.event_id, event.pit_id, category, occurred_at
+                db,
+                payload.event_id,
+                event.pit_id,
+                category,
+                occurred_at,
+                use_event_time=payload.use_event_time,
             )
             assert job is not None
             # Save identity before HTTP; a timeout must leave a recoverable request.
             await db.commit()
+        if job.pit_id != settings.MEDIA_PIT_ID:
+            raise HTTPException(404, "EVENT_NOT_FOUND")
+        if event_time_requested(job) != payload.use_event_time:
+            raise HTTPException(409, "CLIP_TIME_BASIS_CONFLICT")
         code = await process_job(job, db)
         receipt = ClipReceipt.model_validate(job.snapshot)
         return JSONResponse(
@@ -196,6 +206,7 @@ async def list_clip_jobs(
             next_attempt_at=job.next_attempt_at,
             error_code=job.error_code,
             clip=job_snapshot(job),
+            time_basis="EVENT_OCCURRED_AT" if event_time_requested(job) else "ACCEPTED_AT",
         )
         for job in jobs
     ]
