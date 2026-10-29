@@ -1,7 +1,13 @@
-"""OpenAPI declarations for the existing HTTP and safe media error handlers."""
+"""OpenAPI declarations and JSON-safe request validation error responses."""
 
+import math
 from http import HTTPStatus
 from typing import Any
+
+from fastapi import Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from src.app.schemas.errors import (
     HTTPErrorResponse,
@@ -27,3 +33,13 @@ def error_responses(*codes: int, media: bool = False) -> dict[int | str, dict[st
             )
         result[code] = {"model": model, "description": HTTPStatus(code).phrase}
     return result
+
+
+async def request_validation_error_response(request: Request, exc: Exception) -> JSONResponse:
+    """Preserve validation details while making rejected non-finite inputs JSON-safe."""
+    assert isinstance(exc, RequestValidationError)
+    details = jsonable_encoder(
+        exc.errors(),
+        custom_encoder={float: lambda value: value if math.isfinite(value) else str(value)},
+    )
+    return JSONResponse(status_code=422, content={"detail": details})

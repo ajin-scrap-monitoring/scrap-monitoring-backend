@@ -21,7 +21,7 @@ class PitConfigResponse(BaseModel):
 class PitConfigUpdateRequest(BaseModel):
     """Update request for scrap pit configuration."""
 
-    name: str | None = None
-    total_depth_cm: float | None = Field(default=None, gt=0.0)
+    name: str | None = Field(default=None, max_length=100)
+    total_depth_cm: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
     warning_threshold_percent: float | None = Field(default=None, ge=0.0, le=100.0)
     critical_threshold_percent: float | None = Field(default=None, ge=0.0, le=100.0)

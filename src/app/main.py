@@ -5,8 +5,10 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.app.api.errors import request_validation_error_response
 from src.app.api.router import root_api_router
 from src.app.api.v1.media_control import media_error_response
 from src.app.core.config import get_settings
@@ -63,6 +65,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
     app.add_exception_handler(MediaServiceError, media_error_response)
+    app.add_exception_handler(RequestValidationError, request_validation_error_response)
 
     # CORS configuration
     app.add_middleware(
