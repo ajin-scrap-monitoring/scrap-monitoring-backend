@@ -14,6 +14,7 @@ from src.app.models.edge_v2_projection import EdgeV2Filter, EdgeV2Transition
 from src.app.models.log import AlertLog
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.services.active_health_service import record_starts
 from src.app.services.alert_lifecycle_service import (
     advance_episode,
     invalidate_episode,
@@ -57,7 +58,8 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         )
     fill = snapshot.summary.loadPercent
     if snapshot.dataState != "FRESH" or assessment is None or fill is None:
-        changed = await invalidate_episode(db, source)
+        changed = await record_starts(db, snapshot, now, None)
+        changed = await invalidate_episode(db, source) or changed
         if row and row.critical_since is not None:
             row.critical_since = None
             changed = True
@@ -78,6 +80,9 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
             assessment.generated_at <= utc(row.generated_at) or observed_at <= utc(row.observed_at)
         )
     ):
+        state = snapshot.operations.effectiveState if snapshot.operations else None
+        if await record_starts(db, snapshot, now, state):
+            await db.commit()
         return
     warn = snapshot.summary.warningThresholdPercent
     critical = snapshot.summary.collectionThresholdPercent
@@ -85,7 +90,8 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
     if not 0 <= warn <= recovery < critical <= 100:
         # Bad settings never create a notification or reset an existing alarm.
         logger.error("Invalid v2 operational thresholds; source evaluation skipped")
-        if await invalidate_episode(db, source):
+        changed = await record_starts(db, snapshot, now, None)
+        if await invalidate_episode(db, source) or changed:
             await db.commit()
         return
     previous = row.state if row and same_source else "NORMAL"
@@ -185,6 +191,7 @@ async def process_source(db: AsyncSession, source: MonitoringSource, now: dateti
         row.last_alert_id = alert.id
         assert episode is not None
         record_alert(db, source, episode, alert.id, assessment, now)
+    await record_starts(db, snapshot, now, current)
     await db.commit()
 
 
