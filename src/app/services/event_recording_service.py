@@ -60,20 +60,26 @@ async def list_event_recordings(
     active = await active_collection(db, source, now)
     table = event_table(db, pit, source, category, lower, upper, now, before, after, active)
     total = await db.scalar(select(func.count()).select_from(table)) or 0
+    offset = (page - 1) * page_size
+    # Count first: absent pages need no row query or potentially overflowing DB OFFSET.
     rows = (
         (
-            await db.execute(
-                select(table)
-                .order_by(table.c.at.desc(), table.c.event_id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+            (
+                await db.execute(
+                    select(table)
+                    .order_by(table.c.at.desc(), table.c.event_id.desc())
+                    .offset(offset)
+                    .limit(page_size)
+                )
             )
+            .mappings()
+            .all()
         )
-        .mappings()
-        .all()
+        if offset < total
+        else []
     )
     items = [reference(row, pit, before, after, active) for row in rows]
-    if include_playback:
+    if include_playback and items:
         from src.app.services.event_playback_summary import add_playback_summaries
 
         await add_playback_summaries(items, now)
