@@ -1,6 +1,8 @@
 """Pit configuration and threshold management endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,9 @@ router = APIRouter(
     dependencies=[Depends(get_session), Depends(private_response)],
     responses=error_responses(401, 422, 503),
 )
+
+
+PitId = Annotated[str, Path(min_length=1, max_length=50)]
 
 
 @router.get("/pits", response_model=list[PitConfigResponse], summary="List all pit configurations")
@@ -53,7 +58,7 @@ async def list_pit_configs(db: AsyncSession = Depends(get_db_session)) -> list[P
     responses=error_responses(404),
 )
 async def get_pit_config(
-    pit_id: str,
+    pit_id: PitId,
     db: AsyncSession = Depends(get_db_session),
 ) -> PitConfigResponse:
     """Get configuration for a specific pit."""
@@ -77,7 +82,7 @@ async def get_pit_config(
     responses=error_responses(403),
 )
 async def update_pit_config(
-    pit_id: str,
+    pit_id: PitId,
     payload: PitConfigUpdateRequest,
     db: AsyncSession = Depends(get_db_session),
 ) -> PitConfigResponse:

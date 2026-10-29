@@ -37,9 +37,9 @@ class AlertSettingsUpdate(BaseModel):
 
     collectionThresholdPercent: float = Field(ge=0.0, le=100.0)
     preCollectionAlert: PreCollectionAlert
-    sendDelayMinutes: int = Field(ge=0, default=0)
-    repeatIntervalMinutes: int = Field(ge=0, default=30)
-    maximumRepeatCount: int = Field(ge=1, default=3)
+    sendDelayMinutes: int = Field(ge=0, le=2147483647, default=0)
+    repeatIntervalMinutes: int = Field(ge=0, le=2147483647, default=30)
+    maximumRepeatCount: int = Field(ge=1, le=2147483647, default=3)
     recoveryNotificationEnabled: bool = True
     eventTypes: list[ConfigurableAlertEventType] = Field(min_length=1)
 
