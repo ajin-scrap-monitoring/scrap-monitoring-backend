@@ -103,3 +103,5 @@ docker build -t scrap-backend-issue29:local .
 실제 엣지 송신, 프론트엔드 표시, TLS 및 현장 영상과의 통합 검증은 별도로 진행한다.
 
 현재 장비·측정 알림과 시작 시각의 선택적 통합 조회는 [현재 상태 계약](ACTIVE_HEALTH_ALERTS.md)을 참고한다.
+
+센서 위치·측정선·좌표계의 설정 기반 조회는 [측정 배치 계약](MEASUREMENT_LAYOUT.md)을 참고한다.
