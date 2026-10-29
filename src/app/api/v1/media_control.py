@@ -143,10 +143,11 @@ async def request_event_clip(payload: EventClipRequest, db: Database) -> JSONRes
         )
         if job is None:
             prefix, _, identifier = payload.event_id.rpartition("-")
-            if not identifier.isascii() or not identifier.isdecimal() or len(identifier) > 19:
+            if not identifier.isascii() or not identifier.isdecimal() or len(identifier) > 10:
                 raise HTTPException(404, "EVENT_NOT_FOUND")
             event_number = int(identifier)
-            if not 1 <= event_number <= 9223372036854775807 or str(event_number) != identifier:
+            # Event log primary keys use PostgreSQL INTEGER, not BIGINT.
+            if not 1 <= event_number <= 2147483647 or str(event_number) != identifier:
                 raise HTTPException(404, "EVENT_NOT_FOUND")
             event: AlertLog | CollectionLog | None = None
             if prefix == "evt-alt":

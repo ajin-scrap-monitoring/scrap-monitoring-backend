@@ -116,10 +116,11 @@ def event_table(
     prefix, number = "", 0
     if only_id is not None:
         prefix, _, raw = only_id.rpartition("-")
-        if not raw.isascii() or not raw.isdecimal() or raw.startswith("0"):
+        if not raw.isascii() or not raw.isdecimal() or raw.startswith("0") or len(raw) > 10:
             raise HTTPException(404, "EVENT_NOT_FOUND")
         number = int(raw)
-        if number > 9223372036854775807:
+        # All referenced event primary keys use PostgreSQL INTEGER.
+        if number > 2147483647:
             raise HTTPException(404, "EVENT_NOT_FOUND")
     parts = []
 
@@ -148,8 +149,8 @@ def event_table(
                 and raw.isascii()
                 and raw.isdecimal()
                 and not raw.startswith("0")
-                and len(raw) <= 19
-                and int(raw) <= 9223372036854775807
+                and len(raw) <= 10
+                and int(raw) <= 2147483647
             ]
             if not numbers:
                 return

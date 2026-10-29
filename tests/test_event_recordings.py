@@ -15,6 +15,7 @@ from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
 from src.app.models.metric import ScrapMetric
 from src.app.schemas.monitoring_v2 import MonitoringSource
+from src.app.services.event_recording_queries import event_table
 from src.app.services.media_client import media_client
 
 BASE = datetime(2026, 10, 14, 3, tzinfo=UTC)
@@ -663,3 +664,48 @@ async def test_large_event_window_is_bounded(client, test_db_session, archive):
     await login(client)
     assert (await client.get(f"{API}/{identifier}")).status_code == 422
     assert archive["requests"] == []
+
+
+@pytest.mark.parametrize(
+    "prefix", ["evt-alt", "evt-col", "evt-auto-col-start", "evt-v2-transition", "evt-err"]
+)
+@pytest.mark.parametrize("number", [2147483648, 9223372036854775807])
+async def test_replay_event_number_outside_database_range_is_not_found(
+    client, test_db_session, archive, prefix, number
+):
+    await login(client)
+    response = await client.get(f"{API}/{prefix}-{number}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "EVENT_NOT_FOUND"
+    assert archive["requests"] == []
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
+
+
+async def test_replay_accepts_largest_database_event_number(client, test_db_session, archive):
+    await alert(test_db_session)
+    row = await test_db_session.scalar(select(AlertLog))
+    row.id = 2147483647
+    await test_db_session.commit()
+    await login(client)
+    response = await client.get(f"{API}/evt-alt-2147483647")
+    assert response.status_code == 200
+    assert response.json()["event"]["eventId"] == "evt-alt-2147483647"
+
+
+async def test_event_batch_ignores_numbers_outside_database_range(test_db_session):
+    identifier = await alert(test_db_session)
+    table = event_table(
+        test_db_session,
+        "pit-demo",
+        None,
+        "alert",
+        None,
+        None,
+        NOW,
+        30,
+        30,
+        None,
+        only_ids={identifier, "evt-alt-2147483648", "evt-alt-9223372036854775807"},
+    )
+    rows = (await test_db_session.execute(select(table))).mappings().all()
+    assert [row["event_id"] for row in rows] == [identifier]
