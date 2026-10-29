@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.app.core.config import Settings, get_settings
-from src.app.models.log import AlertLog
+from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
 from src.app.services.alert_engine import AlertEngine
 from src.app.services.media_client import MediaServiceError, media_client
@@ -467,3 +467,44 @@ async def test_legacy_callback_disabled_and_manual_clip_permissions(client, fake
             headers=headers,
         )
     ).status_code == 403
+
+
+@pytest.mark.parametrize("prefix", ["evt-alt", "evt-col"])
+@pytest.mark.parametrize("use_event_time", [False, True])
+@pytest.mark.parametrize("number", [2147483648, 9223372036854775807])
+async def test_clip_event_number_outside_database_range_is_not_found(
+    client, test_db_session, fake_media, prefix, use_event_time, number
+):
+    response = await client.post(
+        "/api/v1/media/clips",
+        json={"event_id": f"{prefix}-{number}", "use_event_time": use_event_time},
+        headers=await login(client),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "EVENT_NOT_FOUND"
+    assert fake_media.requests == []
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
+
+
+@pytest.mark.parametrize("prefix", ["evt-alt", "evt-col"])
+async def test_clip_accepts_largest_database_event_number(
+    client, test_db_session, fake_media, prefix
+):
+    if prefix == "evt-alt":
+        await seed_alert(test_db_session)
+        event = await test_db_session.scalar(select(AlertLog))
+    else:
+        event = CollectionLog(
+            pit_id="pit-01", completed_at=NOW, residual_height_cm=0, operator_name="Synthetic"
+        )
+        test_db_session.add(event)
+    event.id = 2147483647
+    await test_db_session.commit()
+    response = await client.post(
+        "/api/v1/media/clips",
+        json={"event_id": f"{prefix}-{event.id}"},
+        headers=await login(client),
+    )
+    assert response.status_code == 202
+    assert response.json()["event_id"] == f"{prefix}-2147483647"
+    assert len(fake_media.requests) == 1
