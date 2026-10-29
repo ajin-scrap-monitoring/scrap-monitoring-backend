@@ -23,9 +23,9 @@ class AlertLogResponse(BaseModel):
 class CollectionConfirmRequest(BaseModel):
     """Payload to confirm scrap collection completion."""
 
-    pit_id: str = Field(default="pit-01")
+    pit_id: str = Field(default="pit-01", max_length=50)
     residual_height_cm: float = Field(
-        ge=0.0, description="Measured scrap height remaining after haul"
+        ge=0.0, allow_inf_nan=False, description="Measured scrap height remaining after haul"
     )
     operator_name: str = Field(min_length=1, max_length=100)
     notes: str | None = None
