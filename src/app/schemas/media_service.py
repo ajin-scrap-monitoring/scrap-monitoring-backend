@@ -1,7 +1,7 @@
 """Camera media service v1 JSON contract; video bytes remain outside FastAPI."""
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -9,12 +9,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    SerializerFunctionWrapHandler,
+    WithJsonSchema,
     field_serializer,
     field_validator,
-    model_serializer,
     model_validator,
 )
+
+UtcTimestampText = Annotated[str, WithJsonSchema({"type": "string", "format": "date-time"})]
 
 ClipStatus = Literal["collecting", "processing", "ready", "failed", "deleted", "expired"]
 ClipCoverage = Literal["complete", "partial", "none"]
@@ -57,18 +58,11 @@ class EventClipRequest(ClipIdentity):
 
 
 class ClipRequest(ClipIdentity):
-    event_at: AwareDatetime | None = None
+    event_at: AwareDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_serializer("event_at")
-    def event_timestamp(self, value: datetime | None) -> str | None:
+    def event_timestamp(self, value: datetime | None) -> UtcTimestampText | None:
         return event_time_text(value) if value is not None else None
-
-    @model_serializer(mode="wrap")
-    def omit_legacy_time(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        result: dict[str, Any] = handler(self)
-        if self.event_at is None:
-            result.pop("event_at", None)
-        return result
 
 
 def event_time_utc(value: datetime) -> datetime:
@@ -90,7 +84,7 @@ class ClipReceipt(BaseModel):
     accepted_at: AwareDatetime
     requested_start_at: AwareDatetime
     requested_end_at: AwareDatetime
-    event_at: AwareDatetime | None = None
+    event_at: AwareDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("event_at")
     @classmethod
@@ -98,15 +92,8 @@ class ClipReceipt(BaseModel):
         return value.astimezone(UTC) if value is not None else None
 
     @field_serializer("event_at")
-    def event_timestamp(self, value: datetime | None) -> str | None:
+    def event_timestamp(self, value: datetime | None) -> UtcTimestampText | None:
         return event_time_text(value) if value is not None else None
-
-    @model_serializer(mode="wrap")
-    def omit_legacy_time(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        result: dict[str, Any] = handler(self)
-        if self.event_at is None:
-            result.pop("event_at", None)
-        return result
 
     @field_validator("accepted_at", "requested_start_at", "requested_end_at")
     @classmethod
