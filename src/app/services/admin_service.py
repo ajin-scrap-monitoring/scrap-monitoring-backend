@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.log import AlertLog
@@ -128,7 +129,17 @@ class AdminService:
             event_types=",".join(payload.eventTypes),
         )
         db.add(rec_model)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Another request may register this email after the initial check.
+            await db.rollback()
+            if await db.scalar(chk_stmt) is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Recipient with email '{payload.email}' already exists",
+                ) from None
+            raise
         await db.refresh(rec_model)
 
         etag = f'"{rec_model.version_id}"'
@@ -195,20 +206,38 @@ class AdminService:
             changes["event_types"] = ",".join(payload.eventTypes)
 
         # Check and change the version in one DB statement, including concurrent readers.
-        saved = await db.execute(
-            update(NotificationRecipientModel)
-            .where(
-                NotificationRecipientModel.id == recipient_id,
-                NotificationRecipientModel.version_id == version,
+        try:
+            saved = await db.execute(
+                update(NotificationRecipientModel)
+                .where(
+                    NotificationRecipientModel.id == recipient_id,
+                    NotificationRecipientModel.version_id == version,
+                )
+                .values(**changes)
+                .returning(NotificationRecipientModel.id)
+                .execution_options(synchronize_session=False)
             )
-            .values(**changes)
-            .returning(NotificationRecipientModel.id)
-            .execution_options(synchronize_session=False)
-        )
-        if saved.scalar_one_or_none() is None:
+            if saved.scalar_one_or_none() is None:
+                await db.rollback()
+                raise HTTPException(412, "Recipient changed; retrieve the current version first")
+            await db.commit()
+        except IntegrityError:
+            # Different recipients can pass the email check before either save commits.
             await db.rollback()
-            raise HTTPException(412, "Recipient changed; retrieve the current version first")
-        await db.commit()
+            email = changes.get("email")
+            if email is not None:
+                duplicate = await db.scalar(
+                    select(NotificationRecipientModel).where(
+                        NotificationRecipientModel.email == email,
+                        NotificationRecipientModel.id != recipient_id,
+                    )
+                )
+                if duplicate is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Email '{email}' is already in use by another recipient",
+                    ) from None
+            raise
         await db.refresh(rec_model)
 
         etag = f'"{rec_model.version_id}"'

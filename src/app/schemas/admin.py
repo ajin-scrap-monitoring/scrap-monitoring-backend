@@ -74,14 +74,23 @@ class NotificationRecipientCreate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    name: str = Field(min_length=1)
-    team: str = Field(min_length=1)
-    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    phone: str | None = None
+    name: str = Field(min_length=1, max_length=100)
+    team: str = Field(min_length=1, max_length=100)
+    email: str = Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    phone: str | None = Field(default=None, max_length=50)
     enabled: bool = True
-    channels: list[NotificationChannel] = Field(min_length=1)
+    channels: list[NotificationChannel] = Field(min_length=1, max_length=2)
     subscriptionMode: Literal["global", "custom"] = "global"
-    eventTypes: list[ConfigurableAlertEventType] = Field(min_length=1)
+    eventTypes: list[ConfigurableAlertEventType] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_selections(self) -> Self:
+        """Keep stored channel and event lists unique, as recipient updates require."""
+        for field in ("channels", "eventTypes"):
+            values = getattr(self, field)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field} must contain unique values")
+        return self
 
 
 class NotificationRecipientPatch(BaseModel):
@@ -89,14 +98,14 @@ class NotificationRecipientPatch(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1)
-    team: str | None = Field(default=None, min_length=1)
-    email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    phone: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    team: str | None = Field(default=None, min_length=1, max_length=100)
+    email: str | None = Field(default=None, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    phone: str | None = Field(default=None, max_length=50)
     enabled: bool | None = None
-    channels: list[NotificationChannel] | None = Field(default=None, min_length=1)
+    channels: list[NotificationChannel] | None = Field(default=None, min_length=1, max_length=2)
     subscriptionMode: Literal["global", "custom"] | None = None
-    eventTypes: list[ConfigurableAlertEventType] | None = None
+    eventTypes: list[ConfigurableAlertEventType] | None = Field(default=None, max_length=3)
 
     @model_validator(mode="after")
     def validate_patch(self) -> Self:
