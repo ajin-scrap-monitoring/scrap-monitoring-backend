@@ -98,37 +98,53 @@ class NotificationService:
         username: str,
     ) -> NotificationPage:
         """Query paginated alert notifications with unread count."""
-        joined = select(AlertLog, NotificationRead.read_at).outerjoin(
-            NotificationRead,
-            and_(NotificationRead.alert_id == AlertLog.id, NotificationRead.username == username),
-        )
-        # 1. Total unread count
-        unread_query = joined.where(NotificationRead.alert_id.is_(None))
-        unread_count = (
-            await db.scalar(select(func.count()).select_from(unread_query.subquery())) or 0
-        )
+        try:
+            read_match = and_(
+                NotificationRead.alert_id == AlertLog.id, NotificationRead.username == username
+            )
+            # 1. Total unread count, sharing one aggregate query with the overall count.
+            counts = (
+                select(
+                    func.count(AlertLog.id),
+                    func.count().filter(NotificationRead.alert_id.is_(None)),
+                )
+                .select_from(AlertLog)
+                .outerjoin(NotificationRead, read_match)
+            )
+            overall_count, unread_count = (await db.execute(counts)).one()
 
-        # 2. Filtered list query
-        query = unread_query if unread_only else joined
-        # Count total items matching filter
-        total_items = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
+            # 2. Filtered list query
+            # Count total items matching filter without repeating the aggregate query.
+            total_items = unread_count if unread_only else overall_count
+            total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 0
+            page_meta = PageMetadata(
+                page=page,
+                pageSize=page_size,
+                totalItems=total_items,
+                totalPages=total_pages,
+            )
+            offset = (page - 1) * page_size
+            # An absent page needs no row query or potentially overflowing DB OFFSET.
+            if offset >= total_items:
+                return NotificationPage(items=[], page=page_meta, unreadCount=unread_count)
+            query = select(AlertLog, NotificationRead.read_at).outerjoin(
+                NotificationRead, read_match
+            )
+            if unread_only:
+                query = query.where(NotificationRead.alert_id.is_(None))
 
-        # 3. Pagination & ordering (latest first)
-        query = (
-            query.order_by(AlertLog.triggered_at.desc(), AlertLog.id.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-        rows = (await db.execute(query)).all()
-        items = [_notification(log, read_at) for log, read_at in rows]
-        total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 0
-        page_meta = PageMetadata(
-            page=page,
-            pageSize=page_size,
-            totalItems=total_items,
-            totalPages=total_pages,
-        )
-        return NotificationPage(items=items, page=page_meta, unreadCount=unread_count)
+            # 3. Pagination & ordering (latest first)
+            query = (
+                query.order_by(AlertLog.triggered_at.desc(), AlertLog.id.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            rows = (await db.execute(query)).all()
+            items = [_notification(log, read_at) for log, read_at in rows]
+            return NotificationPage(items=items, page=page_meta, unreadCount=unread_count)
+        except SQLAlchemyError:
+            await db.rollback()
+            raise HTTPException(503, "Notification storage unavailable") from None
 
     async def update_notification(
         self,
