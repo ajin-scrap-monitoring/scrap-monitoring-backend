@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src.app.schemas.presentation import DisplayPercent
+from src.app.schemas.response_fields import RequiredResponseFields
 
 
 class ActiveFillAlertV2(BaseModel):
@@ -47,7 +48,10 @@ class ActiveHealthCoverageV2(BaseModel):
     reasonCodes: list[str] = Field(default_factory=list)
 
 
-class ActiveFillAlertPageV2(BaseModel):
+class ActiveFillAlertPageV2(RequiredResponseFields):
+    # Defaults simplify internal construction but coverage is always emitted.
+    required_response_fields = ("coverage",)
+
     pitId: str
     computedAt: datetime
     scope: Literal["FILL_OPERATIONS", "ALL"] = "FILL_OPERATIONS"

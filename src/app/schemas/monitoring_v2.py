@@ -9,6 +9,7 @@ from src.app.schemas.alert_lifecycle import AlertLifecycle
 from src.app.schemas.edge_v2 import Assessment, DeviceStatus, Identifier
 from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.presentation import DisplayPercent
+from src.app.schemas.response_fields import RequiredResponseFields
 
 DashboardDataState = Literal["FRESH", "STALE", "UNAVAILABLE", "UNKNOWN", "NO_DATA"]
 OperationalState = Literal["NORMAL", "WARNING", "CRITICAL"]
@@ -82,11 +83,14 @@ class LidarProfileSampleV2(TypedDict):
     sourceIndex: NotRequired[int]
 
 
-class LidarProfileV2(BaseModel):
+class LidarProfileV2(RequiredResponseFields):
     """No height is inferred from a reflection coordinate or an unverified floor distance.
 
     A verified, explicit frame/floor/region reference enables a separate height projection.
     """
+
+    # Require only the emitted array; nested optional sample fields stay optional.
+    required_response_fields = ("samples",)
 
     sensorId: str
     measuredAt: datetime | None = None
