@@ -48,6 +48,20 @@ class ActiveHealthCoverageV2(BaseModel):
     reasonCodes: list[str] = Field(default_factory=list)
 
 
+class ActiveAlertBasisV2(BaseModel):
+    """The exact snapshot used by this response, including unknown and pending states."""
+
+    snapshotId: str
+    dataState: Literal["FRESH", "STALE", "UNAVAILABLE", "UNKNOWN", "NO_DATA"]
+    filterState: Literal["DISABLED", "WARMING", "READY", "UNAVAILABLE"]
+    inputSource: Literal["EDGE_STATE", "HEIGHT_SECTIONS"]
+    measuredAt: datetime | None
+    lastEvaluatedAt: datetime | None
+    evaluationSource: Literal["CURRENT_OBSERVATION", "RECENT_PERSISTED"] | None
+    lastKnownState: Literal["NORMAL", "WARNING", "CRITICAL"] | None
+    reasonCodes: list[str]
+
+
 class ActiveFillAlertPageV2(RequiredResponseFields):
     # Defaults simplify internal construction but coverage is always emitted.
     required_response_fields = ("coverage",)
@@ -56,6 +70,7 @@ class ActiveFillAlertPageV2(RequiredResponseFields):
     computedAt: datetime
     scope: Literal["FILL_OPERATIONS", "ALL"] = "FILL_OPERATIONS"
     evaluationState: Literal["NORMAL", "WARNING", "CRITICAL", "UNKNOWN", "ERROR"]
+    basis: ActiveAlertBasisV2
     items: list[ActiveFillAlertV2 | ActiveHealthAlertV2] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=list)
 

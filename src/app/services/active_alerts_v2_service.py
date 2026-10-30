@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.alert_policy import AlertPolicy
-from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2, ActiveFillAlertV2
+from src.app.schemas.active_alerts_v2 import (
+    ActiveAlertBasisV2,
+    ActiveFillAlertPageV2,
+    ActiveFillAlertV2,
+)
 from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.active_health_service import apply_starts, health_conditions
 from src.app.services.monitoring_v2_service import build_snapshot
@@ -34,7 +38,22 @@ async def _fill_alerts(
 ) -> ActiveFillAlertPageV2:
     operations = snapshot.operations
     state = operations.effectiveState if operations else "UNKNOWN"
-    result = ActiveFillAlertPageV2(pitId=source.pit_id, computedAt=now, evaluationState=state)
+    result = ActiveFillAlertPageV2(
+        pitId=source.pit_id,
+        computedAt=now,
+        evaluationState=state,
+        basis=ActiveAlertBasisV2(
+            snapshotId=snapshot.snapshotId,
+            dataState=snapshot.dataState,
+            filterState=snapshot.summary.filterState,
+            inputSource=snapshot.summary.inputSource,
+            measuredAt=snapshot.measuredAt,
+            lastEvaluatedAt=operations.lastEvaluatedAt if operations else None,
+            evaluationSource=operations.evaluationSource if operations else None,
+            lastKnownState=operations.lastKnownState if operations else None,
+            reasonCodes=list(snapshot.reasonCodes),
+        ),
+    )
     if operations and operations.evaluationSource == "RECENT_PERSISTED":
         result.reasonCodes = ["OPERATIONS_EVALUATION_PENDING"]
     if operations is None:

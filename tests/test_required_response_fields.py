@@ -17,7 +17,22 @@ from src.app.schemas.monitoring_v2 import LidarProfileV2
         (
             ActiveFillAlertPageV2,
             "coverage",
-            {"pitId": "pit-demo", "computedAt": datetime.now(UTC), "evaluationState": "UNKNOWN"},
+            {
+                "pitId": "pit-demo",
+                "computedAt": datetime.now(UTC),
+                "evaluationState": "UNKNOWN",
+                "basis": {
+                    "snapshotId": "synthetic",
+                    "dataState": "NO_DATA",
+                    "filterState": "DISABLED",
+                    "inputSource": "EDGE_STATE",
+                    "measuredAt": None,
+                    "lastEvaluatedAt": None,
+                    "evaluationSource": None,
+                    "lastKnownState": None,
+                    "reasonCodes": [],
+                },
+            },
         ),
         (LidarProfileV2, "samples", {"sensorId": "lidar-a", "referenceDistanceCm": 100}),
     ],
