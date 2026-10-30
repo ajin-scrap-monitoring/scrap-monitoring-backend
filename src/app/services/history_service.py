@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from fastapi import HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,9 +29,12 @@ from src.app.services.history_recording_links import recording_event_links
 
 def _ensure_utc(dt: datetime) -> datetime:
     """Ensure datetime has UTC timezone."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
+    try:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except (OverflowError, ValueError):
+        raise HTTPException(422, "HISTORY_TIME_OUT_OF_RANGE") from None
 
 
 class HistoryService:
@@ -49,7 +53,12 @@ class HistoryService:
         settings = get_settings()
 
         effective_to = _ensure_utc(to_time) if to_time else now
-        effective_from = _ensure_utc(from_time) if from_time else (effective_to - timedelta(days=7))
+        try:
+            effective_from = (
+                _ensure_utc(from_time) if from_time else (effective_to - timedelta(days=7))
+            )
+        except OverflowError:
+            raise HTTPException(422, "HISTORY_TIME_OUT_OF_RANGE") from None
 
         duration_seconds = max(60, int((effective_to - effective_from).total_seconds()))
         if duration_seconds <= 86400:
@@ -195,6 +204,8 @@ class HistoryService:
         collection_scope: CollectionScope = "current",
     ) -> EventPage:
         """List paginated operational events ordered by occurredAt descending."""
+        from_time = _ensure_utc(from_time) if from_time else None
+        to_time = _ensure_utc(to_time) if to_time else None
         events: list[Event] = []
 
         # 1. Collections
