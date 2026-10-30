@@ -6,12 +6,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.api.errors import error_responses
 from src.app.db.session import get_db_session
 from src.app.schemas.history import CollectionScope, EventPage, LoadHistory
 from src.app.services.history_service import history_service
 
-history_router = APIRouter(prefix="/history", tags=["History"])
-events_router = APIRouter(prefix="/events", tags=["History"])
+history_router = APIRouter(prefix="/history", tags=["History"], responses=error_responses(422))
+events_router = APIRouter(prefix="/events", tags=["History"], responses=error_responses(422))
 
 
 @history_router.get(
