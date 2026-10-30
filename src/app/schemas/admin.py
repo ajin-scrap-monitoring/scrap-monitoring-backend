@@ -2,7 +2,8 @@
 
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import PydanticCustomError
 
 from src.app.core.alert_thresholds import validate_alert_thresholds
 from src.app.schemas.history import PageMetadata
@@ -46,9 +47,29 @@ class AlertSettingsUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_thresholds(self) -> Self:
         """Reject settings that the existing operational evaluator cannot use."""
-        validate_alert_thresholds(
-            self.preCollectionAlert.thresholdPercent, self.collectionThresholdPercent
-        )
+        try:
+            validate_alert_thresholds(
+                self.preCollectionAlert.thresholdPercent, self.collectionThresholdPercent
+            )
+        except ValueError:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {
+                        "type": PydanticCustomError(
+                            "alert_threshold_gap",
+                            "Pre-alert threshold must be at least {minimumGap} percentage points "
+                            "below collection threshold",
+                            {
+                                "minimumGap": 5,
+                                "collectionThresholdPercent": self.collectionThresholdPercent,
+                            },
+                        ),
+                        "loc": ("preCollectionAlert", "thresholdPercent"),
+                        "input": self.preCollectionAlert.thresholdPercent,
+                    }
+                ],
+            ) from None
         return self
 
 
