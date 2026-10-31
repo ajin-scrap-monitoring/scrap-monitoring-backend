@@ -11,6 +11,33 @@ DAILY_ID = "550e8400-e29b-41d4-a716-446655440000"
 SEGMENT_ID = "synthetic-segment-01"
 
 
+def measured_media():
+    return {
+        "status": "ready",
+        "source": "file_probe",
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30000 / 1001,
+        "fps_num": 30000,
+        "fps_den": 1001,
+        "size_bytes": len(CONTENT),
+    }
+
+
+def unsupported_metadata():
+    return {
+        "timestamp_info": {
+            "time_basis": "server_received_at",
+            "capture_timestamp_supported": False,
+            "capture_timestamp": None,
+            "capture_clock_source": None,
+            "clock_synchronization": "unavailable",
+        },
+        "thumbnail": {"status": "unsupported", "representative_at": None, "content_path": None},
+    }
+
+
 def daily_recording(export_state="not_requested", deleted=False):
     start = "2026-10-13T15:00:00.000Z"
     middle = "2026-10-13T15:00:20.000Z"
@@ -156,6 +183,30 @@ class Handler(BaseHTTPRequestHandler):
         if type(self).daily_deleted:
             self.send_error(410)
             return
+        if path == prefix + "/media-info":
+            self.daily_json(
+                200,
+                {
+                    "recording_id": DAILY_ID,
+                    "file": measured_media() if self.daily_exported else None,
+                    "segments": {
+                        "status": "partial",
+                        "total": 2,
+                        "measured": 1,
+                        "mixed": None,
+                        "formats": [
+                            {
+                                key: value
+                                for key, value in measured_media().items()
+                                if key not in ("status", "source", "size_bytes")
+                            }
+                            | {"segment_count": 1}
+                        ],
+                    },
+                    **unsupported_metadata(),
+                },
+            )
+            return
         if path == prefix + "/hls/index.m3u8":
             body = (
                 "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXT-X-DISCONTINUITY\n"
@@ -202,6 +253,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path)
         query = parse_qs(path.query)
+        if path.path.endswith("/media-info"):
+            key = path.path.split("/")[-2]
+            if key not in self.range_clips:
+                self.send_error(404)
+                return
+            self.daily_json(
+                200,
+                {
+                    "clip_id": key,
+                    "size_bytes": len(CONTENT),
+                    "media_info": measured_media(),
+                    **unsupported_metadata(),
+                },
+            )
+            return
         if path.path.endswith("recording-policy"):
             body = json.dumps(
                 {

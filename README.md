@@ -108,6 +108,7 @@ docker compose down
 * [docs/V2_OPERATIONS.md](docs/V2_OPERATIONS.md): v2 경보 기록, 영속 쿨다운 및 수거 사건 개정 이력
 * [docs/DAILY_RECORDINGS.md](docs/DAILY_RECORDINGS.md): 날짜별 상시 녹화 조회·HLS 재생·하루 MP4 다운로드 연동
 * [docs/EVENT_RANGE_EXPORTS.md](docs/EVENT_RANGE_EXPORTS.md): 이벤트 구간 MP4 요청·상태 조회·다운로드·실패 재시도
+* [docs/RECORDING_MEDIA_INFO.md](docs/RECORDING_MEDIA_INFO.md): 영상의 실제 코덱·해상도·FPS 및 부분 측정 정보
 * [docs/MEDIA_INTEGRATION.md](docs/MEDIA_INTEGRATION.md): 카메라 미디어 API, 이벤트 녹화 및 인증된 영상 접근 경로 설정
 * [docs/GLOBAL_CONSTRAINTS.md](docs/GLOBAL_CONSTRAINTS.md): 백엔드 개발 시 반드시 준수해야 하는 전역 제약조건 정의서
 

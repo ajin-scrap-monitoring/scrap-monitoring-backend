@@ -1,5 +1,6 @@
 """Authenticated JSON-only client for the camera media service."""
 
+import asyncio
 from typing import Any, TypeVar
 from urllib.parse import quote
 from uuid import UUID
@@ -8,6 +9,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from src.app.core.config import get_settings
+from src.app.schemas.media_info import ClipMediaInfo
 from src.app.schemas.media_service import (
     ClipDetail,
     ClipPage,
@@ -18,6 +20,8 @@ from src.app.schemas.media_service import (
 )
 
 Schema = TypeVar("Schema", bound=BaseModel)
+# A bounded file probe may take fifteen seconds; leave three seconds for JSON I/O.
+MEDIA_INFO_TIMEOUT_SECONDS = 18.0
 
 
 class MediaServiceError(Exception):
@@ -50,6 +54,7 @@ class MediaClient:
         params: dict[str, str | int] | None = None,
         *,
         daily: bool = False,
+        timeout_seconds: float | None = None,
     ) -> httpx.Response:
         settings = get_settings()
         base_url = settings.MEDIA_SERVICE_URL
@@ -74,6 +79,7 @@ class MediaClient:
                 headers=headers,
                 json=payload.model_dump(mode="json") if payload else None,
                 params=params,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout_seconds is None else timeout_seconds,
             )
         except httpx.TimeoutException as exc:
             raise MediaServiceError(504, "MEDIA_TIMEOUT", retryable=True) from exc
@@ -116,6 +122,7 @@ class MediaClient:
                 "CAMERA_UNAVAILABLE",
                 "STORAGE_UNAVAILABLE",
                 "SERVICE_BUSY",
+                "METADATA_CAPACITY_EXCEEDED",
                 "INTERNAL_ERROR",
             }
             code = "MEDIA_BAD_RESPONSE"
@@ -183,6 +190,34 @@ class MediaClient:
         if detail.clip_id != clip_id:
             raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
         return detail
+
+    async def metadata(self, path: str, schema: type[Schema], *, daily: bool = False) -> Schema:
+        """Read JSON measurements within a wall-clock budget, without automatic retries."""
+        try:
+            async with asyncio.timeout(MEDIA_INFO_TIMEOUT_SECONDS):
+                response = await self._request(
+                    "GET",
+                    path,
+                    (200,),
+                    daily=daily,
+                    timeout_seconds=MEDIA_INFO_TIMEOUT_SECONDS,
+                )
+                return self._parse(response, schema)
+        except TimeoutError as exc:
+            raise MediaServiceError(504, "MEDIA_TIMEOUT", retryable=True) from exc
+
+    async def get_clip_media_info(self, clip_id: UUID) -> ClipMediaInfo:
+        detail = await self.get_clip(clip_id)
+        if detail.camera_id != get_settings().MEDIA_CAMERA_ID:
+            raise MediaServiceError(404, "CAMERA_NOT_FOUND")
+        if detail.status in ("deleted", "expired"):
+            raise MediaServiceError(410, "CLIP_" + detail.status.upper())
+        if detail.status != "ready":
+            raise MediaServiceError(409, "CLIP_NOT_READY")
+        info = await self.metadata(f"clips/{clip_id}/media-info", ClipMediaInfo)
+        if info.clip_id != clip_id:
+            raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        return info
 
     async def create_range_clip(self, request: RangeClipRequest) -> tuple[int, ClipReceipt]:
         response = await self._request("POST", "clips", (200, 202), request)
