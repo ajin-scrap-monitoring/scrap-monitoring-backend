@@ -27,6 +27,11 @@ def public_recording(recording: DailyRecording) -> DailyRecording:
             "error": recording.error.model_copy(update={"message": "Media processing failed"})
             if recording.error
             else None,
+            "cleanup_error": recording.cleanup_error.model_copy(
+                update={"message": "Recording cleanup failed"}
+            )
+            if recording.cleanup_error
+            else None,
         }
     )
 
