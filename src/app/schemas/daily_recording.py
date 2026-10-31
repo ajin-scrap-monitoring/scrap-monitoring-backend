@@ -81,6 +81,12 @@ class DailyRecording(BaseModel):
     expires_at: AwareDatetime | None
     export_expires_at: AwareDatetime | None
     error: DailyError | None
+    deleted_at: AwareDatetime | None = None
+    cleanup_state: Literal["pending", "failed", "complete"] | None = None
+    cleanup_completed_at: AwareDatetime | None = None
+    cleanup_error: DailyError | None = None
+    # File path removal does not prove that physical storage blocks were reclaimed.
+    space_reclaimed: None = None
 
     @field_validator(
         "window_start_at",
@@ -89,6 +95,8 @@ class DailyRecording(BaseModel):
         "playable_until_at",
         "expires_at",
         "export_expires_at",
+        "deleted_at",
+        "cleanup_completed_at",
     )
     @classmethod
     def utc(cls, value: datetime | None) -> datetime | None:
