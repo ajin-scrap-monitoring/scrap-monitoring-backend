@@ -29,14 +29,17 @@ class ActiveHealthAlertV2(BaseModel):
     type: Literal["device_error", "measurement_error"]
     severity: Literal["warning", "error"]
     title: str
-    componentKind: Literal["EDGE", "LIDAR", "MEASUREMENT"]
+    componentKind: Literal["EDGE", "LIDAR", "MEASUREMENT", "CAMERA"]
     componentId: str
     state: str
     evaluatedAt: datetime
     measuredAt: datetime | None = None
     startedAt: datetime | None = None
     startBasis: Literal["SERVER_EVALUATION", "UNKNOWN"] = "UNKNOWN"
-    evidenceSource: Literal["EDGE_STATUS", "STATUS_FRESHNESS", "CURRENT_MEASUREMENT"]
+    evidenceSource: Literal[
+        "EDGE_STATUS", "STATUS_FRESHNESS", "CURRENT_MEASUREMENT", "MEDIA_CAMERA_STATUS"
+    ]
+    validUntilAt: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     reasonCodes: list[str] = Field(default_factory=list)
     simulated: bool | None = None
 
@@ -46,6 +49,11 @@ class ActiveHealthCoverageV2(BaseModel):
     componentId: str | None = None
     state: Literal["CHECKED", "UNKNOWN", "UNSUPPORTED"]
     reasonCodes: list[str] = Field(default_factory=list)
+    evaluatedAt: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
+    validUntilAt: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
+    evidenceSource: Literal["MEDIA_CAMERA_STATUS"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class ActiveAlertBasisV2(BaseModel):

@@ -1,7 +1,7 @@
 # 현재 장비·측정 알림
 
 `GET /api/v2/monitoring/active-alerts?pit_id=pit-example&scope=ALL`은 현재 적재율 경보와
-Edge·LiDAR 상태 및 측정 입력 이상을 함께 조회한다. 로그인 필요, 응답은 `Cache-Control: no-store`다.
+Edge·LiDAR 상태, 측정 입력 이상과 설정된 카메라 수신 상태를 함께 조회한다. 로그인 필요, 응답은 `Cache-Control: no-store`다.
 기본 scope=FILL_OPERATIONS는 기존 적재율 경보만 유지한다. 임의 scope는422, 미설정 피트는404다.
 과거 오류 이력·미확인 알림·읽음 상태와 별개이며 GET은 DB·외부 서비스에 변경을 만들지 않는다.
 
@@ -23,9 +23,9 @@ scope=ALL에서는 coverage로 확인 범위도 제공한다.
   RECOVERING/INITIALIZING/FILTER_WARMING 등 준비 상태를 새 물리적 고장으로 표시하지 않는다.
 - coverage는 componentKind/componentId/state/reasonCodes다. CHECKED는 현재 근거를 확인했다는 뜻이며
   정상이라는 뜻이 아니다. UNKNOWN은 현재 확인 불가, UNSUPPORTED는 현재 판단할 입력 계약이 없다는 뜻.
-- 카메라는 신뢰할 수 있는 카메라 상태 입력 계약이 없어 UNSUPPORTED와
-  CAMERA_HEALTH_SOURCE_NOT_CONFIGURED를 반환한다. HTTP 서비스 응답 성공이나 영상 목록만 보고
-  카메라 정상·고장을 만들지 않는다. 카메라 항목까지 구현 완료한 것으로 해석하지 않는다.
+- 카메라는 [카메라 상태 계약](CAMERA_STATUS.md)의 유효한 프레임 수신 근거를 사용한다.
+  원천 미설정이면 UNSUPPORTED/CAMERA_HEALTH_SOURCE_NOT_CONFIGURED, 조회 실패나 만료는
+  UNKNOWN이다. 영상 목록이나 HTTP 서비스 응답 성공만으로 카메라 정상을 만들지 않는다.
 
 ## 시작 시각
 
