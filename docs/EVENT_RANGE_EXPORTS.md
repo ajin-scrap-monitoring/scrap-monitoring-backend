@@ -88,3 +88,5 @@ clipId는 유지한다. ready/processing/deleted/expired는 기존 작업을 반
 조회에 쓴 before_seconds/after_seconds를 POST의 beforeSeconds/afterSeconds에도 동일하게 전달한다.
 다른 사람의 요청 상태를 재사용하지 않고, 새로고침 복구에는 해당 사용자의 requestId/statusPath를 저장한다.
 백엔드 추가만으로 기존 프론트 요청 방식이 자동 변경되지는 않는다.
+
+준비된 파일의 코덱·해상도·FPS는 [영상 파일 정보 조회](RECORDING_MEDIA_INFO.md)를 사용한다.

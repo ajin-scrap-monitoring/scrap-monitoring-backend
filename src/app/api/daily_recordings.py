@@ -12,6 +12,7 @@ from pydantic import BeforeValidator
 from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import CurrentSession, require_media_admin
 from src.app.schemas.daily_recording import DailyPage, DailyPolicy, DailyRecording, DailyStatus
+from src.app.schemas.media_info import DailyMediaInfo
 from src.app.schemas.session import Session
 from src.app.services.daily_recording_service import daily_recording_service
 
@@ -104,6 +105,12 @@ async def prepare_daily_download(recording_id: UUID) -> JSONResponse:
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/{recording_id}/media-info", response_model=DailyMediaInfo)
+async def get_daily_media_info(recording_id: UUID, session: CurrentSession) -> DailyMediaInfo:
+    """Inspect only selected recordings; ordinary list/detail reads stay inexpensive."""
+    return await daily_recording_service.media_info(recording_id)
 
 
 @router.delete(

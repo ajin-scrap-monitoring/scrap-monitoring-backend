@@ -25,6 +25,7 @@ from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
+from src.app.schemas.media_info import ClipMediaInfo
 from src.app.schemas.media_service import (
     ClipDetail,
     ClipJobResponse,
@@ -292,3 +293,15 @@ async def delete_media_clip(clip_id: UUID, db: Database) -> Response:
             job.next_attempt_at = datetime.now(UTC)
             await db.commit()
         return Response(status_code=204)
+
+
+@router.get(
+    "/clips/{clip_id}/media-info",
+    response_model=ClipMediaInfo,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
+async def get_clip_media_info(
+    clip_id: UUID, session: CurrentSession, response: Response
+) -> ClipMediaInfo:
+    response.headers["Cache-Control"] = "no-store"
+    return await media_client.get_clip_media_info(clip_id)

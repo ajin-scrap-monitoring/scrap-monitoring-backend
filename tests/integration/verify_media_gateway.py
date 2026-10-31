@@ -129,8 +129,17 @@ asyncio.run(run())
     assert "synthetic-media-token" not in str(download.headers)
     repeated = await client.post(path, json=body, headers=csrf)
     assert repeated.status_code == 200 and repeated.json()["clipId"] == item["clipId"]
+    info_path = f"/api/v1/media/clips/{item['clipId']}/media-info"
+    info = await client.get(info_path)
+    assert info.status_code == 200, info.text
+    assert info.headers["cache-control"] == "no-store"
+    assert info.json()["media_info"]["fps_num"] == 30000
+    assert info.json()["media_info"]["fps_den"] == 1001
+    assert info.json()["timestamp_info"]["capture_timestamp_supported"] is False
+    assert info.json()["thumbnail"]["content_path"] is None
     async with httpx.AsyncClient(base_url=str(client.base_url), timeout=5) as anonymous:
         assert (await anonymous.get(item["downloadPath"])).status_code == 401
+        assert (await anonymous.get(info_path)).status_code == 401
 
 
 async def probe_notification_reads(
@@ -329,6 +338,11 @@ async def probe(base_url: str, backend: str) -> None:
         assert (await client.head(daily + "/content")).status_code == 200
         assert (await client.post(daily + "/content")).status_code == 405
         assert (await client.get(daily + "/private-file")).status_code == 404
+        info = await client.get(f"{daily_api}/{CLIP_ID}/media-info")
+        assert info.status_code == 200, info.text
+        assert info.json()["file"]["codec"] == "h264"
+        assert info.json()["segments"]["status"] == "partial"
+        assert info.json()["segments"]["mixed"] is None
         deleted = await client.delete(f"{daily_api}/{CLIP_ID}", headers=csrf)
         assert deleted.status_code == 204, deleted.text
         assert (await client.get(daily + "/content")).status_code == 410

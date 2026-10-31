@@ -4,6 +4,7 @@ from uuid import UUID
 
 from src.app.core.config import get_settings
 from src.app.schemas.daily_recording import DailyPage, DailyPolicy, DailyRecording
+from src.app.schemas.media_info import DailyMediaInfo
 from src.app.services.media_client import MediaClient, MediaServiceError, media_client
 
 
@@ -85,6 +86,17 @@ class DailyRecordingService:
         if item.recording_id != recording_id:
             raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
         return response.status_code, public_recording(item)
+
+    async def media_info(self, recording_id: UUID) -> DailyMediaInfo:
+        item = await self.detail(recording_id)
+        if item.status in ("deleted", "expired"):
+            raise MediaServiceError(410, "DAILY_RECORDING_" + item.status.upper())
+        info = await self.client.metadata(
+            f"daily-recordings/{recording_id}/media-info", DailyMediaInfo, daily=True
+        )
+        if info.recording_id != recording_id:
+            raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        return info
 
     async def delete(self, recording_id: UUID) -> None:
         # Check camera ownership before the destructive request.
