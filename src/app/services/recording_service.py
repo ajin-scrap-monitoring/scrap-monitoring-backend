@@ -92,6 +92,9 @@ class RecordingService:
         # The separate /media/clips endpoint preserves the remote opaque cursor.
         job_stmt = select(MediaClipJob).where(MediaClipJob.pit_id == pit_id)
         for job in (await db.scalars(job_stmt)).all():
+            # On-demand exports are downloads of existing references, not new events.
+            if job.category == "event_export":
+                continue
             if job.clip_id is None or (
                 category != "all" and recording_category(job.category) != category
             ):
@@ -132,7 +135,7 @@ class RecordingService:
                 job = await db.scalar(
                     select(MediaClipJob).where(MediaClipJob.clip_id == recording_id)
                 )
-                if job is None:
+                if job is None or job.category == "event_export":
                     return None
                 # Recheck ready files to reflect deletion or expiry outside the backend.
                 detail = await media_client.get_clip(UUID(recording_id))

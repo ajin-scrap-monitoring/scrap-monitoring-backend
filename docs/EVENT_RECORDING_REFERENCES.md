@@ -57,7 +57,8 @@
 | playbackSeconds | 재생할 부분들의 영상 재생 시간 합계. 실제 시각 길이와 다를 수 있음 |
 | parts | 실제 날짜 recordingId/recordingDate, 인증된 playbackPath, fromAt/toAt, startSeconds/endSeconds, relativeStartSeconds/relativeEndSeconds |
 | unavailableIntervals | 확인된 GAP·확보 여부 미확인 UNCONFIRMED·FUTURE·MISSING·EXPIRED 구간과 사유 |
-| downloadPath | 현재 null. 이벤트 구간 MP4 추출은 미지원 |
+| downloadPath | 재생 상세에서는 null. 다운로드 요청 결과의 경로와 구분 |
+| exportPath | 명시적 구간 다운로드 요청 경로 또는 null |
 
 각 part는 같은 날짜의 기존 HLS를 사용한다. 재생 위치는 **available_intervals의 대응 관계**로 계산한다. 영상 누락 때문에 자정부터의 초와 이어 붙인 영상 재생 초가 다를 수 있다. 실제 시각을 자정에 단순히 더하거나 빼서 seek하지 않는다. 자정을 넘으면 여러 날짜의 실제 영상에 순서대로 연결한다.
 
@@ -109,7 +110,7 @@ pageSize 최대100은 한 번의 요청 크기이며 전체 이벤트 개수의 
 
 ## 다운로드와 저장량
 
-이벤트 구간만 MP4로 내보내려면 사용자가 다운로드할 때 미디어 서비스에 구간 추출을 요청하는 기능이 추가로 필요하다. 현재 하루 MP4 준비 API를 이벤트 구간 다운로드로 대신 제공하지 않는다. 응답은 downloadReasonCode=EVENT_RANGE_EXPORT_UNSUPPORTED다. 백엔드가 영상 바이트를 읽어 잘라내거나 상시 영상을 이중 저장하지 않는다.
+사용자가 다운로드할 때 [이벤트 구간 MP4 요청 API](EVENT_RANGE_EXPORTS.md)로 구간 추출을 요청한다. 목록·재생 조회는 새 파일을 만들지 않는다. 준비된 파일은 추가 저장 공간을 사용한다. 하루 MP4 준비 API를 이벤트 구간 다운로드로 대신 제공하지 않으며 백엔드가 영상 바이트를 읽어 잘라내지 않는다. 미디어 미설정은 EVENT_RANGE_EXPORT_UNSUPPORTED, 지원되는 구간은 EVENT_EXPORT_NOT_REQUESTED와 exportPath를 반환한다.
 
 저장 용량 문제로 애초에 확보하지 못한 영상은 이 연결로 복원되지 않는다. 실제 API의 저장·누락 메타데이터를 그대로 판단하며, 날짜만으로 영상 유무를 단정하지 않는다.
 

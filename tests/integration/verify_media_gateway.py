@@ -93,6 +93,46 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
+async def probe_event_export(client: httpx.AsyncClient, backend: str, csrf: dict[str, str]) -> None:
+    """Exercise the actual API-to-gateway download flow using synthetic bytes only."""
+    seed = """
+import asyncio
+from datetime import UTC,datetime,timedelta
+from src.app.db.session import get_sessionmaker
+from src.app.models.log import AlertLog
+async def run():
+    async with get_sessionmaker()() as db:
+        row=AlertLog(pit_id='pit-01',triggered_at=datetime.now(UTC)-timedelta(minutes=2),
+                     fill_ratio_percent=95,message='Synthetic range download')
+        db.add(row)
+        await db.commit()
+        print(row.id)
+asyncio.run(run())
+"""
+    number = docker("exec", backend, "python", "-c", seed).splitlines()[-1]
+    path = f"/api/v2/recordings/events/evt-alt-{number}/exports"
+    body = {"requestId": str(uuid4())}
+    assert (await client.post(path, json=body)).status_code == 403
+    created = await client.post(path, json=body, headers=csrf)
+    assert created.status_code == 202, created.text
+    assert created.json()["downloadPath"] is None
+    result = await client.get(created.headers["location"])
+    assert result.status_code == 200, result.text
+    item = result.json()
+    assert item["status"] == "ready" and item["coverage"] == "complete"
+    assert item["sizeBytes"] == len(CONTENT)
+    download = await client.get(item["downloadPath"])
+    assert download.status_code == 200 and download.content == CONTENT
+    assert download.headers["content-disposition"].startswith("attachment;")
+    partial = await client.get(item["downloadPath"], headers={"Range": "bytes=0-3"})
+    assert partial.status_code == 206 and partial.content == CONTENT[:4]
+    assert "synthetic-media-token" not in str(download.headers)
+    repeated = await client.post(path, json=body, headers=csrf)
+    assert repeated.status_code == 200 and repeated.json()["clipId"] == item["clipId"]
+    async with httpx.AsyncClient(base_url=str(client.base_url), timeout=5) as anonymous:
+        assert (await anonymous.get(item["downloadPath"])).status_code == 401
+
+
 async def probe_notification_reads(
     client: httpx.AsyncClient, base_url: str, backend: str, csrf: dict[str, str]
 ) -> tuple[str, str, httpx.Cookies, str]:
@@ -292,6 +332,7 @@ async def probe(base_url: str, backend: str) -> None:
         deleted = await client.delete(f"{daily_api}/{CLIP_ID}", headers=csrf)
         assert deleted.status_code == 204, deleted.text
         assert (await client.get(daily + "/content")).status_code == 410
+        await probe_event_export(client, backend, admin_csrf)
         logout = await client.delete(
             "/api/v1/session",
             headers={

@@ -19,6 +19,13 @@ from src.app.schemas.media_service import (
     event_time_utc,
 )
 from src.app.services.edge_v2_service import digest, utc
+from src.app.services.event_export_service import (
+    CONTEXT_KEY,
+    EXPORT_CATEGORY,
+    export_context,
+    range_request,
+    validate_range_snapshot,
+)
 from src.app.services.media_client import MediaServiceError, media_client
 from src.app.services.v2_event_clip_service import AUTO_CATEGORIES, automatic_request_block
 
@@ -102,6 +109,7 @@ def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
     if job.clip_id and job.clip_id != str(snapshot.clip_id):
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+    validate_range_snapshot(job, snapshot)
     expected_time = requested_event_time(job)
     if snapshot.event_at != expected_time:
         raise MediaServiceError(502, "MEDIA_TIME_BASIS_MISMATCH")
@@ -110,7 +118,7 @@ def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
     origin = {
         key: value
         for key, value in (job.snapshot or {}).items()
-        if key == "_eventTimeRequest"
+        if key in ("_eventTimeRequest", CONTEXT_KEY)
         or (
             job.category in AUTO_CATEGORIES
             and key in ("_v2Context", "_v2Simulated", "_v2Collection")
@@ -131,9 +139,13 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
     """Dispatch or poll one persisted job, recording failures before returning."""
     job.attempts += 1
     try:
+        snapshot: ClipReceipt
         event_at = requested_event_time(job)
-        if job.clip_id:
-            snapshot: ClipReceipt = await media_client.get_clip(UUID(job.clip_id))
+        extraction = range_request(job)
+        if extraction is not None and (not job.clip_id or extraction.retry_failed):
+            status_code, snapshot = await media_client.create_range_clip(extraction)
+        elif job.clip_id:
+            snapshot = await media_client.get_clip(UUID(job.clip_id))
             status_code = 200
         else:
             if job.category in AUTO_CATEGORIES:
@@ -158,6 +170,9 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
                 )
             )
         apply_snapshot(job, snapshot)
+        if extraction is not None and extraction.retry_failed:
+            context = export_context(job).model_copy(update={"retry_failed": False})
+            job.snapshot = {**(job.snapshot or {}), CONTEXT_KEY: context.model_dump(mode="json")}
         await db.commit()
         return status_code
     except MediaServiceError as exc:
@@ -253,6 +268,7 @@ def job_snapshot(job: MediaClipJob) -> ClipReceipt | ClipDetail | None:
             job.category in AUTO_CATEGORIES
             and "_v2Context" in job.snapshot
             or event_time_requested(job)
+            or job.category == EXPORT_CATEGORY
         )
         and "clip_id" not in job.snapshot
     ):
