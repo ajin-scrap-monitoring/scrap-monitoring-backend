@@ -35,6 +35,7 @@ from src.app.schemas.media_service import (
     RecordingPolicy,
 )
 from src.app.schemas.session import Session
+from src.app.services.event_export_service import CONTEXT_KEY, EXPORT_CATEGORY
 from src.app.services.media_client import MediaServiceError, media_client
 from src.app.services.media_job_service import (
     apply_snapshot,
@@ -175,6 +176,8 @@ async def request_event_clip(payload: EventClipRequest, db: Database) -> JSONRes
             await db.commit()
         if job.pit_id != settings.MEDIA_PIT_ID:
             raise HTTPException(404, "EVENT_NOT_FOUND")
+        if job.category == EXPORT_CATEGORY:
+            raise HTTPException(409, "EVENT_EXPORT_REQUIRES_EXPORT_API")
         if event_time_requested(job) != payload.use_event_time:
             raise HTTPException(409, "CLIP_TIME_BASIS_CONFLICT")
         code = await process_job(job, db)
@@ -207,7 +210,11 @@ async def list_clip_jobs(
             next_attempt_at=job.next_attempt_at,
             error_code=job.error_code,
             clip=job_snapshot(job),
-            time_basis="EVENT_OCCURRED_AT" if event_time_requested(job) else "ACCEPTED_AT",
+            time_basis="EVENT_RANGE"
+            if job.category == EXPORT_CATEGORY
+            else "EVENT_OCCURRED_AT"
+            if event_time_requested(job)
+            else "ACCEPTED_AT",
         )
         for job in jobs
     ]
@@ -277,7 +284,11 @@ async def delete_media_clip(clip_id: UUID, db: Database) -> Response:
         job = await db.scalar(select(MediaClipJob).where(MediaClipJob.clip_id == str(clip_id)))
         if job:
             job.status = "refreshing"
-            job.snapshot = None
+            job.snapshot = (
+                {CONTEXT_KEY: job.snapshot[CONTEXT_KEY]}
+                if job.category == EXPORT_CATEGORY and job.snapshot and CONTEXT_KEY in job.snapshot
+                else None
+            )
             job.next_attempt_at = datetime.now(UTC)
             await db.commit()
         return Response(status_code=204)

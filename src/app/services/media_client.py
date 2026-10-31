@@ -13,6 +13,7 @@ from src.app.schemas.media_service import (
     ClipPage,
     ClipReceipt,
     ClipRequest,
+    RangeClipRequest,
     RecordingPolicy,
 )
 
@@ -92,6 +93,10 @@ class MediaClient:
                 "RECORDING_NOT_READY",
                 "RECORDING_NOT_FOUND_AT_TIME",
                 "EVENT_TIME_IN_FUTURE",
+                "REQUEST_TIME_IN_FUTURE",
+                "RECORDING_NOT_FOUND_IN_RANGE",
+                "IDEMPOTENCY_CONFLICT",
+                "RETRY_NOT_ALLOWED",
                 "CLIP_PREPARATION_FAILED",
                 "EXPORT_IN_PROGRESS",
                 "DAILY_RECORDING_DELETED",
@@ -178,6 +183,13 @@ class MediaClient:
         if detail.clip_id != clip_id:
             raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
         return detail
+
+    async def create_range_clip(self, request: RangeClipRequest) -> tuple[int, ClipReceipt]:
+        response = await self._request("POST", "clips", (200, 202), request)
+        receipt = self._parse(response, ClipReceipt)
+        if receipt.event_id != request.event_id or receipt.camera_id != request.camera_id:
+            raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        return response.status_code, receipt
 
     async def list_clips(self, params: dict[str, str | int]) -> ClipPage:
         return self._parse(await self._request("GET", "clips", (200,), params=params), ClipPage)

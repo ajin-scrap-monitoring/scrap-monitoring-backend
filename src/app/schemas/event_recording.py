@@ -94,4 +94,10 @@ class EventRecordingReplay(BaseModel):
     unavailableIntervals: list[UnavailableInterval] = Field(default_factory=list)
     reasonCodes: list[str] = Field(default_factory=list)
     downloadPath: None = None
-    downloadReasonCode: Literal["EVENT_RANGE_EXPORT_UNSUPPORTED"] = "EVENT_RANGE_EXPORT_UNSUPPORTED"
+    downloadReasonCode: Literal[
+        "EVENT_RANGE_EXPORT_UNSUPPORTED",
+        "EVENT_EXPORT_NOT_REQUESTED",
+        "EVENT_WINDOW_NOT_CLOSED",
+        "EVENT_EXPORT_RANGE_TOO_LONG",
+    ] = "EVENT_RANGE_EXPORT_UNSUPPORTED"
+    exportPath: str | None = None

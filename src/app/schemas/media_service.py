@@ -65,6 +65,25 @@ class ClipRequest(ClipIdentity):
         return event_time_text(value) if value is not None else None
 
 
+class RangeClipRequest(ClipIdentity):
+    """Explicit archive extraction; never changes the camera recording policy."""
+
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    retry_failed: bool = Field(default=False, strict=True)
+
+    @field_serializer("start_at", "end_at")
+    def range_timestamp(self, value: datetime) -> UtcTimestampText:
+        return event_time_text(value)
+
+    @model_validator(mode="after")
+    def ordered_range(self) -> "RangeClipRequest":
+        seconds = (event_time_utc(self.end_at) - event_time_utc(self.start_at)).total_seconds()
+        if not 0 < seconds <= 3600:
+            raise ValueError("Use an increasing range of at most one hour")
+        return self
+
+
 def event_time_utc(value: datetime) -> datetime:
     value = value.astimezone(UTC)
     return value.replace(microsecond=(value.microsecond // 1000) * 1000)
@@ -85,6 +104,10 @@ class ClipReceipt(BaseModel):
     requested_start_at: AwareDatetime
     requested_end_at: AwareDatetime
     event_at: AwareDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
+    request_mode: Literal["time_range", "event_at", "accepted_at"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    attempt_count: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
 
     @field_validator("event_at")
     @classmethod
@@ -114,6 +137,7 @@ class ClipReceipt(BaseModel):
 class ClipGap(BaseModel):
     start_at: AwareDatetime
     end_at: AwareDatetime
+    reason_code: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("start_at", "end_at")
     @classmethod
@@ -139,6 +163,9 @@ class ClipDetail(ClipReceipt):
     deleted_at: AwareDatetime | None
     content_path: str | None
     error: ClipError | None
+    available_intervals: list[ClipGap] = Field(default_factory=list)
+    extraction_mode: Literal["stream_copy"] | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
 
     @field_validator("actual_start_at", "actual_end_at", "completed_at", "expires_at", "deleted_at")
     @classmethod
@@ -185,4 +212,4 @@ class ClipJobResponse(BaseModel):
     next_attempt_at: datetime | None
     error_code: str | None
     clip: ClipReceipt | ClipDetail | None
-    time_basis: Literal["ACCEPTED_AT", "EVENT_OCCURRED_AT"] = "ACCEPTED_AT"
+    time_basis: Literal["ACCEPTED_AT", "EVENT_OCCURRED_AT", "EVENT_RANGE"] = "ACCEPTED_AT"

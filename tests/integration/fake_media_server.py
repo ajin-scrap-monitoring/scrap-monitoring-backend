@@ -1,8 +1,10 @@
 """Synthetic byte responses for the Docker gateway probe; no real video or credentials."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+from uuid import NAMESPACE_URL, uuid5
 
 CONTENT = b"synthetic-mp4-content-for-range-verification"
 DAILY_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -52,6 +54,7 @@ def daily_recording(export_state="not_requested", deleted=False):
 class Handler(BaseHTTPRequestHandler):
     daily_exported = False
     daily_deleted = False
+    range_clips = {}
 
     def daily_json(self, code, body):
         body = json.dumps(body).encode()
@@ -62,6 +65,53 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/api/v1/clips":
+            if self.headers.get(
+                "Authorization"
+            ) != "Bearer synthetic-media-token" or self.headers.get("Cookie"):
+                self.send_error(401)
+                return
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            assert "start_at" in body and "end_at" in body and "event_at" not in body
+            key = str(uuid5(NAMESPACE_URL, body["event_id"]))
+            ready = key in self.range_clips
+            self.range_clips[key] = {
+                "clip_id": key,
+                "event_id": body["event_id"],
+                "camera_id": body["camera_id"],
+                "request_mode": "time_range",
+                "attempt_count": 1,
+                "status": "ready",
+                "accepted_at": datetime.now(UTC).isoformat(),
+                "requested_start_at": body["start_at"],
+                "requested_end_at": body["end_at"],
+                "coverage": "complete",
+                "recording_policy": {
+                    "pre_roll_seconds": 30,
+                    "post_roll_seconds": 30,
+                    "retention_days": 30,
+                },
+                "actual_start_at": body["start_at"],
+                "actual_end_at": body["end_at"],
+                "gaps": [],
+                "available_intervals": [
+                    {
+                        "start_at": body["start_at"],
+                        "end_at": body["end_at"],
+                    }
+                ],
+                "completed_at": datetime.now(UTC).isoformat(),
+                "expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+                "deleted_at": None,
+                "content_path": f"/api/v1/clips/{key}/content",
+                "error": None,
+                "extraction_mode": "stream_copy",
+                "size_bytes": len(CONTENT),
+            }
+            self.daily_json(
+                200 if ready else 202, {**self.range_clips[key], "status": "processing"}
+            )
+            return
         if self.headers.get("Authorization") or self.headers.get("Cookie"):
             self.send_error(400)
             return
@@ -162,6 +212,9 @@ class Handler(BaseHTTPRequestHandler):
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+        elif path.path.rsplit("/", 1)[-1] in self.range_clips:
+            self.daily_json(200, self.range_clips[path.path.rsplit("/", 1)[-1]])
+            return
         elif path.path.endswith("/live"):
             if query.get("unavailable"):
                 self.send_error(503)

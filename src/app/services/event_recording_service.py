@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.config import get_settings
 from src.app.schemas.daily_recording import DailyPage, DailyRecording
 from src.app.schemas.event_recording import (
     EventRecording,
@@ -276,6 +277,27 @@ def _resolve_day(
 async def replay_event_recording(
     db: AsyncSession, event_id: str, pit_id: str | None, before: int, after: int
 ) -> EventRecordingReplay:
+    event, now = await event_reference(db, event_id, pit_id, before, after)
+    days = []
+    if event.windowState != "UNKNOWN" and (event.windowTo or now) > event.windowFrom:
+        days = await _archive_days(event.windowFrom, event.windowTo or now, now)
+    result = resolve_event_replay(event, now, days)
+    settings = get_settings()
+    if settings.MEDIA_SERVICE_URL and settings.MEDIA_API_TOKEN:
+        if event.windowState not in ("CLOSED", "POINT") or event.windowTo is None:
+            result.downloadReasonCode = "EVENT_WINDOW_NOT_CLOSED"
+        elif not 0 < (event.windowTo - event.windowFrom).total_seconds() <= 3600:
+            result.downloadReasonCode = "EVENT_EXPORT_RANGE_TOO_LONG"
+        else:
+            result.downloadReasonCode = "EVENT_EXPORT_NOT_REQUESTED"
+            result.exportPath = f"/api/v2/recordings/events/{event.eventId}/exports"
+    return result
+
+
+async def event_reference(
+    db: AsyncSession, event_id: str, pit_id: str | None, before: int, after: int
+) -> tuple[EventRecording, datetime]:
+    """Resolve the same recorded event window for playback and explicit downloads."""
     _context(before, after)
     now = datetime.now(UTC)
     pit, source = playback_scope(pit_id)
@@ -284,11 +306,7 @@ async def replay_event_recording(
     row = (await db.execute(select(table))).mappings().first()
     if row is None:
         raise HTTPException(404, "EVENT_NOT_FOUND")
-    event = reference(row, pit, before, after, active)
-    days = []
-    if event.windowState != "UNKNOWN" and (event.windowTo or now) > event.windowFrom:
-        days = await _archive_days(event.windowFrom, event.windowTo or now, now)
-    return resolve_event_replay(event, now, days)
+    return reference(row, pit, before, after, active), now
 
 
 def resolve_event_replay(
