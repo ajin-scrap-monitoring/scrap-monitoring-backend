@@ -16,6 +16,7 @@ from src.app.core.logging import setup_logging
 from src.app.db.session import close_db, get_sessionmaker, init_db
 from src.app.services.auth_bootstrap import bootstrap_accounts
 from src.app.services.edge_v2_operations import edge_v2_operations_worker
+from src.app.services.event_page_store import EventPageStore
 from src.app.services.media_client import MediaServiceError
 from src.app.services.media_job_service import media_job_worker
 
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
     app.add_exception_handler(MediaServiceError, media_error_response)
+    app.state.event_page_store = EventPageStore()
     app.add_exception_handler(RequestValidationError, request_validation_error_response)
 
     # CORS configuration

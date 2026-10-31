@@ -170,6 +170,10 @@ def test_error_statuses_are_specific_to_permissions_and_storage_contracts(contra
     pits = paths["/api/v1/config/pits"]["get"]["responses"]
     assert "401" in pits and "403" not in pits
     events = paths["/api/v2/recordings/events"]["get"]["responses"]
-    assert "503" in events and "410" not in events  # Metadata list does not contact media.
+    assert {"409", "410", "503"} <= set(events)
+    # Snapshot conflicts and expiration use backend errors, without contacting media.
+    for status in ("409", "410"):
+        declared = events[status]["content"]["application/json"]["schema"]
+        assert declared["$ref"].endswith("/HTTPErrorResponse")
     for path in ["/api/v2/recordings/daily/{recording_id}", "/api/v1/media/clips/{clip_id}"]:
         assert {"401", "403", "409", "410", "503"} <= set(paths[path]["delete"]["responses"])

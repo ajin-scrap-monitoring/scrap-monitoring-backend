@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Path, Query, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from src.app.api.v1.media_control import CurrentSession
 from src.app.db.session import get_db_session
 from src.app.schemas.event_recording import EventRecordingPage, EventRecordingReplay
 from src.app.services.event_recording_service import list_event_recordings, replay_event_recording
+from src.app.services.stable_event_pages import stable_event_page
 
 
 async def disable_cache(response: Response) -> None:
@@ -27,8 +28,9 @@ Database = Annotated[AsyncSession, Depends(get_db_session)]
 ContextSeconds = Annotated[int, Query(ge=0, le=300)]
 
 
-@router.get("", response_model=EventRecordingPage)
+@router.get("", response_model=EventRecordingPage, responses=error_responses(409, 410))
 async def list_events(
+    request: Request,
     session: CurrentSession,
     db: Database,
     pit_id: str | None = Query(default=None, min_length=1, max_length=50),
@@ -40,7 +42,25 @@ async def list_events(
     before_seconds: ContextSeconds = 30,
     after_seconds: ContextSeconds = 30,
     include_playback: bool = False,
+    stable: bool = False,
+    snapshot_token: str | None = Query(default=None, pattern=r"^[0-9a-f]{32}$"),
 ) -> EventRecordingPage:
+    if stable or snapshot_token is not None:
+        return await stable_event_page(
+            db,
+            request.app.state.event_page_store,
+            session.user.id,
+            snapshot_token,
+            pit_id,
+            category,
+            from_time,
+            to_time,
+            page,
+            page_size,
+            before_seconds,
+            after_seconds,
+            include_playback,
+        )
     return await list_event_recordings(
         db,
         pit_id,

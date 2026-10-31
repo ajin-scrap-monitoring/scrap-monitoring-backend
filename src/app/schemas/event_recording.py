@@ -47,6 +47,9 @@ class EventRecordingPage(BaseModel):
     to: datetime
     asOf: datetime
 
+    snapshotToken: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    snapshotExpiresAt: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
+
 
 class ReplayPart(BaseModel):
     recordingId: UUID
