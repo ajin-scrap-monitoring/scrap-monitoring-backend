@@ -12,6 +12,7 @@ from src.app.schemas.active_alerts_v2 import (
 )
 from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.active_health_service import apply_starts, health_conditions
+from src.app.services.camera_status_service import CameraStatusService, camera_conditions
 from src.app.services.monitoring_v2_service import build_snapshot
 
 
@@ -21,6 +22,7 @@ async def active_fill_alerts(
     now: datetime | None = None,
     *,
     include_health: bool = False,
+    camera_status: CameraStatusService | None = None,
 ) -> ActiveFillAlertPageV2:
     now = now or datetime.now(UTC)
     snapshot = await build_snapshot(db, source, now)
@@ -30,6 +32,12 @@ async def active_fill_alerts(
         health, result.coverage = health_conditions(snapshot, now)
         result.items.extend(health)
     await apply_starts(db, source, snapshot, result.items, now)
+    if include_health and camera_status is not None:
+        camera, coverage = camera_conditions(await camera_status.get(source.pit_id))
+        result.coverage = [item for item in result.coverage if item.componentKind != "CAMERA"]
+        result.coverage.append(coverage)
+        # Source has no outage start timestamp; never attach a persisted sensor start.
+        result.items.extend(camera)
     return result
 
 

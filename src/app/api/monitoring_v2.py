@@ -14,6 +14,7 @@ from src.app.api.errors import error_responses
 from src.app.api.v1.session import get_session
 from src.app.db.session import get_db_session
 from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
+from src.app.schemas.camera_status import CameraStatusV2
 from src.app.schemas.collection_summary_v2 import CollectionSummaryV2
 from src.app.schemas.fill_forecast import FillForecastV2
 from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
@@ -28,6 +29,7 @@ from src.app.schemas.monitoring_v2 import (
 )
 from src.app.schemas.session import Session
 from src.app.services.active_alerts_v2_service import active_fill_alerts
+from src.app.services.camera_status_service import CameraStatusService
 from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_history import alerts, collection_events, state_events
 from src.app.services.fill_forecast_service import fill_forecast
@@ -66,6 +68,7 @@ HistoryIntervalQuery = Annotated[HistoryInterval, BeforeValidator(parse_history_
 
 @router.get("/active-alerts", response_model=ActiveFillAlertPageV2)
 async def get_active_alerts(
+    request: Request,
     response: Response,
     session: CurrentSession,
     source: Source,
@@ -73,7 +76,21 @@ async def get_active_alerts(
     scope: Literal["FILL_OPERATIONS", "ALL"] = "FILL_OPERATIONS",
 ) -> ActiveFillAlertPageV2:
     response.headers["Cache-Control"] = "no-store"
-    return await active_fill_alerts(db, source, include_health=scope == "ALL")
+    return await active_fill_alerts(
+        db,
+        source,
+        include_health=scope == "ALL",
+        camera_status=request.app.state.camera_status if scope == "ALL" else None,
+    )
+
+
+@router.get("/camera-status", response_model=CameraStatusV2)
+async def get_camera_status(
+    request: Request, response: Response, session: CurrentSession, source: Source
+) -> CameraStatusV2:
+    response.headers["Cache-Control"] = "no-store"
+    service: CameraStatusService = request.app.state.camera_status
+    return await service.get(source.pit_id)
 
 
 @router.get("/collection-summary", response_model=CollectionSummaryV2)

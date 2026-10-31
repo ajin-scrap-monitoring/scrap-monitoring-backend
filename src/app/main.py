@@ -15,6 +15,7 @@ from src.app.core.config import get_settings
 from src.app.core.logging import setup_logging
 from src.app.db.session import close_db, get_sessionmaker, init_db
 from src.app.services.auth_bootstrap import bootstrap_accounts
+from src.app.services.camera_status_service import CameraStatusService
 from src.app.services.edge_v2_operations import edge_v2_operations_worker
 from src.app.services.event_page_store import EventPageStore
 from src.app.services.media_client import MediaServiceError
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     finally:
         await edge_v2_operations_worker.stop()
         await media_job_worker.stop()
+        await app.state.camera_status.close()
         # 4. Graceful shutdown
         logger.info("Shutting down Scrap Monitoring Backend...")
         await close_db()
@@ -67,6 +69,7 @@ def create_app() -> FastAPI:
     )
     app.add_exception_handler(MediaServiceError, media_error_response)
     app.state.event_page_store = EventPageStore()
+    app.state.camera_status = CameraStatusService()
     app.add_exception_handler(RequestValidationError, request_validation_error_response)
 
     # CORS configuration
