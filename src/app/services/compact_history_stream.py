@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.models.edge_v2_projection import EdgeV2Minute
 from src.app.schemas.monitoring_v2 import MonitoringSource
 
-STREAM_PAGE_SIZE = 128
+# Reduce cursor round trips while keeping the decoded buffer bounded to one page.
+STREAM_PAGE_SIZE = 512
 SIMULATION_PREFIXES = ("SIMULATION_HEIGHT_SECTION_V1:", "SIMULATION_SENSOR_ANGLE_V1:")
 
 
