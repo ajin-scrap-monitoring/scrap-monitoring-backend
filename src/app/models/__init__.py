@@ -14,7 +14,7 @@ from src.app.models.edge_v2_projection import (
 )
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media import MediaIndex
-from src.app.models.media_job import MediaClipJob
+from src.app.models.media_job import EventExportAlias, MediaClipJob
 from src.app.models.metric import ScrapMetric
 from src.app.models.notification_read import NotificationRead
 from src.app.models.recipient import NotificationRecipientModel
@@ -30,6 +30,7 @@ __all__ = [
     "CollectionLog",
     "MediaIndex",
     "MediaClipJob",
+    "EventExportAlias",
     "NotificationRecipientModel",
     "EdgeHeartbeatModel",
     "EdgeV2Message",

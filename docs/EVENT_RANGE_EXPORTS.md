@@ -8,11 +8,15 @@
 
 ## 요청과 조회
 
-1. 이벤트 상세의 `exportPath`를 확인한다. 지원되는 확정 구간이면
+1. 기존 작업 복구는 `GET /api/v2/recordings/events/{event_id}/exports`를 사용한다.
+   문맥은 `before_seconds/after_seconds`로 전달하며 기본값은 각30초다.
+   로그인 계정의 최근 작업 또는200과null을 반환하고 파일을 생성·재시도하지 않는다.
+   자세한 재사용·요청 번호 관계는 [기존 작업 복구](EVENT_EXPORT_RECOVERY.md)를 참고한다.
+2. 이벤트 상세의 `exportPath`를 확인한다. 지원되는 확정 구간이면
    `downloadReasonCode=EVENT_EXPORT_NOT_REQUESTED`다. 상세의 `downloadPath`는 계속 null이다.
-2. 로그인한 사용자가 `POST /api/v2/recordings/events/{event_id}/exports`를 호출한다.
+3. 로그인한 사용자가 `POST /api/v2/recordings/events/{event_id}/exports`를 호출한다.
    관리자·일반 조회 사용자 모두 가능하며 `X-CSRF-Token`이 필요하다.
-3. 응답의 `statusPath`를 조회한다. `status=ready`이고 `downloadPath`가 있을 때 파일을 받는다.
+4. 응답의 `statusPath`를 조회한다. `status=ready`이고 `downloadPath`가 있을 때 파일을 받는다.
    2~5초 간격으로 조회하고 failed/blocked/deleted/expired에서는 자동 조회를 멈춘다.
 
 ```json
@@ -25,7 +29,9 @@
 ```
 
 `requestId`는 브라우저가 다운로드 동작을 시작할 때 생성한 UUID다. 같은 동작의 재전송에는
-같은 UUID와 문맥 길이를 사용한다. 새 파일이 필요하면 새 UUID를 사용한다.
+같은 UUID와 문맥 길이를 사용한다. 새 UUID여도 같은 계정·이벤트·문맥·출처·구간의
+처리 중/준비 완료 작업이 있으면 재사용한다. 응답의 requestId는 원래 작업의 UUID일 수 있다.
+삭제·만료 후 새 파일을 요청하려면 새 UUID를 사용한다.
 미디어의 event_id는 백엔드가 계정·requestId에서 생성하며 업무 eventId와의 관계를 DB에 저장한다.
 사용자는 임의 카메라·시작/종료 시각·미디어 event_id를 지정할 수 없다.
 

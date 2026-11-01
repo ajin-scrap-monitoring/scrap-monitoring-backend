@@ -129,6 +129,14 @@ asyncio.run(run())
     assert "synthetic-media-token" not in str(download.headers)
     repeated = await client.post(path, json=body, headers=csrf)
     assert repeated.status_code == 200 and repeated.json()["clipId"] == item["clipId"]
+    recovered = await client.get(path)
+    assert recovered.status_code == 200 and recovered.json()["requestId"] == body["requestId"]
+    alias = {"requestId": str(uuid4())}
+    reused = await client.post(path, json=alias, headers=csrf)
+    assert reused.status_code == 200 and reused.json()["clipId"] == item["clipId"]
+    assert reused.json()["requestId"] == body["requestId"]
+    by_alias = await client.get(path + "/" + alias["requestId"])
+    assert by_alias.status_code == 200 and by_alias.json()["clipId"] == item["clipId"]
     info_path = f"/api/v1/media/clips/{item['clipId']}/media-info"
     info = await client.get(info_path)
     assert info.status_code == 200, info.text
@@ -201,7 +209,7 @@ async def probe(base_url: str, backend: str) -> None:
                     pass
                 await asyncio.sleep(0.25)
         revision = docker("exec", backend, "python", "-m", "src.app.cli.db", "current")
-        assert revision.endswith("0002_compact_observations"), revision
+        assert revision.endswith("0003_event_export_aliases"), revision
         docker("exec", backend, "python", "-m", "src.app.cli.db", "check")
         await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"

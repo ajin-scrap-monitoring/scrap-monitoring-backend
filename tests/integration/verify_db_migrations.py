@@ -87,9 +87,36 @@ async def verify(port: int, password: str) -> None:
             await rejected.dispose()
         print("PostgreSQL SCRAM storage and incorrect-password rejection passed", flush=True)
         async with engine.begin() as connection:
+
+            def previous(conn: Connection) -> None:
+                config = migration_config()
+                config.attributes["connection"] = conn
+                command.upgrade(config, "0002_compact_observations")
+
+            await connection.run_sync(previous)
+            await connection.execute(
+                text(
+                    "INSERT INTO media_clip_jobs "
+                    "(id,event_id,camera_id,pit_id,category,occurred_at,"
+                    "status,attempts,created_at) "
+                    "VALUES (7,'event-existing','camera-example','pit-example','event_export',"
+                    "'2026-01-01 00:00:00+00','processing',2,'2026-01-01 00:00:00+00')"
+                )
+            )
+            before = (await connection.execute(text("SELECT * FROM media_clip_jobs"))).all()
             await connection.run_sync(upgrade_schema)
             await connection.run_sync(require_current_schema)
+            assert (await connection.execute(text("SELECT * FROM media_clip_jobs"))).all() == before
+            assert await connection.scalar(text("SELECT count(*) FROM event_export_aliases")) == 0
+            await connection.execute(
+                text(
+                    "INSERT INTO event_export_aliases (owner,request_id,job_id,created_at) "
+                    "VALUES ('user-example','550e8400-e29b-41d4-a716-446655440000',7,"
+                    "'2026-01-01 00:00:00+00')"
+                )
+            )
             await connection.run_sync(upgrade_schema)
+            assert await connection.scalar(text("SELECT count(*) FROM event_export_aliases")) == 1
 
             def compare(conn: Connection) -> None:
                 config = migration_config()
@@ -166,7 +193,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0002_compact_observations",)
+            assert await connection.run_sync(current_revisions) == ("0003_event_export_aliases",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"

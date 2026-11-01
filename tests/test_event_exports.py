@@ -381,12 +381,13 @@ async def test_deleted_export_is_not_revived_and_legacy_delete_keeps_context(
     assert legacy.status_code == 200 and legacy.json()["items"] == []
 
 
-async def test_new_request_id_can_request_another_file(client, test_db_session, extractor):
+async def test_new_request_id_reuses_processing_file(client, test_db_session, extractor):
     headers = await login(client)
     event, _, first = await start(client, test_db_session, headers)
     second = await client.post(f"{API}/{event}/exports", json=payload(), headers=headers)
-    assert second.status_code == 202 and first.json()["clipId"] != second.json()["clipId"]
-    assert len(extractor["clips"]) == 2
+    assert second.status_code == 200 and first.json()["clipId"] == second.json()["clipId"]
+    assert second.json()["requestId"] == first.json()["requestId"]
+    assert len(extractor["clips"]) == 1
 
 
 async def test_invalid_stored_context_fails_without_http(client, test_db_session, extractor):

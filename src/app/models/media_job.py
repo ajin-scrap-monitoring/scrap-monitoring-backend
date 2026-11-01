@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.app.db.base import Base
@@ -29,3 +29,15 @@ class MediaClipJob(Base):
     )
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class EventExportAlias(Base):
+    """Retain each user's request identity when it reuses a canonical export job."""
+
+    __tablename__ = "event_export_aliases"
+
+    owner: Mapped[str] = mapped_column(String(64), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("media_clip_jobs.id"), nullable=False, index=True
+    )
