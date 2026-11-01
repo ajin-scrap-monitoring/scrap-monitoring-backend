@@ -24,10 +24,12 @@ async def test_readonly_source_and_bounded_copy_preserve_every_column(tmp_path):
     try:
         async with source.connect() as read, target.begin() as write:
             await read.exec_driver_sql("BEGIN")
+            assert (await read.exec_driver_sql("PRAGMA foreign_key_check")).all() == []
             await write.run_sync(Base.metadata.create_all)
             for table in Base.metadata.sorted_tables:
                 await copy_table(read, write, table, 1)
                 assert await summarize(read, table, 1) == await summarize(write, table, 2)
+            assert (await write.exec_driver_sql("PRAGMA foreign_key_check")).all() == []
             job = Base.metadata.tables["media_clip_jobs"]
             rows = [
                 row for batch in [batch async for batch in batches(read, job, 1)] for row in batch

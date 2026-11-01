@@ -15,7 +15,7 @@ from src.app.db.session import get_db_session
 from src.app.schemas.errors import HTTPErrorResponse, MediaErrorResponse
 from src.app.schemas.event_export import EventExportRequest, EventExportResponse
 from src.app.schemas.event_recording import EventRecordingPage, EventRecordingReplay
-from src.app.services.event_export_service import read_export, request_export
+from src.app.services.event_export_service import lookup_export, read_export, request_export
 from src.app.services.event_recording_service import list_event_recordings, replay_event_recording
 from src.app.services.stable_event_pages import stable_event_page
 
@@ -60,6 +60,22 @@ async def prepare_event_export(
         content=item.model_dump(mode="json"),
         headers={"Location": item.statusPath, "Cache-Control": "no-store"},
     )
+
+
+@router.get(
+    "/{event_id}/exports",
+    response_model=EventExportResponse | None,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
+async def find_event_export(
+    session: CurrentSession,
+    db: Database,
+    event_id: ExportEventId,
+    before_seconds: ContextSeconds = 30,
+    after_seconds: ContextSeconds = 30,
+) -> EventExportResponse | None:
+    """Recover this account's existing export without creating or retrying a file."""
+    return await lookup_export(db, session.user.id, event_id, before_seconds, after_seconds)
 
 
 @router.get(

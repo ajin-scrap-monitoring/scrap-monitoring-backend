@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
-from src.app.models.media_job import MediaClipJob
+from src.app.models.media_job import EventExportAlias, MediaClipJob
 from src.app.schemas.event_export import EventExportRequest, EventExportResponse
 from src.app.schemas.media_service import ClipDetail, ClipReceipt, RangeClipRequest, event_time_utc
 from src.app.services.edge_v2_service import digest
@@ -185,19 +185,73 @@ def export_response(job: MediaClipJob) -> EventExportResponse:
 async def find_export(
     db: AsyncSession, owner: str, request_id: UUID, event_id: str
 ) -> MediaClipJob:
-    job = await db.scalar(
-        select(MediaClipJob).where(
-            MediaClipJob.event_id == export_identifier(owner, request_id),
-            MediaClipJob.camera_id == get_settings().MEDIA_CAMERA_ID,
-            MediaClipJob.category == EXPORT_CATEGORY,
-        )
-    )
-    if job is None:
+    job = await bound_export(db, owner, request_id)
+    if job is None or job.category != EXPORT_CATEGORY:
         raise HTTPException(404, "EVENT_EXPORT_NOT_FOUND")
     context = export_context(job)
     if context.owner != owner or context.event_id != event_id:
         raise HTTPException(404, "EVENT_EXPORT_NOT_FOUND")
     return job
+
+
+async def bound_export(db: AsyncSession, owner: str, request_id: UUID) -> MediaClipJob | None:
+    alias = await db.get(EventExportAlias, (owner, str(request_id)))
+    if alias is not None:
+        return await db.get(MediaClipJob, alias.job_id)
+    # Existing canonical IDs remain usable without backfilling old jobs.
+    job: MediaClipJob | None = await db.scalar(
+        select(MediaClipJob).where(
+            MediaClipJob.event_id == export_identifier(owner, request_id),
+        )
+    )
+    return job
+
+
+async def matching_exports(
+    db: AsyncSession, owner: str, event_id: str, before: int, after: int
+) -> list[MediaClipJob]:
+    settings = get_settings()
+    context = MediaClipJob.snapshot[CONTEXT_KEY]
+    return list(
+        await db.scalars(
+            select(MediaClipJob)
+            .where(
+                MediaClipJob.category == EXPORT_CATEGORY,
+                MediaClipJob.camera_id == settings.MEDIA_CAMERA_ID,
+                MediaClipJob.pit_id == settings.MEDIA_PIT_ID,
+                context["owner"].as_string() == owner,
+                context["event_id"].as_string() == event_id,
+                context["before"].as_integer() == before,
+                context["after"].as_integer() == after,
+                context["source"].as_string() == export_source(),
+            )
+            .order_by(MediaClipJob.id.desc())
+        )
+    )
+
+
+async def refresh_export(db: AsyncSession, job: MediaClipJob) -> None:
+    from src.app.services.media_job_service import apply_snapshot
+
+    export_context(job)
+    if job.clip_id:
+        apply_snapshot(job, await media_client.get_clip(UUID(job.clip_id)))
+        await db.commit()
+
+
+async def lookup_export(
+    db: AsyncSession, owner: str, event_id: str, before: int, after: int
+) -> EventExportResponse | None:
+    from src.app.services.media_job_service import media_job_worker
+
+    # Validate event scope even when no previous export exists. Never create/retry here.
+    await event_reference(db, event_id, None, before, after)
+    async with media_job_worker.lock:
+        jobs = await matching_exports(db, owner, event_id, before, after)
+        if not jobs:
+            return None
+        await refresh_export(db, jobs[0])
+        return export_response(jobs[0])
 
 
 async def request_export(
@@ -209,12 +263,8 @@ async def request_export(
     if not settings.MEDIA_SERVICE_URL or not settings.MEDIA_API_TOKEN:
         raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
     async with media_job_worker.lock:
-        job = await db.scalar(
-            select(MediaClipJob).where(
-                MediaClipJob.event_id == export_identifier(owner, payload.requestId),
-                MediaClipJob.camera_id == settings.MEDIA_CAMERA_ID,
-            )
-        )
+        job = await bound_export(db, owner, payload.requestId)
+        reused = False
         if job is None:
             if payload.retryFailed:
                 raise HTTPException(404, "EVENT_EXPORT_NOT_FOUND")
@@ -228,6 +278,21 @@ async def request_export(
                 raise HTTPException(422, "EVENT_EXPORT_RANGE_TOO_LONG")
             if start >= now:
                 raise HTTPException(409, "EVENT_WINDOW_IN_FUTURE")
+            candidates = await matching_exports(
+                db, owner, event_id, payload.beforeSeconds, payload.afterSeconds
+            )
+            for candidate in candidates:
+                stored = export_context(candidate)
+                if stored.start != start or stored.end != end:
+                    continue
+                if candidate.status not in ("pending", "collecting", "processing", "ready"):
+                    continue
+                await refresh_export(db, candidate)
+                if candidate.status in ("pending", "collecting", "processing") or (
+                    candidate.status == "ready" and export_response(candidate).downloadPath
+                ):
+                    job, reused = candidate, True
+                    break
             context = ExportContext(
                 owner=owner,
                 request_id=payload.requestId,
@@ -238,18 +303,22 @@ async def request_export(
                 end=end,
                 source=export_source(),
             )
-            job = MediaClipJob(
-                event_id=export_identifier(owner, payload.requestId),
-                camera_id=settings.MEDIA_CAMERA_ID,
-                pit_id=event.pitId,
-                category=EXPORT_CATEGORY,
-                occurred_at=event.occurredAt,
-                status="pending",
-                attempts=0,
-                next_attempt_at=now,
-                snapshot={CONTEXT_KEY: context.model_dump(mode="json")},
-            )
-            db.add(job)
+            if job is None:
+                job = MediaClipJob(
+                    event_id=export_identifier(owner, payload.requestId),
+                    camera_id=settings.MEDIA_CAMERA_ID,
+                    pit_id=event.pitId,
+                    category=EXPORT_CATEGORY,
+                    occurred_at=event.occurredAt,
+                    status="pending",
+                    attempts=0,
+                    next_attempt_at=now,
+                    snapshot={CONTEXT_KEY: context.model_dump(mode="json")},
+                )
+                db.add(job)
+                await db.flush()
+            # Commit the alias before dispatch, including when a response may be lost.
+            db.add(EventExportAlias(owner=owner, request_id=str(payload.requestId), job_id=job.id))
             await db.commit()
         else:
             if job.category != EXPORT_CATEGORY:
@@ -267,6 +336,8 @@ async def request_export(
             context = export_context(job).model_copy(update={"retry_failed": True})
             job.snapshot = {**(job.snapshot or {}), CONTEXT_KEY: context.model_dump(mode="json")}
             await db.commit()
+        if reused:
+            return 200, export_response(job)
         code = await process_job(job, db)
         return code, export_response(job)
 

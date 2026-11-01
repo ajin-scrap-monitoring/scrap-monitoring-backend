@@ -77,6 +77,12 @@ async def seed_transfer_source(path):
                     row.update(email="synthetic@example.invalid", channels="email")
                 if table.name == "media_clip_jobs":
                     row.update(snapshot=None, next_attempt_at=None, clip_id=None)
+                if table.name == "event_export_aliases":
+                    row.update(
+                        owner="transfer-user",
+                        request_id="550e8400-e29b-41d4-a716-446655440000",
+                        job_id=42,
+                    )
                 await db.execute(insert(table), row)
             users = Base.metadata.tables["auth_users"]
             original_user = dict((await db.execute(users.select())).mappings().one())
