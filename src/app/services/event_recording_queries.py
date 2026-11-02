@@ -244,32 +244,55 @@ def event_table(
     if category in ("all", "alert"):
         created = aliased(EdgeV2Transition)
         payload = None
+        alert_source = None
         if source is not None:
-            payload = (
-                select(created.payload)
-                .join(
-                    EdgeV2AlertLink,
-                    and_(
-                        created.site_id == EdgeV2AlertLink.site_id,
-                        created.edge_id == EdgeV2AlertLink.edge_id,
-                        cast(created.payload["alertId"].as_string(), String)
-                        == cast(EdgeV2AlertLink.alert_id, String),
-                    ),
+            # Preserve the first recorded ID, grouping transitions before joining
+            # links so neither table is scanned separately for every alert row.
+            alert_key = cast(created.payload["alertId"].as_string(), String)
+            first_created = (
+                select(
+                    alert_key.label("alert_key"),
+                    func.min(created.id).label("transition_id"),
                 )
                 .where(
+                    created.site_id == source.site_id,
+                    created.edge_id == source.edge_id,
+                    created.kind == "ALERT_CREATED",
+                    created.payload["pitId"].as_string() == pit,
+                )
+                .group_by(alert_key)
+                .subquery()
+            )
+            earliest = aliased(EdgeV2Transition)
+            alert_source = outerjoin(
+                AlertLog,
+                EdgeV2AlertLink,
+                and_(
                     EdgeV2AlertLink.alert_id == AlertLog.id,
                     EdgeV2AlertLink.pit_id == pit,
                     EdgeV2AlertLink.site_id == source.site_id,
                     EdgeV2AlertLink.edge_id == source.edge_id,
-                    created.kind == "ALERT_CREATED",
-                    created.payload["pitId"].as_string() == pit,
-                )
-                .correlate(AlertLog)
-                .order_by(created.id)
-                .limit(1)
-                .scalar_subquery()
+                ),
             )
-        add(AlertLog, "evt-alt", "ALERT", AlertLog.triggered_at, [AlertLog.pit_id == pit], payload)
+            alert_source = outerjoin(
+                outerjoin(
+                    alert_source,
+                    first_created,
+                    first_created.c.alert_key == cast(EdgeV2AlertLink.alert_id, String),
+                ),
+                earliest,
+                earliest.id == first_created.c.transition_id,
+            )
+            payload = earliest.payload
+        add(
+            AlertLog,
+            "evt-alt",
+            "ALERT",
+            AlertLog.triggered_at,
+            [AlertLog.pit_id == pit],
+            payload,
+            from_clause=alert_source,
+        )
     if category in ("all", "error"):
         add(
             ScrapMetric,
