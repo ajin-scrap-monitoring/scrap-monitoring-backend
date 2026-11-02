@@ -1,5 +1,6 @@
 """Bounded-memory compact history using stored minute statistics and scalar provenance."""
 
+import asyncio
 import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -10,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.models.edge_v2_projection import EdgeV2Minute
 from src.app.schemas.monitoring_v2 import MonitoringSource
 
-# Reduce cursor round trips while keeping the decoded buffer bounded to one page.
-STREAM_PAGE_SIZE = 512
+# Bound JSON decoding and calculation per turn as well as cursor memory. Buffered
+# cursor rows do not necessarily suspend an async iterator between pages.
+STREAM_PAGE_SIZE = 128
 SIMULATION_PREFIXES = ("SIMULATION_HEIGHT_SECTION_V1:", "SIMULATION_SENSOR_ANGLE_V1:")
 
 
@@ -178,14 +180,17 @@ async def legacy_stream_groups(
     groups: dict[int, dict[str, Any]] = {}
     stream = await db.stream(statement, execution_options={"yield_per": STREAM_PAGE_SIZE})
     try:
-        async for row in stream:
-            at = (
-                row.bucket_start.replace(tzinfo=UTC)
-                if row.bucket_start.tzinfo is None
-                else row.bucket_start.astimezone(UTC)
-            )
-            data = row.payload
-            accumulate_minute(groups, at, data, start, end, seconds)
+        async for page in stream.partitions(STREAM_PAGE_SIZE):
+            for row in page:
+                at = (
+                    row.bucket_start.replace(tzinfo=UTC)
+                    if row.bucket_start.tzinfo is None
+                    else row.bucket_start.astimezone(UTC)
+                )
+                data = row.payload
+                accumulate_minute(groups, at, data, start, end, seconds)
+            # Already buffered rows can otherwise monopolize the request loop.
+            await asyncio.sleep(0)
     finally:
         await stream.close()
     return groups
