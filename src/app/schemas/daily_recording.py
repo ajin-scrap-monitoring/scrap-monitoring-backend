@@ -125,3 +125,18 @@ class DailyRecording(BaseModel):
 class DailyPage(BaseModel):
     items: list[DailyRecording]
     next_cursor: str | None
+
+
+class DailyRecordingSummary(DailyRecording):
+    """Retain validated evidence internally; omit interval arrays from list output."""
+
+    gaps: list[DailyGap] = Field(exclude=True)
+    available_intervals: list[DailyAvailableInterval] = Field(exclude=True)
+    gap_count: int = Field(ge=0)
+    available_interval_count: int = Field(ge=0)
+
+
+class DailySummaryPage(BaseModel):
+    view: Literal["summary"] = "summary"
+    items: list[DailyRecordingSummary]
+    next_cursor: str | None

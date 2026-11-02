@@ -2,7 +2,7 @@
 
 import re
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -11,7 +11,13 @@ from pydantic import BeforeValidator
 
 from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import CurrentSession, require_media_admin
-from src.app.schemas.daily_recording import DailyPage, DailyPolicy, DailyRecording, DailyStatus
+from src.app.schemas.daily_recording import (
+    DailyPage,
+    DailyPolicy,
+    DailyRecording,
+    DailyStatus,
+    DailySummaryPage,
+)
 from src.app.schemas.media_info import DailyMediaInfo
 from src.app.schemas.session import Session
 from src.app.services.daily_recording_service import daily_recording_service
@@ -61,7 +67,7 @@ async def put_daily_policy(policy: DailyPolicy) -> DailyPolicy:
     return await daily_recording_service.policy(policy)
 
 
-@router.get("", response_model=DailyPage)
+@router.get("", response_model=DailyPage | DailySummaryPage)
 async def list_daily_recordings(
     session: CurrentSession,
     from_date: CalendarDate | None = None,
@@ -69,7 +75,8 @@ async def list_daily_recordings(
     status: DailyStatus | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None, min_length=1, max_length=4096),
-) -> DailyPage:
+    view: Literal["full", "summary"] = Query(default="full"),
+) -> DailyPage | DailySummaryPage:
     if from_date and to_date and from_date >= to_date:
         raise HTTPException(422, "from_date must precede to_date")
     params: dict[str, str | int] = {"limit": limit}
@@ -81,6 +88,8 @@ async def list_daily_recordings(
     }.items():
         if value is not None:
             params[key] = value
+    if view == "summary":
+        return await daily_recording_service.summary(params)
     return await daily_recording_service.list(params)
 
 

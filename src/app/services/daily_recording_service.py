@@ -3,7 +3,13 @@
 from uuid import UUID
 
 from src.app.core.config import get_settings
-from src.app.schemas.daily_recording import DailyPage, DailyPolicy, DailyRecording
+from src.app.schemas.daily_recording import (
+    DailyPage,
+    DailyPolicy,
+    DailyRecording,
+    DailyRecordingSummary,
+    DailySummaryPage,
+)
 from src.app.schemas.media_info import DailyMediaInfo
 from src.app.services.media_client import MediaClient, MediaServiceError, media_client
 
@@ -61,6 +67,23 @@ class DailyRecordingService:
         )
         page = self.client._parse(response, DailyPage)
         return page.model_copy(update={"items": [public_recording(item) for item in page.items]})
+
+    async def summary(self, params: dict[str, str | int]) -> DailySummaryPage:
+        """Summarize only after full upstream validation and public-path sanitization."""
+        page = await self.list(params)
+        return DailySummaryPage(
+            items=[
+                DailyRecordingSummary.model_validate(
+                    dict(
+                        item,
+                        gap_count=len(item.gaps),
+                        available_interval_count=len(item.available_intervals),
+                    )
+                )
+                for item in page.items
+            ],
+            next_cursor=page.next_cursor,
+        )
 
     async def detail(self, recording_id: UUID) -> DailyRecording:
         response = await self.client._request(
