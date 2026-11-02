@@ -28,11 +28,19 @@ def get_engine() -> AsyncEngine:
         if "sqlite" in settings.DATABASE_URL:
             connect_args["check_same_thread"] = False
 
+        pool_options: dict[str, int] = {}
+        if settings.DATABASE_URL.startswith("postgresql+asyncpg:"):
+            # Reuse connections across concurrent dashboard reads without raising
+            # the previous per-process cap: 5 pooled + 10 overflow = 15 total.
+            # Connections still open lazily; SQLite keeps its original pool.
+            pool_options = {"pool_size": 10, "max_overflow": 5}
+
         _engine = create_async_engine(
             settings.DATABASE_URL,
             echo=settings.DEBUG,
             connect_args=connect_args,
             pool_pre_ping=True,
+            **pool_options,
         )
     return _engine
 
