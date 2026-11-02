@@ -34,7 +34,9 @@ class HistorySampleV2(BaseModel):
     valuePolicy: Literal["RAW_STATE", "MEDIAN_MINUTE"] = "RAW_STATE"
 
 
-class LoadHistoryV2(BaseModel):
+class HistoryWindowV2(BaseModel):
+    """Shared query window; the full view retains its existing JSON fields."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     schemaVersion: Literal["2"] = "2"
@@ -44,4 +46,27 @@ class LoadHistoryV2(BaseModel):
     to_time: datetime = Field(alias="to")
     bucketSeconds: HistoryInterval
     selectionPolicy: Literal["LATEST_STATE_PER_BUCKET"] = "LATEST_STATE_PER_BUCKET"
+
+
+class LoadHistoryV2(HistoryWindowV2):
     samples: list[HistorySampleV2]
+
+
+class ChartHistorySampleV2(HistorySampleV2):
+    """Keep numerical and quality evidence while omitting long provenance identifiers."""
+
+    assessmentId: str | None = Field(default=None, exclude=True)
+    observationId: str | None = Field(default=None, exclude=True)
+    methodVersion: str | None = Field(default=None, exclude=True)
+
+
+class ChartHistoryV2(HistoryWindowV2):
+    view: Literal["chart"] = "chart"
+    samples: list[ChartHistorySampleV2]
+
+    @classmethod
+    def from_history(cls, history: LoadHistoryV2) -> "ChartHistoryV2":
+        """Project an already computed history, without another DB read or calculation."""
+        return cls.model_validate(
+            dict(history, samples=[dict(sample) for sample in history.samples])
+        )
