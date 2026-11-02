@@ -24,6 +24,7 @@ EDGE_V2_ASSESSMENT_TTL_SECONDS=30
 | 메서드 | 경로 | 내용 |
 | --- | --- | --- |
 | GET | `/api/v2/monitoring/snapshot?pit_id=pit-demo` | 현재 판정·적재율·장비 상태 |
+| GET | `/api/v2/monitoring/snapshot-with-alerts?pit_id=pit-demo&scope=ALL` | 같은 snapshot 기준의 현재 판정과 활성 알림 함께 조회. [계약](SNAPSHOT_WITH_ALERTS.md) |
 | GET | `/api/v2/monitoring/events?pit_id=pit-demo` | 동일한 스냅샷의 SSE |
 | GET | `/api/v2/monitoring/profiles?pit_id=pit-demo` | 별도 높이 곡선과 단면 기준 비율 |
 

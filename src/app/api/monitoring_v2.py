@@ -23,12 +23,13 @@ from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
     LidarProfilePageV2,
     MonitoringSnapshotV2,
+    MonitoringSnapshotWithAlertsV2,
     MonitoringSource,
     StateEventPageV2,
     V2AlertPage,
 )
 from src.app.schemas.session import Session
-from src.app.services.active_alerts_v2_service import active_fill_alerts
+from src.app.services.active_alerts_v2_service import active_fill_alerts, active_snapshot_alerts
 from src.app.services.camera_status_service import CameraStatusService
 from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_history import alerts, collection_events, state_events
@@ -223,6 +224,30 @@ async def snapshot(
 ) -> MonitoringSnapshotV2:
     response.headers["Cache-Control"] = "no-store"
     return await read_snapshot(db, source)
+
+
+@router.get("/snapshot-with-alerts", response_model=MonitoringSnapshotWithAlertsV2)
+async def snapshot_with_alerts(
+    request: Request,
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    scope: Literal["FILL_OPERATIONS", "ALL"] = "FILL_OPERATIONS",
+) -> MonitoringSnapshotWithAlertsV2:
+    """Return both display areas from one snapshot, releasing the read transaction."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        current = await build_snapshot(db, source)
+        active = await active_snapshot_alerts(
+            db,
+            current,
+            include_health=scope == "ALL",
+            camera_status=request.app.state.camera_status if scope == "ALL" else None,
+        )
+        return MonitoringSnapshotWithAlertsV2(snapshot=current, activeAlerts=active)
+    finally:
+        await db.rollback()
 
 
 async def snapshot_events(
