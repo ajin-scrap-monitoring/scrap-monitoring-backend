@@ -125,6 +125,44 @@ def _whole_minute(
 async def compact_stream_groups(
     db: AsyncSession, source: MonitoringSource, start: datetime, end: datetime, seconds: int
 ) -> dict[int, dict[str, Any]]:
+    """Use small PostgreSQL summaries, retaining the original reader for other databases."""
+    if db.get_bind().dialect.name == "postgresql":
+        from src.app.services.compact_history_summary import summary_stream_groups
+
+        return await summary_stream_groups(db, source, start, end, seconds)
+    return await legacy_stream_groups(db, source, start, end, seconds)
+
+
+def accumulate_minute(
+    groups: dict[int, dict[str, Any]],
+    at: datetime,
+    data: dict[str, Any],
+    start: datetime,
+    end: datetime,
+    seconds: int,
+) -> None:
+    """Apply the original full/partial-minute policy to one decoded observation row."""
+    values = data.get("values", {})
+    # Only complete, normally placed minutes may use their stored statistics.
+    whole = start <= at and at + timedelta(minutes=1) <= end
+    minute_second = at.timestamp()
+    if whole and all(minute_second <= int(k) < minute_second + 60 for k in values):
+        _whole_minute(groups, int(minute_second // seconds), data)
+        return
+    sources, methods = data.get("sources", {}), data.get("methods", {})
+    for stamp, value in values.items():
+        timestamp, _ = _slot_time(stamp, data.get("metadata", {}))
+        if not start <= timestamp < end:
+            continue
+        group = groups.setdefault(int(timestamp.timestamp() // seconds), _group())
+        _provenance(group, stamp, value, sources, methods)
+        _stats(group, int(value is not None), int(value is None), value or 0.0, value, value)
+        _last(group, stamp, value, data, sources, methods)
+
+
+async def legacy_stream_groups(
+    db: AsyncSession, source: MonitoringSource, start: datetime, end: datetime, seconds: int
+) -> dict[int, dict[str, Any]]:
     """Stream one bounded page at a time, keeping only one accumulator per output bucket.
 
     Do not sort/project JSON in PostgreSQL: sorting wide JSON projections blocks the
@@ -147,24 +185,7 @@ async def compact_stream_groups(
                 else row.bucket_start.astimezone(UTC)
             )
             data = row.payload
-            values = data.get("values", {})
-            # Only complete, normally placed minutes may use their stored statistics.
-            whole = start <= at and at + timedelta(minutes=1) <= end
-            minute_second = at.timestamp()
-            if whole and all(minute_second <= int(k) < minute_second + 60 for k in values):
-                _whole_minute(groups, int(minute_second // seconds), data)
-                continue
-            sources, methods = data.get("sources", {}), data.get("methods", {})
-            for stamp, value in values.items():
-                timestamp, _ = _slot_time(stamp, data.get("metadata", {}))
-                if not start <= timestamp < end:
-                    continue
-                group = groups.setdefault(int(timestamp.timestamp() // seconds), _group())
-                _provenance(group, stamp, value, sources, methods)
-                _stats(
-                    group, int(value is not None), int(value is None), value or 0.0, value, value
-                )
-                _last(group, stamp, value, data, sources, methods)
+            accumulate_minute(groups, at, data, start, end, seconds)
     finally:
         await stream.close()
     return groups

@@ -36,6 +36,10 @@ class EdgeV2Minute(Base):
     bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # Derived whole-minute statistics; original per-second evidence stays in payload.
+    history_summary: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
 
 
 class EdgeV2Transition(Base):

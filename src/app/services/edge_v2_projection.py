@@ -468,3 +468,6 @@ async def project_input(
     )
     minute.generated_at = assessment.generated_at
     minute.payload = data
+    from src.app.services.compact_history_summary import build_minute_summary
+
+    minute.history_summary = build_minute_summary(bucket, assessment.generated_at, data)
