@@ -4,6 +4,9 @@
 
 ## 연결 설정
 
+목록의 구간 배열이 필요하지 않은 화면은 [날짜 목록 요약 조회](DAILY_RECORDING_SUMMARY.md)의
+`view=summary`를 사용한다. 기본 전체 목록과 선택한 녹화 상세는 기존 형식을 유지한다.
+
 - 기존 `MEDIA_SERVICE_URL=http://<media-host>:8889/api/v1` 설정이 있으면 같은 호스트의 `/api/v2`를 사용한다.
 - 날짜 기능만 연결하거나 별도 주소를 지정하려면 `MEDIA_DAILY_SERVICE_URL=http://<media-host>:8889/api/v2`를 설정한다. 이 값이 우선한다.
 - v2 내부 JSON·영상 요청에는 Bearer 토큰이나 브라우저 쿠키를 전달하지 않는다. 기존 v1 토큰 설정은 그대로 유지한다.
