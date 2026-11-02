@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0003_event_export_aliases",)
+        assert await connection.run_sync(current_revisions) == ("0004_minute_history_summary",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -82,6 +82,37 @@ async def test_export_alias_upgrade_preserves_existing_job(engine):
         )
         await connection.run_sync(upgrade_schema)
         assert await connection.scalar(text("SELECT count(*) FROM event_export_aliases")) == 1
+
+
+async def test_history_summary_upgrade_leaves_existing_minute_evidence_unchanged(engine):
+    async with engine.begin() as connection:
+
+        def previous(conn):
+            config = migration_config()
+            config.attributes["connection"] = conn
+            command.upgrade(config, "0003_event_export_aliases")
+
+        await connection.run_sync(previous)
+        await connection.execute(
+            text(
+                "INSERT INTO edge_v2_minutes "
+                "(site_id,edge_id,bucket_start,generated_at,payload,created_at) "
+                "VALUES ('site-example','edge-example','2026-01-01 00:00:00',"
+                "'2026-01-01 00:00:01',:payload,'2026-01-01 00:00:02')"
+            ),
+            {"payload": '{"values":{"1767225601":0},"metadata":{},"synthetic":true}'},
+        )
+        columns = "site_id,edge_id,bucket_start,generated_at,payload,created_at"
+        before = (
+            await connection.execute(text("SELECT " + columns + " FROM edge_v2_minutes"))
+        ).all()
+        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(require_current_schema)
+        assert (
+            await connection.execute(text("SELECT " + columns + " FROM edge_v2_minutes"))
+        ).all() == before
+        assert await connection.scalar(text("SELECT history_summary FROM edge_v2_minutes")) is None
+        await connection.run_sync(upgrade_schema)
 
 
 async def legacy_db(engine, modern=False):
@@ -353,7 +384,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0003_event_export_aliases" in (await cli(url, "current"))[1]
+    assert "0004_minute_history_summary" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 

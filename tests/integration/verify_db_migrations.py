@@ -96,6 +96,19 @@ async def verify(port: int, password: str) -> None:
             await connection.run_sync(previous)
             await connection.execute(
                 text(
+                    "INSERT INTO edge_v2_minutes "
+                    "(site_id,edge_id,bucket_start,generated_at,payload,created_at) "
+                    "VALUES ('site-example','edge-example','2026-01-01 00:00:00+00',"
+                    "'2026-01-01 00:00:01+00',CAST(:payload AS JSON),'2026-01-01 00:00:02+00')"
+                ),
+                {"payload": '{"values":{"1767225601":0},"metadata":{},"synthetic":true}'},
+            )
+            minute_columns = "site_id,edge_id,bucket_start,generated_at,payload,created_at"
+            minute_before = (
+                await connection.execute(text("SELECT " + minute_columns + " FROM edge_v2_minutes"))
+            ).all()
+            await connection.execute(
+                text(
                     "INSERT INTO media_clip_jobs "
                     "(id,event_id,camera_id,pit_id,category,occurred_at,"
                     "status,attempts,created_at) "
@@ -106,6 +119,12 @@ async def verify(port: int, password: str) -> None:
             before = (await connection.execute(text("SELECT * FROM media_clip_jobs"))).all()
             await connection.run_sync(upgrade_schema)
             await connection.run_sync(require_current_schema)
+            assert (
+                await connection.execute(text("SELECT " + minute_columns + " FROM edge_v2_minutes"))
+            ).all() == minute_before
+            assert (
+                await connection.scalar(text("SELECT history_summary FROM edge_v2_minutes")) is None
+            )
             assert (await connection.execute(text("SELECT * FROM media_clip_jobs"))).all() == before
             assert await connection.scalar(text("SELECT count(*) FROM event_export_aliases")) == 0
             await connection.execute(
@@ -193,7 +212,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0003_event_export_aliases",)
+            assert await connection.run_sync(current_revisions) == ("0004_minute_history_summary",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"

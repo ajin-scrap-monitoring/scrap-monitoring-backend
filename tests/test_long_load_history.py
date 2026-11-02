@@ -12,6 +12,7 @@ from test_monitoring_v2 import login
 
 from src.app.models.edge_v2_projection import EdgeV2Minute
 from src.app.services.compact_history_queries import compact_aggregate_query
+from src.app.services.compact_history_summary import build_minute_summary
 from src.app.services.load_history_v2_service import MAX_POINTS, history_window, load_history
 from src.app.services.monitoring_v2_service import monitoring_source
 
@@ -214,12 +215,18 @@ async def test_ninety_days_of_minutes_have_bounded_results_and_indexed_range(
         pytest.skip("Dense 90-day query cost is verified against PostgreSQL")
     db = test_db_session
     end = START + timedelta(days=90)
+
     # Insert in small batches: 129,600 minutes / 518,400 scalar slots, no real data.
+    def cached_minute(at):
+        row = minute(at)
+        row["history_summary"] = build_minute_summary(at, row["generated_at"], row["payload"])
+        return row
+
     for offset in range(0, 90 * 1440, 1000):
         await db.execute(
             insert(EdgeV2Minute),
             [
-                minute(START + timedelta(minutes=i))
+                cached_minute(START + timedelta(minutes=i))
                 for i in range(offset, min(offset + 1000, 90 * 1440))
             ],
         )
