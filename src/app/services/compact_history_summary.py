@@ -1,5 +1,6 @@
 """Small derived minute summaries, with bounded original-evidence fallback reads."""
 
+import asyncio
 import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -183,6 +184,9 @@ async def summary_stream_groups(
                     accumulate_minute(
                         groups, at, original_data[row.bucket_start], start, end, seconds
                     )
+            # Async cursor iteration can complete synchronously for buffered data.
+            # Yield explicitly so other requests and cancellation can run per page.
+            await asyncio.sleep(0)
     finally:
         await stream.close()
     return groups
