@@ -17,7 +17,7 @@ from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
 from src.app.schemas.camera_status import CameraStatusV2
 from src.app.schemas.collection_summary_v2 import CollectionSummaryV2
 from src.app.schemas.fill_forecast import FillForecastV2
-from src.app.schemas.load_history_v2 import HistoryInterval, LoadHistoryV2
+from src.app.schemas.load_history_v2 import ChartHistoryV2, HistoryInterval, LoadHistoryV2
 from src.app.schemas.measurement_layout import MeasurementLayoutV2
 from src.app.schemas.monitoring_v2 import (
     CollectionEventPage,
@@ -161,7 +161,7 @@ async def collection_detection_history(
     return await state_events(db, source, limit, offset, collection_detections_only=True)
 
 
-@router.get("/load-history", response_model=LoadHistoryV2)
+@router.get("/load-history", response_model=LoadHistoryV2 | ChartHistoryV2)
 async def get_load_history(
     response: Response,
     session: CurrentSession,
@@ -170,9 +170,11 @@ async def get_load_history(
     from_time: Annotated[datetime | None, Query(alias="from")] = None,
     to_time: Annotated[datetime | None, Query(alias="to")] = None,
     bucket_seconds: Annotated[HistoryIntervalQuery | None, Query()] = None,
-) -> LoadHistoryV2:
+    view: Literal["full", "chart"] = Query(default="full"),
+) -> LoadHistoryV2 | ChartHistoryV2:
     response.headers["Cache-Control"] = "no-store"
-    return await load_history(db, source, from_time, to_time, bucket_seconds)
+    history = await load_history(db, source, from_time, to_time, bucket_seconds)
+    return ChartHistoryV2.from_history(history) if view == "chart" else history
 
 
 @router.get("/alerts", response_model=V2AlertPage)
