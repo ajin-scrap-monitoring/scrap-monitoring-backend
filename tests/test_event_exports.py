@@ -332,7 +332,7 @@ async def test_safe_upstream_errors(client, test_db_session, extractor, status, 
     assert "private-secret" not in r.text
 
 
-async def test_gets_advertise_explicit_export_without_creating_files(
+async def test_gets_hide_unavailable_export_without_creating_files(
     client, test_db_session, extractor, monkeypatch
 ):
     from src.app.schemas.daily_recording import DailyPage
@@ -347,11 +347,38 @@ async def test_gets_advertise_explicit_export_without_creating_files(
     assert (await client.get(API)).status_code == 200
     replay = await client.get(f"{API}/{event}")
     assert replay.status_code == 200, replay.text
-    assert replay.json()["exportPath"] == f"{API}/{event}/exports"
-    assert replay.json()["downloadReasonCode"] == "EVENT_EXPORT_NOT_REQUESTED"
+    assert replay.json()["exportPath"] is None
+    assert replay.json()["downloadReasonCode"] == "EVENT_RECORDING_UNAVAILABLE"
     assert replay.json()["downloadPath"] is None
     assert extractor["requests"] == []
     assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0
+
+
+async def test_existing_ready_export_survives_missing_source_archive(
+    client, test_db_session, extractor, monkeypatch
+):
+    from test_event_export_reuse import ready
+
+    from src.app.schemas.daily_recording import DailyPage
+    from src.app.services.daily_recording_service import daily_recording_service
+
+    async def empty_archive(params):
+        return DailyPage(items=[], next_cursor=None)
+
+    monkeypatch.setattr(daily_recording_service, "list", empty_archive)
+    headers = await login(client)
+    event, body, response = await start(client, test_db_session, headers)
+    assert response.status_code == 202
+    accepted = response.json()
+    ready(extractor["clips"][accepted["clipId"]])
+    assert (await client.get(accepted["statusPath"])).json()["status"] == "ready"
+    detail = await client.get(f"{API}/{event}")
+    assert detail.status_code == 200 and detail.json()["exportPath"] is None
+    recovered = await client.get(f"{API}/{event}/exports")
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == "ready" and recovered.json()["downloadPath"]
+    assert recovered.json()["clipId"] == accepted["clipId"]
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 1
 
 
 async def test_deleted_export_is_not_revived_and_legacy_delete_keeps_context(

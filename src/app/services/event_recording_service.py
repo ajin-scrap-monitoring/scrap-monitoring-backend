@@ -288,6 +288,8 @@ async def replay_event_recording(
             result.downloadReasonCode = "EVENT_WINDOW_NOT_CLOSED"
         elif not 0 < (event.windowTo - event.windowFrom).total_seconds() <= 3600:
             result.downloadReasonCode = "EVENT_EXPORT_RANGE_TOO_LONG"
+        elif result.state == "UNAVAILABLE":
+            result.downloadReasonCode = "EVENT_RECORDING_UNAVAILABLE"
         else:
             result.downloadReasonCode = "EVENT_EXPORT_NOT_REQUESTED"
             result.exportPath = f"/api/v2/recordings/events/{event.eventId}/exports"

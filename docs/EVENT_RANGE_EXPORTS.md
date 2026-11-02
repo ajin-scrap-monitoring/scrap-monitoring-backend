@@ -14,6 +14,10 @@
    자세한 재사용·요청 번호 관계는 [기존 작업 복구](EVENT_EXPORT_RECOVERY.md)를 참고한다.
 2. 이벤트 상세의 `exportPath`를 확인한다. 지원되는 확정 구간이면
    `downloadReasonCode=EVENT_EXPORT_NOT_REQUESTED`다. 상세의 `downloadPath`는 계속 null이다.
+   현재 재생 상태가 `UNAVAILABLE`이면 `exportPath=null`,
+   `downloadReasonCode=EVENT_RECORDING_UNAVAILABLE`로 새 파일 준비를 비활성화한다.
+   저장 실패·삭제·만료·미확인 구간 등의 구체적인 이유는 기존 `reasonCodes`와
+   `unavailableIntervals`를 함께 표시한다. 구간 길이만으로 준비 버튼을 활성화하지 않는다.
 3. 로그인한 사용자가 `POST /api/v2/recordings/events/{event_id}/exports`를 호출한다.
    관리자·일반 조회 사용자 모두 가능하며 `X-CSRF-Token`이 필요하다.
 4. 응답의 `statusPath`를 조회한다. `status=ready`이고 `downloadPath`가 있을 때 파일을 받는다.
@@ -41,6 +45,15 @@
 - 구간은0초 초과/최대1시간. 초과·0초는422 EVENT_EXPORT_RANGE_TOO_LONG.
   긴 구간을 몰래 자르거나 하루 전체 다운로드로 대체하지 않는다.
 - 내부 요청은 UTC 밀리초의 `[start_at,end_at)`다. 미래 꼬리·누락은 미디어가 확보분과 사유로 반환한다.
+
+`PARTIAL`은 일부 확보된 영상이 있으므로 기존 요청 경로를 유지한다. `PROCESSING`은 아직
+준비 중인 상태이며 녹화가 없다고 확정하지 않는다. HLS 준비와 원본 구간 추출은 별개이므로
+이 상태의 기존 요청 가능 여부도 유지한다. `exportPath`는 새 요청 안내이며 추출 성공을
+보장하지 않는다. 조회 이후 원본 보관 상태가 바뀌면 POST가 실패할 수 있다.
+
+이미 만들어진 파일은 원본 날짜 녹화와 별도로 보관될 수 있다. 새 요청 경로가 null이어도
+기존 작업 조회를 생략하거나 유효한 ready 파일을 삭제·사용 불가로 바꾸지 않는다.
+이 변경은 상세의 안내 조건이며 POST의 기존 권한·범위·중복 방지·미디어 최종 판정은 유지한다.
 
 신규 접수는202, 기존 작업 확인은200이다. `Location`은 상태 조회 경로와 같다.
 응답에는 다음 필드가 있다.
