@@ -99,5 +99,6 @@ class EventRecordingReplay(BaseModel):
         "EVENT_EXPORT_NOT_REQUESTED",
         "EVENT_WINDOW_NOT_CLOSED",
         "EVENT_EXPORT_RANGE_TOO_LONG",
+        "EVENT_RECORDING_UNAVAILABLE",
     ] = "EVENT_RANGE_EXPORT_UNSUPPORTED"
     exportPath: str | None = None
