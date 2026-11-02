@@ -26,6 +26,20 @@ async def active_fill_alerts(
 ) -> ActiveFillAlertPageV2:
     now = now or datetime.now(UTC)
     snapshot = await build_snapshot(db, source, now)
+    return await active_snapshot_alerts(
+        db, snapshot, include_health=include_health, camera_status=camera_status
+    )
+
+
+async def active_snapshot_alerts(
+    db: AsyncSession,
+    snapshot: MonitoringSnapshotV2,
+    *,
+    include_health: bool = False,
+    camera_status: CameraStatusService | None = None,
+) -> ActiveFillAlertPageV2:
+    """Reuse a captured snapshot; never select a newer measurement for its alarms."""
+    source, now = snapshot.source, snapshot.serverTime
     result = await _fill_alerts(db, source, snapshot, now)
     if include_health:
         result.scope = "ALL"

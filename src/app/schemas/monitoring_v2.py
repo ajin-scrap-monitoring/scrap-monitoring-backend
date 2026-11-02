@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.app.schemas.active_alerts_v2 import ActiveFillAlertPageV2
 from src.app.schemas.alert_lifecycle import AlertLifecycle
 from src.app.schemas.edge_v2 import Assessment, DeviceStatus, Identifier
 from src.app.schemas.fill_observation import FillObservation
@@ -60,6 +61,13 @@ class MonitoringSnapshotV2(BaseModel):
     deviceStatus: DeviceStatus
     operations: OperationStatus | None = None
     fillObservation: FillObservation | None = None
+
+
+class MonitoringSnapshotWithAlertsV2(BaseModel):
+    """One current snapshot and the active alarms derived from that exact snapshot."""
+
+    snapshot: MonitoringSnapshotV2
+    activeAlerts: ActiveFillAlertPageV2
 
 
 class CollectionEventPage(BaseModel):

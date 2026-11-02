@@ -46,6 +46,10 @@
 
 ## 현재 활성 적재율 경보
 
+현재 판정과 활성 알림을 같은 측정 기준으로 비교하려면
+[`/api/v2/monitoring/snapshot-with-alerts`](SNAPSHOT_WITH_ALERTS.md)의 `snapshot`과
+`activeAlerts`를 함께 사용한다. 별도 GET 사이의 snapshot ID 일치를 요구하지 않아도 된다.
+
 `GET /api/v2/monitoring/active-alerts?pit_id=pit-demo`
 
 응답의 `scope=FILL_OPERATIONS`는 적재율 경보만 포함한다. 장비·영상 경보 전체를 지원한다는 뜻은 아니다.
