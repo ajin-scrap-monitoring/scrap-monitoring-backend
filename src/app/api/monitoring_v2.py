@@ -30,7 +30,12 @@ from src.app.schemas.monitoring_v2 import (
 )
 from src.app.schemas.session import Session
 from src.app.services.active_alerts_v2_service import active_fill_alerts, active_snapshot_alerts
-from src.app.services.camera_status_service import CameraStatusService
+from src.app.services.camera_status_service import REFRESH_SECONDS, CameraStatusService
+from src.app.services.camera_status_stream import (
+    CameraStreamRead,
+    delivery_status,
+    read_camera_status,
+)
 from src.app.services.collection_summary_v2_service import collection_summary
 from src.app.services.edge_v2_history import alerts, collection_events, state_events
 from src.app.services.fill_forecast_service import fill_forecast
@@ -256,23 +261,50 @@ async def snapshot_events(
     source: MonitoringSource,
     session_id: str | None,
     initial: MonitoringSnapshotV2,
+    *,
+    camera_status: CameraStatusService | None = None,
 ) -> AsyncGenerator[str]:
     """Poll committed JSON metadata only; no queues/tasks grow with a slow consumer."""
-    previous = initial.snapshotId
-    yield f"event: monitoring.snapshot\ndata: {initial.model_dump_json()}\n\n"
-    while not await request.is_disconnected():
-        await asyncio.sleep(1)
-        try:
-            await get_session(db, session_id)
-        except HTTPException:
-            yield "event: session.expired\ndata: {}\n\n"
-            return
-        updated = await read_snapshot(db, source)
-        if updated.snapshotId != previous:
-            previous = updated.snapshotId
-            yield f"event: monitoring.snapshot\ndata: {updated.model_dump_json()}\n\n"
-        else:
-            yield ": keepalive\n\n"
+    pending: asyncio.Task[CameraStreamRead] | None = None
+    try:
+        if camera_status is not None:
+            pending = asyncio.create_task(read_camera_status(camera_status, source.pit_id))
+        previous = initial.snapshotId
+        yield f"event: monitoring.snapshot\ndata: {initial.model_dump_json()}\n\n"
+        while not await request.is_disconnected():
+            await asyncio.sleep(1)
+            try:
+                await get_session(db, session_id)
+            except HTTPException:
+                yield "event: session.expired\ndata: {}\n\n"
+                return
+            updated = await read_snapshot(db, source)
+            if updated.snapshotId != previous:
+                previous = updated.snapshotId
+                yield f"event: monitoring.snapshot\ndata: {updated.model_dump_json()}\n\n"
+            else:
+                yield ": keepalive\n\n"
+            if camera_status is not None:
+                if pending is not None and pending.done():
+                    reading = pending.result()
+                    value = delivery_status(camera_status, reading)
+                    # One pending read per connection; a slow camera never delays snapshots.
+                    # The app-wide service shares its existing cache and admission lock.
+                    pending = asyncio.create_task(
+                        read_camera_status(
+                            camera_status,
+                            source.pit_id,
+                            not_before=reading.received_at + REFRESH_SECONDS,
+                        )
+                    )
+                    yield f"event: monitoring.camera-status\ndata: {value.model_dump_json()}\n\n"
+    finally:
+        if pending is not None:
+            pending.cancel()
+            try:
+                await pending
+            except asyncio.CancelledError:
+                pass
 
 
 @router.get("/events")
@@ -282,10 +314,18 @@ async def events(
     source: Source,
     db: Database,
     session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
+    include_camera_status: bool = False,
 ) -> StreamingResponse:
     initial = await read_snapshot(db, source)
     return StreamingResponse(
-        snapshot_events(request, db, source, session_id, initial),
+        snapshot_events(
+            request,
+            db,
+            source,
+            session_id,
+            initial,
+            camera_status=request.app.state.camera_status if include_camera_status else None,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
