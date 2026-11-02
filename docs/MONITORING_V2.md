@@ -87,6 +87,9 @@ stream.addEventListener("session.expired", () => {
 
 연결 직후 최신 스냅샷을 전송하고, 약 1초 간격으로 커밋된 STATE·status 메타데이터를 확인한다. 내용이 바뀌면 `event: monitoring.snapshot`, 같으면 keepalive 주석을 보낸다. 메시지가 새로 오지 않아도 시간이 지나 STALE·UNKNOWN이 되면 전송한다. 매 확인 때 세션을 재검사하며 로그아웃·만료 시 `session.expired`를 보낸 후 닫는다.
 
+`include_camera_status=true`를 추가하면 별도 `monitoring.camera-status` 이벤트도 받는다.
+기존 snapshot 형식은 유지하며 [카메라 SSE 계약](CAMERA_STATUS_SSE.md)의 연결·만료·정리 규칙을 따른다.
+
 연결마다 짧은 조회를 수행하고 DB 읽기 트랜잭션을 프레임 사이에 종료한다. 점 배열 조회나 장기 트랜잭션, 무한 메시지 큐는 사용하지 않는다. 느린 클라이언트에는 중간 상태를 쌓지 않으며 다음 조회에서 최신 상태를 전달한다. SSE는 사건 이력 전달 기능이 아니므로 `Last-Event-ID` 재생을 제공하지 않는다. 재접속하면 DB에서 현재 상태를 다시 읽는다. 브라우저 화면 종료 시 `stream.close()`를 호출한다.
 
 로그인 세션은 DB에 저장되어 재시작 후에도 유지되며 같은 DB를 읽는 프로세스에서 확인할 수 있다. 다만 미디어·경보 작업자의 분산 작업 선점은 아직 없으므로 현재 배포의 단일 worker 전제는 유지한다. 접속 수에 비례해 조회량이 증가하므로 다수 클라이언트 도입 전 부하를 측정한다. 운영 TLS 프록시는 SSE 버퍼링을 끄고 연결 종료를 전달한다.

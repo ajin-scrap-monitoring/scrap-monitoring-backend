@@ -4,6 +4,9 @@
 `GET /api/v2/monitoring/active-alerts?scope=ALL`에도 카메라 확인 범위와 현재 알림을 포함한다.
 두 API는 같은 앱의 짧은 조회 캐시를 사용하며 HTTP 응답은 `Cache-Control: no-store`다.
 
+반복 GET 대신 기존 SSE의 `include_camera_status=true`로 같은 상태를 받을 수 있다.
+[카메라 SSE 연결과 유효 시간](CAMERA_STATUS_SSE.md)을 따르며, 기본 SSE에는 추가하지 않는다.
+
 | state | 의미 |
 | --- | --- |
 | `HEALTHY` | 현재 연결에서 JPEG 프레이밍 검사를 통과한 프레임의 수신 근거가 유효함 |
