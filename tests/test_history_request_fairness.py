@@ -45,7 +45,11 @@ def reader_setup(monkeypatch, mode):
         row["history_summary"] = summary.build_minute_summary(
             row["bucket_start"], row["generated_at"], row["payload"]
         )
-        rows.append(SimpleNamespace(**row))
+        rows.append(
+            (row["bucket_start"], row["generated_at"], row["history_summary"])
+            if mode == "summary"
+            else SimpleNamespace(**row)
+        )
     cursor = BufferedCursor(rows)
     counts = []
     module = summary if mode == "summary" else original
@@ -99,7 +103,9 @@ async def test_cancellation_interrupts_buffered_history_and_closes_cursor(monkey
         await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_multiple_real_pages_preserve_cached_original_and_partial_results(test_db_session):
+async def test_multiple_real_pages_preserve_cached_original_and_partial_results(
+    test_db_session, monkeypatch
+):
     rows = []
     for index in range(original.STREAM_PAGE_SIZE * 2 + 3):
         row = minute(START + timedelta(minutes=index))
@@ -115,5 +121,16 @@ async def test_multiple_real_pages_preserve_cached_original_and_partial_results(
     start = START + timedelta(seconds=2.3)
     end = START + timedelta(minutes=len(rows) - 1, seconds=20.1)
     expected = await original.legacy_stream_groups(test_db_session, source, start, end, 900)
+    allocations = []
+    make_group = summary._group
+
+    def allocate_group():
+        group = make_group()
+        allocations.append(group)
+        return group
+
+    monkeypatch.setattr(summary, "_group", allocate_group)
     actual = await summary.summary_stream_groups(test_db_session, source, start, end, 900)
     assert _compact_result(actual, start, end) == _compact_result(expected, start, end)
+    # Cached minutes share one accumulator per output bucket, including across pages.
+    assert 0 < len(allocations) <= len(actual)

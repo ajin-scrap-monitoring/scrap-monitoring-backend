@@ -152,15 +152,15 @@ async def summary_stream_groups(
     try:
         async for page in stream.partitions(STREAM_PAGE_SIZE):
             originals = []
-            parts = {}
-            for row in page:
-                at = utc(row.bucket_start)
+            parts = []
+            # Unpack and normalize each row once, retaining this page's merge order.
+            for bucket_start, generated_at, summary in page:
+                at = utc(bucket_start)
                 whole = start <= at and at + timedelta(minutes=1) <= end
-                part = restore_summary(row.history_summary, at, row.generated_at) if whole else None
+                part = restore_summary(summary, at, generated_at) if whole else None
                 if part is None:
-                    originals.append(row.bucket_start)
-                else:
-                    parts[row.bucket_start] = part
+                    originals.append(bucket_start)
+                parts.append((bucket_start, at, part))
             original_data = {}
             if originals:
                 # Unfilled legacy rows and the at-most-two partial boundary minutes
@@ -175,15 +175,16 @@ async def summary_stream_groups(
                 for row in rows:
                     original_data[row.bucket_start] = row.payload
             # Preserve this page's read order even when cached and original rows mix.
-            for row in page:
-                at = utc(row.bucket_start)
-                part = parts.get(row.bucket_start)
+            for bucket_start, at, part in parts:
                 if part is not None:
-                    merge_summary(groups.setdefault(int(at.timestamp() // seconds), _group()), part)
-                elif row.bucket_start in original_data:
-                    accumulate_minute(
-                        groups, at, original_data[row.bucket_start], start, end, seconds
-                    )
+                    bucket = int(at.timestamp() // seconds)
+                    group = groups.get(bucket)
+                    if group is None:
+                        # Avoid constructing an unused accumulator for every minute.
+                        group = groups[bucket] = _group()
+                    merge_summary(group, part)
+                elif bucket_start in original_data:
+                    accumulate_minute(groups, at, original_data[bucket_start], start, end, seconds)
             # Async cursor iteration can complete synchronously for buffered data.
             # Yield explicitly so other requests and cancellation can run per page.
             await asyncio.sleep(0)
