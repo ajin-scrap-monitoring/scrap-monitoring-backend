@@ -3,6 +3,9 @@
 `GET /openapi.json`에서 응답 타입을 생성할 수 있다. 아래 모델은 실제 응답을 설명하며
 기존 인증·권한·ETag·미디어 오류 처리 방식은 유지한다.
 
+미디어 서비스 오류 JSON에도 `Cache-Control: no-store`를 제공한다. 삭제·만료·시간 초과
+등의 상태와 안전한 오류 코드는 유지하며, 실패 결과를 저장하지 않도록 응답에 명시한다.
+
 ## LiDAR 표본
 
 `profiles[].samples[]`는 이름 있는 `LidarProfileSampleV2` 구조다. 처리 과정의 사전 접근을

@@ -312,6 +312,7 @@ async def test_remote_errors_do_not_leak_tokens(
     fake_media.error_code = code
     response = await client.get(f"/api/v1/media/clips/{CLIP_ID}")
     assert response.status_code == public_status
+    assert response.headers["cache-control"] == "no-store"
     assert response.json()["error"]["code"] == code
     assert "synthetic-media-token" not in response.text
 

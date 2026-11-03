@@ -263,7 +263,9 @@ async def test_unavailable_clip_does_not_probe(client, metadata, state, status):
 async def test_deleted_day_does_not_probe(client, metadata, state):
     await login(client)
     metadata["day_detail"].update(status=state, playback_path=None, download_path=None)
-    assert (await client.get(DAY)).status_code == 410
+    response = await client.get(DAY)
+    assert response.status_code == 410
+    assert response.headers["cache-control"] == "no-store"
     assert len(metadata["requests"]) == 1
 
 
@@ -284,6 +286,7 @@ async def test_metadata_error_codes_do_not_leak_messages(
     metadata["error"] = (status, code)
     r = await client.get(CLIP)
     assert r.status_code == public_status and "private-secret" not in r.text
+    assert r.headers["cache-control"] == "no-store"
     assert len(metadata["requests"]) == 2
 
 
@@ -293,6 +296,7 @@ async def test_metadata_wall_clock_budget_does_not_retry(client, metadata, monke
     metadata["delay"] = 0.1
     r = await client.get(CLIP)
     assert r.status_code == 504 and r.json()["error"]["code"] == "MEDIA_TIMEOUT"
+    assert r.headers["cache-control"] == "no-store"
     assert len(metadata["requests"]) == 2
 
 

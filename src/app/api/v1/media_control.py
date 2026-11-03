@@ -95,6 +95,7 @@ async def media_error_response(request: Request, exc: Exception) -> JSONResponse
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": "Media service request failed"}},
+        headers={"Cache-Control": "no-store"},
     )
 
 
