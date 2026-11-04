@@ -82,5 +82,50 @@ server {
         add_header X-Accel-Buffering "no" always;
     }
 
+    # FastAPI validates the session, camera and selected resource, then hands off
+    # a fixed internal path. Statuses such as 404/410 are preserved before bytes flow.
+    location ~ "^/media/(clips|daily-recordings)/[0-9a-f-]{36}/thumbnail$" {
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        proxy_pass http://monitoring_backend;
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization "";
+        proxy_hide_header Cache-Control;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_cache off;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Only an authorized X-Accel-Redirect can enter this image-only location.
+    location ~ "^/_thumbnail/(v1/clips|v2/daily-recordings)/[0-9a-f-]{36}/thumbnail$" {
+        internal;
+        rewrite ^/_thumbnail/(.*)$ /api/$1 break;
+        proxy_pass http://camera_media;
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+        proxy_set_header Range "";
+        proxy_set_header If-Range "";
+        proxy_set_header If-None-Match "";
+        proxy_set_header If-Modified-Since "";
+        proxy_hide_header Set-Cookie;
+        proxy_hide_header X-Accel-Redirect;
+        proxy_ignore_headers X-Accel-Redirect;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_redirect off;
+        proxy_intercept_errors on;
+        error_page 301 302 303 307 308 =502 @thumbnail_bad_response;
+        proxy_read_timeout 10s;
+        # Nginx preserves Cache-Control from the authorized X-Accel handoff.
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    location @thumbnail_bad_response {
+        add_header X-Content-Type-Options "nosniff" always;
+        return 502;
+    }
+
     location / { return 404; }
 }

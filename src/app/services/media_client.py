@@ -55,6 +55,7 @@ class MediaClient:
         *,
         daily: bool = False,
         timeout_seconds: float | None = None,
+        tokenless: bool = False,
     ) -> httpx.Response:
         settings = get_settings()
         base_url = settings.MEDIA_SERVICE_URL
@@ -63,9 +64,9 @@ class MediaClient:
             base_url = settings.MEDIA_DAILY_SERVICE_URL or (
                 base_url.rstrip("/")[:-2] + "v2" if base_url else None
             )
-        elif settings.MEDIA_API_TOKEN:
+        elif settings.MEDIA_API_TOKEN and not tokenless:
             headers["Authorization"] = f"Bearer {settings.MEDIA_API_TOKEN.get_secret_value()}"
-        if not base_url or (not daily and not settings.MEDIA_API_TOKEN):
+        if not base_url or (not daily and not tokenless and not settings.MEDIA_API_TOKEN):
             raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -123,6 +124,10 @@ class MediaClient:
                 "STORAGE_UNAVAILABLE",
                 "SERVICE_BUSY",
                 "METADATA_CAPACITY_EXCEEDED",
+                "THUMBNAIL_NOT_READY",
+                "THUMBNAIL_UNAVAILABLE",
+                "THUMBNAIL_CAPACITY_EXCEEDED",
+                "THUMBNAIL_STORAGE_UNAVAILABLE",
                 "INTERNAL_ERROR",
             }
             code = "MEDIA_BAD_RESPONSE"

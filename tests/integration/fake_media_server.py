@@ -79,6 +79,8 @@ def daily_recording(export_state="not_requested", deleted=False):
 
 
 class Handler(BaseHTTPRequestHandler):
+    thumbnails_ready = set()
+    thumbnail_deleted = set()
     daily_exported = False
     daily_deleted = False
     range_clips = {}
@@ -91,7 +93,79 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def thumbnail_request(self):
+        path = urlsplit(self.path).path
+        if not path.endswith(("/thumbnail", "/thumbnail-info")):
+            return False
+        if self.headers.get("Cookie") or self.headers.get("Authorization"):
+            self.send_error(400)
+            return True
+        daily = path.startswith("/api/v2/")
+        key = path.split("/")[-2]
+        if key in self.thumbnail_deleted or (daily and self.daily_deleted):
+            self.daily_json(
+                410, {"error": {"code": "DAILY_RECORDING_DELETED" if daily else "CLIP_DELETED"}}
+            )
+            return True
+        resource = ("v2/daily-recordings" if daily else "v1/clips") + "/" + key
+        if self.command == "POST":
+            json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            self.thumbnails_ready.add(resource)
+        ready = resource in self.thumbnails_ready
+        body = b"\xff\xd8synthetic-thumbnail-transport-bytes\xff\xd9"
+        if path.endswith("/thumbnail") and self.command in ("GET", "HEAD"):
+            if not ready:
+                self.send_error(404)
+                return True
+            assert not self.headers.get("Range") and not self.headers.get("If-None-Match")
+            if self.headers.get("X-Thumbnail-Probe") == "redirect":
+                self.send_response(302)
+                self.send_header("Location", "https://external.invalid/private")
+                self.end_headers()
+                return True
+            self.send_response(200)
+            if self.headers.get("X-Thumbnail-Probe") == "internal-redirect":
+                self.send_header("X-Accel-Redirect", "/api/v1/session")
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return True
+        self.daily_json(
+            202 if self.command == "POST" else 200,
+            {
+                "recording_id" if daily else "clip_id": key,
+                "camera_id": "camera-main",
+                "status": "pending"
+                if self.command == "POST"
+                else "ready"
+                if ready
+                else "unavailable",
+                "representative_at": None,
+                "time_basis": None,
+                "content_path": "/api/" + resource + "/thumbnail"
+                if ready and self.command != "POST"
+                else None,
+                "width": 320 if ready and self.command != "POST" else None,
+                "height": 240 if ready and self.command != "POST" else None,
+                "size_bytes": len(body) if ready and self.command != "POST" else None,
+                "reason_code": None
+                if self.command == "POST"
+                else "TIMELINE_UNAVAILABLE"
+                if ready
+                else "NOT_PREPARED",
+                "generated_at": "2026-11-04T15:18:35.042Z"
+                if ready and self.command != "POST"
+                else None,
+            },
+        )
+        return True
+
     def do_POST(self):
+        if self.thumbnail_request():
+            return
         if self.path == "/api/v1/clips":
             if self.headers.get(
                 "Authorization"
@@ -241,11 +315,16 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.thumbnail_request():
+            return
         parsed = urlsplit(self.path)
         if parsed.path.startswith("/api/v2/"):
             self.daily_get(parsed.path, parse_qs(parsed.query))
             return
-        if self.headers.get("Authorization") != "Bearer synthetic-media-token":
+        if self.headers.get("Authorization") != "Bearer synthetic-media-token" and not (
+            self.headers.get("Authorization") is None
+            and parsed.path.rsplit("/", 1)[-1] in self.range_clips
+        ):
             self.send_error(401)
             return
         if self.headers.get("Cookie"):
