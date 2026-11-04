@@ -3,6 +3,8 @@
 앱 프로세스의 연결 재사용·최대 접속 수와 동시 조회 범위는
 [DB 연결 풀](DATABASE_CONNECTION_POOL.md)을 참고한다.
 
+이력 조회 통계의 점검·명시적 갱신은 [통계 관리 명령](HISTORY_STATISTICS.md)을 따른다.
+
 `docker-compose.postgresql.yml`은 기존 SQLite 개발 Compose와 분리한 PostgreSQL 17 배포 구성이다. 검토한 이미지와 비공개 설정을 외부에서 주입한 뒤 사용한다. 저장소 기본 Compose를 실행하거나 소스를 pull하는 것만으로 이 구성이 적용되지는 않는다.
 
 ## 구성과 저장 경계
