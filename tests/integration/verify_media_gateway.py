@@ -93,6 +93,49 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
+async def probe_thumbnail(
+    client: httpx.AsyncClient, public: str, resource: str, identifier: str, csrf: dict[str, str]
+) -> None:
+    """Real Nginx must hand off bytes only after session and selected-resource checks."""
+    info = public + "/thumbnail-info"
+    image = f"/media/{resource}/{identifier}/thumbnail"
+    unprepared = await client.get(info)
+    assert unprepared.status_code == 200, unprepared.text
+    assert unprepared.json()["status"] == "unavailable"
+    assert (await client.get(image)).status_code == 404
+    assert (await client.post(public + "/thumbnail", json={})).status_code == 403
+    prepared = await client.post(public + "/thumbnail", json={}, headers=csrf)
+    assert prepared.status_code == 202, prepared.text
+    assert prepared.headers["location"] == info
+    ready = await client.get(info)
+    assert ready.json()["content_path"] == image and ready.json()["representative_at"] is None
+    response = await client.get(image, headers={"Range": "bytes=0-3", "If-None-Match": "synthetic"})
+    assert response.status_code == 200, response.text
+    assert response.content == b"\xff\xd8synthetic-thumbnail-transport-bytes\xff\xd9"
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["content-length"] == str(len(response.content))
+    assert response.headers["cache-control"] == "no-store", repr(response.headers)
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "x-accel-redirect" not in response.headers
+    rejected = await client.get(image, headers={"X-Thumbnail-Probe": "redirect"})
+    assert rejected.status_code == 502 and "location" not in rejected.headers
+    ignored = await client.get(image, headers={"X-Thumbnail-Probe": "internal-redirect"})
+    assert ignored.status_code == 200 and ignored.content == response.content
+    assert "x-accel-redirect" not in ignored.headers
+    head = await client.head(image)
+    assert head.status_code == 200 and head.content == b""
+    assert head.headers["content-length"] == response.headers["content-length"]
+    assert (await client.post(image)).status_code == 405
+    version = "v2" if resource == "daily-recordings" else "v1"
+    assert (
+        await client.get(f"/_thumbnail/{version}/{resource}/{identifier}/thumbnail")
+    ).status_code == 404
+    async with httpx.AsyncClient(base_url=str(client.base_url)) as anonymous:
+        assert (await anonymous.get(image)).status_code == 401
+        assert (await anonymous.head(image)).status_code == 401
+    client.__dict__.setdefault("_thumbnail_probe_paths", []).append(image)
+
+
 async def probe_event_export(client: httpx.AsyncClient, backend: str, csrf: dict[str, str]) -> None:
     """Exercise the actual API-to-gateway download flow using synthetic bytes only."""
     seed = """
@@ -137,6 +180,9 @@ asyncio.run(run())
     assert reused.json()["requestId"] == body["requestId"]
     by_alias = await client.get(path + "/" + alias["requestId"])
     assert by_alias.status_code == 200 and by_alias.json()["clipId"] == item["clipId"]
+    await probe_thumbnail(
+        client, f"/api/v1/media/clips/{item['clipId']}", "clips", item["clipId"], csrf
+    )
     info_path = f"/api/v1/media/clips/{item['clipId']}/media-info"
     info = await client.get(info_path)
     assert info.status_code == 200, info.text
@@ -209,7 +255,7 @@ async def probe(base_url: str, backend: str) -> None:
                     pass
                 await asyncio.sleep(0.25)
         revision = docker("exec", backend, "python", "-m", "src.app.cli.db", "current")
-        assert revision.endswith("0003_event_export_aliases"), revision
+        assert revision.endswith("0004_minute_history_summary"), revision
         docker("exec", backend, "python", "-m", "src.app.cli.db", "check")
         await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"
@@ -351,9 +397,11 @@ async def probe(base_url: str, backend: str) -> None:
         assert info.json()["file"]["codec"] == "h264"
         assert info.json()["segments"]["status"] == "partial"
         assert info.json()["segments"]["mixed"] is None
+        await probe_thumbnail(client, f"{daily_api}/{CLIP_ID}", "daily-recordings", CLIP_ID, csrf)
         deleted = await client.delete(f"{daily_api}/{CLIP_ID}", headers=csrf)
         assert deleted.status_code == 204, deleted.text
         assert (await client.get(daily + "/content")).status_code == 410
+        assert (await client.get(daily + "/thumbnail")).status_code == 410
         await probe_event_export(client, backend, admin_csrf)
         logout = await client.delete(
             "/api/v1/session",
@@ -362,6 +410,8 @@ async def probe(base_url: str, backend: str) -> None:
             },
         )
         assert logout.status_code == 204
+        for image in client.__dict__.get("_thumbnail_probe_paths", []):
+            assert (await client.get(image)).status_code == 401
         assert (await client.get(content)).status_code == 401
         assert (await client.get("/api/v1/notifications")).status_code == 401
         assert (

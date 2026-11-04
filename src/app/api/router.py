@@ -7,6 +7,7 @@ from src.app.api.edge_v2 import router as edge_v2_router
 from src.app.api.event_recordings import router as event_recordings_router
 from src.app.api.history_csv import router as history_csv_router
 from src.app.api.monitoring_v2 import router as monitoring_v2_router
+from src.app.api.thumbnails import router as thumbnails_router
 from src.app.api.v1 import api_v1_router
 
 root_api_router = APIRouter()
@@ -14,6 +15,7 @@ root_api_router.include_router(api_v1_router, prefix="/api/v1")
 root_api_router.include_router(edge_v2_router)
 root_api_router.include_router(monitoring_v2_router)
 root_api_router.include_router(history_csv_router)
+root_api_router.include_router(thumbnails_router)
 
 root_api_router.include_router(daily_recordings_router)
 root_api_router.include_router(event_recordings_router)
