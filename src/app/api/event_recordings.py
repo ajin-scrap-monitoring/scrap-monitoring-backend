@@ -15,8 +15,10 @@ from src.app.db.session import get_db_session
 from src.app.schemas.errors import HTTPErrorResponse, MediaErrorResponse
 from src.app.schemas.event_export import EventExportRequest, EventExportResponse
 from src.app.schemas.event_recording import EventRecordingPage, EventRecordingReplay
+from src.app.schemas.thumbnail import ClipThumbnailInfo
 from src.app.services.event_export_service import lookup_export, read_export, request_export
 from src.app.services.event_recording_service import list_event_recordings, replay_event_recording
+from src.app.services.event_thumbnail_service import event_thumbnail
 from src.app.services.stable_event_pages import stable_event_page
 
 
@@ -38,6 +40,25 @@ ExportEventId = Annotated[
         pattern=r"^(?:evt-auto-col-start|evt-alt|evt-col|evt-v2-transition|evt-err)-[1-9][0-9]{0,18}$"
     ),
 ]
+
+
+@router.get(
+    "/{event_id}/thumbnail-info",
+    response_model=ClipThumbnailInfo | None,
+    responses=error_responses(*MEDIA_ERROR_CODES, media=True),
+)
+async def get_event_thumbnail(
+    response: Response,
+    session: CurrentSession,
+    db: Database,
+    event_id: ExportEventId,
+    pit_id: str | None = Query(default=None, min_length=1, max_length=50),
+    before_seconds: ContextSeconds = 30,
+    after_seconds: ContextSeconds = 30,
+) -> ClipThumbnailInfo | None:
+    """Find a shared existing clip without exposing another user's export request."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return await event_thumbnail(db, event_id, pit_id, before_seconds, after_seconds)
 
 
 @router.post(

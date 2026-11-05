@@ -183,6 +183,29 @@ asyncio.run(run())
     await probe_thumbnail(
         client, f"/api/v1/media/clips/{item['clipId']}", "clips", item["clipId"], csrf
     )
+    shared_info = path.removesuffix("/exports") + "/thumbnail-info"
+    async with httpx.AsyncClient(base_url=str(client.base_url), timeout=10) as viewer:
+        assert (await viewer.get(shared_info)).status_code == 401
+        signed_in = await viewer.post(
+            "/api/v1/session",
+            json={"username": "operator", "password": "synthetic-gateway-operator-password"},
+        )
+        assert signed_in.status_code == 200
+        assert (await viewer.get(path)).json() is None
+        assert (await viewer.get(created.headers["location"])).status_code == 404
+        shared = await viewer.get(shared_info)
+        assert shared.status_code == 200, shared.text
+        assert shared.json()["clip_id"] == item["clipId"]
+        poster = await viewer.get(shared.json()["content_path"])
+        assert poster.status_code == 200 and poster.content.startswith(b"\xff\xd8")
+        assert poster.headers["cache-control"] == "no-store"
+        assert (
+            await viewer.delete(
+                "/api/v1/session", headers={"X-CSRF-Token": signed_in.json()["csrfToken"]}
+            )
+        ).status_code == 204
+        assert (await viewer.get(shared_info)).status_code == 401
+        assert (await viewer.get(shared.json()["content_path"])).status_code == 401
     info_path = f"/api/v1/media/clips/{item['clipId']}/media-info"
     info = await client.get(info_path)
     assert info.status_code == 200, info.text

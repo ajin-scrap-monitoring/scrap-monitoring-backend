@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -361,6 +362,10 @@ def reference(
     common = {
         "eventId": row["event_id"],
         "pitId": pit,
+        "thumbnailInfoPath": (
+            f"/api/v2/recordings/events/{row['event_id']}/thumbnail-info?"
+            + urlencode({"pit_id": pit, "before_seconds": before, "after_seconds": after})
+        ),
         "eventType": kind,
         "occurredAt": at,
         "simulated": data.get("simulated") if isinstance(data.get("simulated"), bool) else None,
