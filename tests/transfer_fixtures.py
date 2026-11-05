@@ -69,6 +69,16 @@ async def seed_transfer_source(path):
                     )
                 if table.name == "alert_policies":
                     row.update(event_types=["collection_required", "device_error"], version_id=7)
+                if table.name == "settings_history":
+                    row.update(
+                        resource="alert_settings",
+                        operation="update",
+                        actor_username="transfer-user",
+                        actor_display_name="Synthetic admin",
+                        before={"sendDelayMinutes": 0},
+                        after={"sendDelayMinutes": 5},
+                        changed_fields=["sendDelayMinutes"],
+                    )
                 if table.name == "edge_v2_messages":
                     row.update(sequence=2**54 + 9, message_type="edge_status", body_hash="a" * 64)
                 if table.name == "edge_v2_artifacts":

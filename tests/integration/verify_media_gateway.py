@@ -255,7 +255,7 @@ async def probe(base_url: str, backend: str) -> None:
                     pass
                 await asyncio.sleep(0.25)
         revision = docker("exec", backend, "python", "-m", "src.app.cli.db", "current")
-        assert revision.endswith("0004_minute_history_summary"), revision
+        assert revision.endswith("0005_settings_history"), revision
         docker("exec", backend, "python", "-m", "src.app.cli.db", "check")
         await probe_edge_v2(client)
         content = f"/media/clips/{CLIP_ID}/content"
@@ -294,6 +294,18 @@ async def probe(base_url: str, backend: str) -> None:
             headers={**admin_csrf, "If-Match": settings.headers["etag"]},
         )
         assert saved.status_code == 200, saved.text
+        audit = await client.get("/api/v1/settings/history")
+        assert audit.status_code == 200 and audit.headers["cache-control"] == "no-store"
+        latest = audit.json()["items"][0]
+        assert latest["actor"]["id"] == session.json()["user"]["id"]
+        assert latest["resource"] == "alert_settings"
+        assert latest["before"] == {
+            key: value for key, value in settings.json().items() if key != "version"
+        }
+        assert latest["after"] == {
+            key: value for key, value in saved.json().items() if key != "version"
+        }
+        assert session.json()["csrfToken"] not in audit.text
         stale = await client.put(
             settings_path,
             json=policy_payload,
@@ -410,6 +422,7 @@ async def probe(base_url: str, backend: str) -> None:
             },
         )
         assert logout.status_code == 204
+        assert (await client.get("/api/v1/settings/history")).status_code == 401
         for image in client.__dict__.get("_thumbnail_probe_paths", []):
             assert (await client.get(image)).status_code == 401
         assert (await client.get(content)).status_code == 401

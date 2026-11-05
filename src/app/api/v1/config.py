@@ -3,7 +3,8 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.admin_access import private_response, require_admin_change
@@ -11,9 +12,12 @@ from src.app.api.errors import error_responses
 from src.app.api.v1.session import get_session
 from src.app.core.alert_thresholds import validate_alert_thresholds
 from src.app.core.config import get_settings
+from src.app.db.base import utc_now
 from src.app.db.session import get_db_session
 from src.app.models.config import PitConfig
 from src.app.schemas.config import PitConfigResponse, PitConfigUpdateRequest
+from src.app.schemas.session import Session
+from src.app.services.settings_history_service import pit_values, record_change
 
 router = APIRouter(
     prefix="/config",
@@ -79,12 +83,13 @@ async def get_pit_config(
     response_model=PitConfigResponse,
     summary="Update pit configuration",
     dependencies=[Depends(require_admin_change)],
-    responses=error_responses(403),
+    responses=error_responses(403, 409),
 )
 async def update_pit_config(
     pit_id: PitId,
     payload: PitConfigUpdateRequest,
     db: AsyncSession = Depends(get_db_session),
+    session: Session = Depends(require_admin_change),
 ) -> PitConfigResponse:
     """Update threshold limits or physical depth of a scrap pit."""
     stmt = (
@@ -95,6 +100,7 @@ async def update_pit_config(
     )
     result = await db.execute(stmt)
     pit = result.scalar_one_or_none()
+    before = pit_values(pit) if pit else None
 
     settings = get_settings()
     warning = payload.warning_threshold_percent
@@ -120,15 +126,47 @@ async def update_pit_config(
         )
         db.add(pit)
     else:
-        if payload.name is not None:
-            pit.name = payload.name
-        if payload.total_depth_cm is not None:
-            pit.total_depth_cm = payload.total_depth_cm
-        if payload.warning_threshold_percent is not None:
-            pit.warning_threshold_percent = payload.warning_threshold_percent
-        if payload.critical_threshold_percent is not None:
-            pit.critical_threshold_percent = payload.critical_threshold_percent
+        assert before is not None
+        values = {**before, **payload.model_dump(exclude_none=True)}
+        # SQLite ignores FOR UPDATE; compare every previous business value so
+        # the history cannot claim a predecessor that another writer replaced.
+        statement = (
+            update(PitConfig)
+            .where(
+                PitConfig.id == pit_id,
+                PitConfig.updated_at == pit.updated_at,
+                *(getattr(PitConfig, key) == value for key, value in before.items()),
+            )
+            .values(**values, updated_at=utc_now() if values != before else pit.updated_at)
+        )
+        try:
+            changed = await db.execute(statement.execution_options(synchronize_session=False))
+            if getattr(changed, "rowcount", 0) != 1:
+                raise HTTPException(409, "Pit settings changed concurrently; retrieve and retry")
+            await db.refresh(pit)
+        except SQLAlchemyError:
+            await db.rollback()
+            raise HTTPException(503, "Settings storage unavailable") from None
+        except Exception:
+            await db.rollback()
+            raise
 
-    await db.commit()
-    await db.refresh(pit)
+    try:
+        await db.flush()
+        record_change(
+            db,
+            actor=session.user,
+            pit_id=pit_id,
+            resource="pit_config",
+            before=before,
+            after=pit_values(pit),
+        )
+        await db.commit()
+        await db.refresh(pit)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Pit settings changed concurrently; retrieve and retry") from None
+    except SQLAlchemyError:
+        await db.rollback()
+        raise HTTPException(503, "Settings storage unavailable") from None
     return PitConfigResponse.model_validate(pit)

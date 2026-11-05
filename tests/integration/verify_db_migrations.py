@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from src.app.db.base import Base
 from src.app.db.migration import (
     current_revisions,
     migration_config,
@@ -117,8 +118,24 @@ async def verify(port: int, password: str) -> None:
                 )
             )
             before = (await connection.execute(text("SELECT * FROM media_clip_jobs"))).all()
+
+            def previous_history(conn: Connection) -> None:
+                config = migration_config()
+                config.attributes["connection"] = conn
+                command.upgrade(config, "0004_minute_history_summary")
+
+            await connection.run_sync(previous_history)
+            old_tables = [
+                table for table in Base.metadata.sorted_tables if table.name != "settings_history"
+            ]
+            old_rows = {
+                table.name: (await connection.execute(table.select())).all() for table in old_tables
+            }
             await connection.run_sync(upgrade_schema)
             await connection.run_sync(require_current_schema)
+            for table in old_tables:
+                assert (await connection.execute(table.select())).all() == old_rows[table.name]
+            assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
             assert (
                 await connection.execute(text("SELECT " + minute_columns + " FROM edge_v2_minutes"))
             ).all() == minute_before
@@ -212,7 +229,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0004_minute_history_summary",)
+            assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"

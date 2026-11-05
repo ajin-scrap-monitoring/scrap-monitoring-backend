@@ -25,6 +25,7 @@ from src.app.schemas.admin import (
     TestNotificationRequest,
 )
 from src.app.schemas.history import PageMetadata
+from src.app.schemas.session import User
 from src.app.services.alert_policy_service import get_settings_snapshot, replace_settings
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,10 @@ class AdminService:
         payload: AlertSettingsUpdate,
         db: AsyncSession,
         if_match: str,
+        actor: User,
     ) -> tuple[AlertSettings, str]:
         """Replace alert settings and return updated model with new ETag."""
-        return await replace_settings(db, pit_id, payload, if_match)
+        return await replace_settings(db, pit_id, payload, if_match, actor=actor)
 
     async def list_recipients(
         self,

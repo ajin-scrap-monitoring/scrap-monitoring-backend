@@ -16,6 +16,8 @@ from src.app.models.alert_policy import AlertPolicy
 from src.app.models.config import PitConfig
 from src.app.schemas.admin import AlertSettings, AlertSettingsUpdate, ConfigurableAlertEventType
 from src.app.schemas.monitoring import PreCollectionAlert
+from src.app.schemas.session import User
+from src.app.services.settings_history_service import record_change
 
 
 def _generate_alert_etag(pit_cfg: PitConfig, policy: AlertPolicy) -> str:
@@ -114,12 +116,13 @@ async def get_settings_snapshot(db: AsyncSession, pit_id: str) -> tuple[AlertSet
 
 
 async def replace_settings(
-    db: AsyncSession, pit_id: str, payload: AlertSettingsUpdate, if_match: str
+    db: AsyncSession, pit_id: str, payload: AlertSettingsUpdate, if_match: str, *, actor: User
 ) -> tuple[AlertSettings, str]:
     try:
         pit, policy = await settings_rows(db, pit_id, lock=True)
         if if_match != _generate_alert_etag(pit, policy):
             raise HTTPException(412, "Precondition failed: ETag does not match current version")
+        before = snapshot(pit, policy)[0].model_dump(mode="json", exclude={"version"})
         # Compare-and-update is necessary on SQLite where SELECT FOR UPDATE is
         # ignored, and also catches writers using the separate pit config API.
         policy_change = await db.execute(
@@ -157,6 +160,14 @@ async def replace_settings(
         await db.refresh(pit)
         await db.refresh(policy)
         result = snapshot(pit, policy)
+        record_change(
+            db,
+            actor=actor,
+            pit_id=pit_id,
+            resource="alert_settings",
+            before=before,
+            after=result[0].model_dump(mode="json", exclude={"version"}),
+        )
         await db.commit()
         return result
     except SQLAlchemyError:

@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0004_minute_history_summary",)
+        assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -49,6 +49,40 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
             command.check(config)
 
         await connection.run_sync(compare)
+
+
+async def test_settings_history_upgrade_preserves_existing_rows_without_backfill(engine):
+    async with engine.begin() as connection:
+
+        def previous(conn):
+            config = migration_config()
+            config.attributes["connection"] = conn
+            command.upgrade(config, "0004_minute_history_summary")
+
+        await connection.run_sync(previous)
+        await connection.execute(
+            PitConfig.__table__.insert().values(
+                id="existing-pit",
+                name="Existing settings",
+                total_depth_cm=420,
+                warning_threshold_percent=72,
+                critical_threshold_percent=94,
+            )
+        )
+        old_tables = [
+            table for table in Base.metadata.sorted_tables if table.name != "settings_history"
+        ]
+        before = {
+            table.name: (await connection.execute(table.select())).all() for table in old_tables
+        }
+        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(require_current_schema)
+        assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
+        for table in old_tables:
+            assert (await connection.execute(table.select())).all() == before[table.name]
+        assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
+        await connection.run_sync(upgrade_schema)
+        assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
 
 
 async def test_export_alias_upgrade_preserves_existing_job(engine):
@@ -384,7 +418,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0004_minute_history_summary" in (await cli(url, "current"))[1]
+    assert "0005_settings_history" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 
