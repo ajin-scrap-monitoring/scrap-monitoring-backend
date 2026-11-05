@@ -36,6 +36,10 @@ class EventRecording(BaseModel):
     playback: EventPlaybackSummary | None = Field(
         default=None, description="Opt-in list summary; null when include_playback is false"
     )
+    thumbnailInfoPath: str | None = Field(
+        default=None,
+        description="Read-only lookup of an existing shared clip; never prepares media",
+    )
 
 
 class EventRecordingPage(BaseModel):

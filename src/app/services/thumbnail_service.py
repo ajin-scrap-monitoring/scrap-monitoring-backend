@@ -1,6 +1,7 @@
 """Validate only JSON; Nginx and media deliver JPEG bytes after authorization."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -21,18 +22,28 @@ def paths(identifier: UUID, daily: bool) -> tuple[str, str, str]:
 
 
 async def thumbnail(
-    identifier: UUID, *, daily: bool = False, prepare: ThumbnailRequest | None = None
+    identifier: UUID,
+    *,
+    daily: bool = False,
+    prepare: ThumbnailRequest | None = None,
+    validate_clip: Callable[[ClipDetail], None] | None = None,
 ) -> tuple[int, Thumbnail]:
     """A bounded selected-resource request never creates video exports or retries itself."""
     try:
         async with asyncio.timeout(get_settings().MEDIA_REQUEST_TIMEOUT_SECONDS):
-            return await _thumbnail(identifier, daily=daily, prepare=prepare)
+            return await _thumbnail(
+                identifier, daily=daily, prepare=prepare, validate_clip=validate_clip
+            )
     except TimeoutError as exc:
         raise MediaServiceError(504, "MEDIA_TIMEOUT", retryable=True) from exc
 
 
 async def _thumbnail(
-    identifier: UUID, *, daily: bool, prepare: ThumbnailRequest | None
+    identifier: UUID,
+    *,
+    daily: bool,
+    prepare: ThumbnailRequest | None,
+    validate_clip: Callable[[ClipDetail], None] | None,
 ) -> tuple[int, Thumbnail]:
     prefix, _, image = paths(identifier, daily)
     response = await media_client._request("GET", prefix, (200,), daily=daily, tokenless=True)
@@ -55,6 +66,8 @@ async def _thumbnail(
     ):
         state = "DELETED" if status == "deleted" else "EXPIRED"
         raise MediaServiceError(410, ("DAILY_RECORDING_" if daily else "CLIP_") + state)
+    if validate_clip is not None and isinstance(parent, ClipDetail):
+        validate_clip(parent)
     suffix = "thumbnail" if prepare is not None else "thumbnail-info"
     try:
         response = await media_client._request(
