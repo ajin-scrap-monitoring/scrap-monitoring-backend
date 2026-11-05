@@ -18,8 +18,10 @@ from src.app.models.media_job import EventExportAlias, MediaClipJob
 from src.app.models.metric import ScrapMetric
 from src.app.models.notification_read import NotificationRead
 from src.app.models.recipient import NotificationRecipientModel
+from src.app.models.settings_history import SettingsHistory
 
 __all__ = [
+    "SettingsHistory",
     "NotificationRead",
     "AlertPolicy",
     "AuthUser",

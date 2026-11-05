@@ -1,5 +1,7 @@
 """Administration and alert settings endpoints conforming to proposal/openapi.yaml."""
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +17,10 @@ from src.app.schemas.admin import (
     NotificationRecipientPatch,
     TestNotificationRequest,
 )
+from src.app.schemas.session import Session
+from src.app.schemas.settings_history import SettingsHistoryPage, SettingsResource
 from src.app.services.admin_service import admin_service
+from src.app.services.settings_history_service import history_page
 
 admin_dependencies = [Depends(require_administrator), Depends(private_response)]
 settings_router = APIRouter(
@@ -71,15 +76,50 @@ async def replace_alert_settings(
     ),
     if_match: str | None = Header(default=None, alias="If-Match"),
     db: AsyncSession = Depends(get_db_session),
+    session: Session = Depends(require_admin_change),
 ) -> AlertSettings:
     """Replace threshold and alert policy settings."""
     if if_match is None:
         raise HTTPException(428, "If-Match is required; retrieve the current settings first")
     updated, new_etag = await admin_service.replace_alert_settings(
-        pit_id=pit_id, payload=payload, db=db, if_match=if_match
+        pit_id=pit_id, payload=payload, db=db, if_match=if_match, actor=session.user
     )
     response.headers["ETag"] = new_etag
     return updated
+
+
+@settings_router.get("/history", response_model=SettingsHistoryPage)
+async def get_settings_history(
+    pit_id: str | None = Query(default=None, min_length=1, max_length=50),
+    actor_id: str | None = Query(default=None, min_length=1, max_length=64),
+    resource: SettingsResource | None = None,
+    from_time: datetime | None = Query(default=None, alias="from"),
+    to_time: datetime | None = Query(default=None, alias="to"),
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None, pattern=r"^[1-9][0-9]{0,18}$"),
+    db: AsyncSession = Depends(get_db_session),
+) -> SettingsHistoryPage:
+    """Read committed changes newest first; this does not initialize settings."""
+    if any(value is not None and value.tzinfo is None for value in (from_time, to_time)):
+        raise HTTPException(422, "History times require a timezone")
+    if from_time is not None:
+        from_time = from_time.astimezone(UTC)
+    if to_time is not None:
+        to_time = to_time.astimezone(UTC)
+    if from_time is not None and to_time is not None and from_time >= to_time:
+        raise HTTPException(422, "from must precede to")
+    if cursor is not None and int(cursor) > 9223372036854775807:
+        raise HTTPException(422, "Invalid history cursor")
+    return await history_page(
+        db,
+        limit=limit,
+        cursor=int(cursor) if cursor else None,
+        pit_id=pit_id,
+        actor_id=actor_id,
+        resource=resource,
+        from_time=from_time,
+        to_time=to_time,
+    )
 
 
 @recipients_router.get(

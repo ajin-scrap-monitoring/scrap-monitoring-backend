@@ -30,10 +30,11 @@ def invoke(args, environment, *, success=True, timeout=120):
 
 PROBE = r"""
 import asyncio
-from sqlalchemy import text
+from sqlalchemy import text, insert
 from sqlalchemy.exc import DBAPIError
 from src.app.db.session import get_engine, close_db
 from src.app.db.migration import require_current_schema
+from src.app.models.settings_history import SettingsHistory
 
 async def main():
     engine = get_engine()
@@ -57,6 +58,7 @@ async def main():
             if role == "scrap_backup":
                 blocked.append("UPDATE pit_configs SET name = 'forbidden'")
                 blocked.append("SELECT nextval('alert_logs_id_seq')")
+                blocked.append("DELETE FROM settings_history")
             for sql in blocked:
                 try:
                     async with db.begin():
@@ -71,6 +73,15 @@ async def main():
                         "UPDATE pit_configs SET name = 'Synthetic runtime write'"
                     ))
                 assert await db.scalar(text("SELECT nextval('alert_logs_id_seq')")) > 0
+                await db.rollback()
+                async with db.begin():
+                    await db.execute(insert(SettingsHistory).values(
+                        actor_username='synthetic-admin',
+                        actor_display_name='Synthetic administrator',
+                        pit_id='pit-deploy-check', resource='pit_config', operation='update',
+                        before={'name':'Synthetic'}, after={'name':'Synthetic runtime write'},
+                        changed_fields=['name']))
+                assert await db.scalar(text("SELECT count(*) FROM settings_history")) == 1
             else:
                 assert await db.scalar(text("SELECT last_value FROM alert_logs_id_seq")) > 0
         print("Role permissions passed")

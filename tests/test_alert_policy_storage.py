@@ -12,10 +12,13 @@ from test_admin_access import SETTINGS, login
 from src.app.db.base import Base
 from src.app.models.alert_policy import AlertPolicy
 from src.app.models.config import PitConfig
+from src.app.models.settings_history import SettingsHistory
 from src.app.schemas.admin import AlertSettingsUpdate
+from src.app.schemas.session import User
 from src.app.services.admin_service import AdminService
 from src.app.services.alert_policy_service import get_settings_snapshot, replace_settings
 
+ACTOR = User(id="synthetic-admin", displayName="Synthetic administrator", role="administrator")
 PATH = "/api/v1/settings/alerts"
 POLICY = {
     **SETTINGS,
@@ -71,7 +74,9 @@ async def test_existing_pit_retains_thresholds_when_default_policy_is_initialize
 async def test_policies_are_isolated_between_pits(test_db_session):
     db = test_db_session
     _, etag = await get_settings_snapshot(db, "pit-a")
-    await replace_settings(db, "pit-a", AlertSettingsUpdate.model_validate(POLICY), etag)
+    await replace_settings(
+        db, "pit-a", AlertSettingsUpdate.model_validate(POLICY), etag, actor=ACTOR
+    )
     other, _ = await get_settings_snapshot(db, "pit-b")
     assert other.preCollectionAlert.enabled is True
     assert other.sendDelayMinutes == 0
@@ -150,7 +155,7 @@ async def test_policy_and_thresholds_survive_file_database_reopen(tmp_path):
         async with factory() as db:
             _, etag = await get_settings_snapshot(db, "pit-01")
             expected, saved_etag = await replace_settings(
-                db, "pit-01", AlertSettingsUpdate.model_validate(POLICY), etag
+                db, "pit-01", AlertSettingsUpdate.model_validate(POLICY), etag, actor=ACTOR
             )
     finally:
         await engine.dispose()
@@ -160,6 +165,9 @@ async def test_policy_and_thresholds_survive_file_database_reopen(tmp_path):
         async with factory() as db:
             actual, actual_etag = await get_settings_snapshot(db, "pit-01")
             assert actual == expected and actual_etag == saved_etag
+            history = (await db.scalars(select(SettingsHistory))).one()
+            assert history.actor_username == ACTOR.id
+            assert history.after == expected.model_dump(mode="json", exclude={"version"})
     finally:
         await reopened.dispose()
 
@@ -178,7 +186,7 @@ async def test_concurrent_writes_cannot_mix_thresholds_and_policy(tmp_path):
             async with factory() as db:
                 try:
                     result, _ = await replace_settings(
-                        db, "pit-01", AlertSettingsUpdate.model_validate(payload), etag
+                        db, "pit-01", AlertSettingsUpdate.model_validate(payload), etag, actor=ACTOR
                     )
                     return result
                 except HTTPException as error:
@@ -190,6 +198,9 @@ async def test_concurrent_writes_cannot_mix_thresholds_and_policy(tmp_path):
         assert len(winners) == 1
         async with factory() as db:
             actual, _ = await get_settings_snapshot(db, "pit-01")
+            history = (await db.scalars(select(SettingsHistory))).all()
+            assert len(history) == 1
+            assert history[0].after == winners[0].model_dump(mode="json", exclude={"version"})
         assert actual == winners[0]
     finally:
         await engine.dispose()
@@ -211,7 +222,9 @@ async def test_policy_cas_failure_rolls_back_pit_update(test_db_session, monkeyp
 
     monkeypatch.setattr(db, "execute", conflict)
     with pytest.raises(HTTPException) as error:
-        await replace_settings(db, "pit-01", AlertSettingsUpdate.model_validate(POLICY), etag)
+        await replace_settings(
+            db, "pit-01", AlertSettingsUpdate.model_validate(POLICY), etag, actor=ACTOR
+        )
     assert error.value.status_code == 412
     monkeypatch.setattr(db, "execute", real_execute)
     assert (await get_settings_snapshot(db, "pit-01"))[0] == baseline
@@ -237,7 +250,7 @@ async def test_unknown_pit_put_does_not_create_defaults(test_db_session):
     db = test_db_session
     with pytest.raises(HTTPException) as error:
         await replace_settings(
-            db, "pit-new", AlertSettingsUpdate.model_validate(POLICY), '"unknown"'
+            db, "pit-new", AlertSettingsUpdate.model_validate(POLICY), '"unknown"', actor=ACTOR
         )
     assert error.value.status_code == 412
     for model in (PitConfig, AlertPolicy):
