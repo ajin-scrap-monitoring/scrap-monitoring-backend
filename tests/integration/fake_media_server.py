@@ -194,7 +194,14 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 "actual_start_at": body["start_at"],
                 "actual_end_at": body["end_at"],
-                "gaps": [],
+                # The range API may serialize an empty boundary annotation.
+                "gaps": [
+                    {
+                        "start_at": body["start_at"],
+                        "end_at": body["start_at"],
+                        "reason_code": "UNKNOWN_CAPTURE_LOSS",
+                    }
+                ],
                 "available_intervals": [
                     {
                         "start_at": body["start_at"],
