@@ -173,6 +173,18 @@ class ClipDetail(ClipReceipt):
         return value.astimezone(UTC) if value is not None else None
 
     @model_validator(mode="after")
+    def normalize_range_gaps(self) -> "ClipDetail":
+        """Omit zero-duration range annotations without changing actual coverage.
+
+        Keep every positive gap, including sub-millisecond spans. Reversed gaps
+        and empty available intervals still fail the existing range validation.
+        Legacy clip modes retain their original metadata.
+        """
+        if self.request_mode == "time_range":
+            self.gaps = [gap for gap in self.gaps if gap.start_at != gap.end_at]
+        return self
+
+    @model_validator(mode="after")
     def validate_content_path(self) -> "ClipDetail":
         expected = f"/api/v1/clips/{self.clip_id}/content"
         if self.content_path is not None and self.content_path != expected:

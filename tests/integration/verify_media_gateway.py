@@ -163,6 +163,7 @@ asyncio.run(run())
     assert result.status_code == 200, result.text
     item = result.json()
     assert item["status"] == "ready" and item["coverage"] == "complete"
+    assert item["gaps"] == []
     assert item["sizeBytes"] == len(CONTENT)
     download = await client.get(item["downloadPath"])
     assert download.status_code == 200 and download.content == CONTENT
