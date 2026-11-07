@@ -20,7 +20,9 @@ from src.app.schemas.daily_recording import (
 )
 from src.app.schemas.media_info import DailyMediaInfo
 from src.app.schemas.session import Session
+from src.app.schemas.thumbnail import DailyThumbnailInfo
 from src.app.services.daily_recording_service import daily_recording_service
+from src.app.services.thumbnail_service import daily_thumbnail_for_date
 
 
 async def disable_cache(response: Response) -> None:
@@ -96,6 +98,15 @@ async def list_daily_recordings(
 @router.get("/{recording_id}", response_model=DailyRecording)
 async def get_daily_recording(recording_id: UUID, session: CurrentSession) -> DailyRecording:
     return await daily_recording_service.detail(recording_id)
+
+
+@router.get("/by-date/{recording_date}/thumbnail-info", response_model=DailyThumbnailInfo | None)
+async def get_daily_thumbnail_by_date(
+    recording_date: CalendarDate, session: CurrentSession, response: Response
+) -> DailyThumbnailInfo | None:
+    """Share an existing date image across event categories without media mutations."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return await daily_thumbnail_for_date(recording_date)
 
 
 @router.post(

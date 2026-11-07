@@ -40,6 +40,10 @@ class EventRecording(BaseModel):
         default=None,
         description="Read-only lookup of an existing shared clip; never prepares media",
     )
+    dailyThumbnailInfoPath: str | None = Field(
+        default=None,
+        description="Shared KST occurrence-date thumbnail lookup; never prepares media",
+    )
 
 
 class EventRecordingPage(BaseModel):
