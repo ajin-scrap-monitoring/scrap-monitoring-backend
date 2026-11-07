@@ -161,13 +161,9 @@ async def _thumbnail(
     remote = f"/api/{'v2' if daily else 'v1'}/{prefix}/thumbnail"
     if info.content_path not in (None, remote):
         raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
-    if info.status == "ready" and (
-        (
-            isinstance(parent, DailyRecording)
-            and (status != "closed" or parent.export_state != "ready")
-        )
-        or (not daily and status != "ready")
-    ):
+    # A daily JPEG may come from a completed TS while its MP4 archive is unfinished.
+    # Clip thumbnails still require their independent clip resource to be ready.
+    if info.status == "ready" and not daily and status != "ready":
         raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
     if response.status_code == 202 and info.status != "pending":
         raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
