@@ -261,13 +261,63 @@ async def test_proven_timeline_and_legacy_media_info_unchanged(client, thumbnail
     assert RecordingThumbnailInfo.model_validate(copy.deepcopy(legacy)).model_dump() == legacy
 
 
-async def test_pending_parent_cannot_claim_ready_thumbnail(client, thumbnails):
+@pytest.mark.parametrize(
+    "state,export",
+    [
+        ("recording", "not_requested"),
+        ("finalizing", "processing"),
+        ("closed", "failed"),
+    ],
+)
+async def test_day_image_ready_is_independent_of_archive_state(client, thumbnails, state, export):
     await login(client)
-    thumbnails["day"]["status"] = "recording"
-    assert (await client.get(DAY + "/thumbnail-info")).status_code == 502
-    thumbnails["day"]["status"] = "closed"
-    thumbnails["day"]["export_state"] = "not_requested"
-    assert (await client.get(DAY + "/thumbnail-info")).status_code == 502
+    thumbnails["day"].update(status=state, export_state=export)
+    r = await client.get(DAY + "/thumbnail-info")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ready" and r.json()["representative_at"] is None
+    for method in (client.get, client.head):
+        image = await method(f"/media/daily-recordings/{RID}/thumbnail")
+        assert image.status_code == 200 and image.headers["x-accel-redirect"]
+    assert all(x.method == "GET" for x in thumbnails["requests"])
+
+
+@pytest.mark.parametrize("state", ["collecting", "processing", "failed"])
+async def test_non_ready_clip_cannot_claim_ready_thumbnail(client, thumbnails, state):
+    from src.app.schemas.media_service import ClipDetail
+
+    await login(client)
+    thumbnails["clip"].update(status=state, content_path=None)
+    ClipDetail.model_validate(thumbnails["clip"])
+    assert (await client.get(CLIP + "/thumbnail-info")).status_code == 502
+    assert len(thumbnails["requests"]) == 2
+
+
+async def test_recording_busy_is_a_transient_unavailable_image(client, thumbnails):
+    data = thumbnails
+    await login(client)
+    data["day"].update(status="recording", export_state="not_requested")
+    data["changes"].update(
+        status="unavailable",
+        reason_code="RECORDING_BUSY",
+        **dict.fromkeys(
+            [
+                "representative_at",
+                "time_basis",
+                "content_path",
+                "width",
+                "height",
+                "size_bytes",
+                "generated_at",
+            ]
+        ),
+    )
+    r = await client.get(DAY + "/thumbnail-info")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "unavailable" and r.json()["reason_code"] == "RECORDING_BUSY"
+    assert (await client.get(f"/media/daily-recordings/{RID}/thumbnail")).status_code == 404
+    data["changes"].clear()
+    assert (await client.get(DAY + "/thumbnail-info")).json()["status"] == "ready"
+    assert all(x.method == "GET" for x in data["requests"])
 
 
 async def test_preparation_status_and_bounded_timeout(client, thumbnails, monkeypatch):

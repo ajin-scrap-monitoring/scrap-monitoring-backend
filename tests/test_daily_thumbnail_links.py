@@ -152,6 +152,7 @@ async def test_deleted_or_expired_parent_invalidates_shared_image(
     [
         ("unavailable", "NOT_PREPARED"),
         ("unavailable", "DAILY_MP4_REQUIRED"),
+        ("unavailable", "RECORDING_BUSY"),
         ("failed", "GENERATION_FAILED"),
         ("pending", None),
     ],
@@ -228,3 +229,22 @@ async def test_date_is_rechecked_on_fresh_parent_before_thumbnail_read(client, c
     r = await client.get(PATH)
     assert r.status_code == 502
     assert len(data["requests"]) == 2
+
+
+@pytest.mark.parametrize(
+    "state,export",
+    [
+        ("recording", "not_requested"),
+        ("finalizing", "processing"),
+        ("closed", "processing"),
+    ],
+)
+async def test_calendar_lookup_reads_active_date_image(client, calendar_thumbnails, state, export):
+    data = calendar_thumbnails
+    data["day"].update(status=state, export_state=export)
+    data["page"]["items"] = [copy.deepcopy(data["day"])]
+    await login(client)
+    r = await client.get(PATH)
+    assert r.status_code == 200, r.text
+    assert r.json()["recording_id"] == RID and r.json()["status"] == "ready"
+    assert all(x.method == "GET" for x in data["requests"])

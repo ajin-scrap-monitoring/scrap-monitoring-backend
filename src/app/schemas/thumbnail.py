@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 Reason = Literal[
     "NOT_PREPARED",
     "SOURCE_NOT_READY",
+    "RECORDING_BUSY",
     "DAILY_MP4_REQUIRED",
     "SOURCE_UNAVAILABLE",
     "SOURCE_CHANGED",
