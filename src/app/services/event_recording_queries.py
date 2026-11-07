@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -368,6 +369,10 @@ def reference(
         ),
         "eventType": kind,
         "occurredAt": at,
+        "dailyThumbnailInfoPath": (
+            "/api/v2/recordings/daily/by-date/"
+            f"{at.astimezone(ZoneInfo('Asia/Seoul')).date().isoformat()}/thumbnail-info"
+        ),
         "simulated": data.get("simulated") if isinstance(data.get("simulated"), bool) else None,
     }
     if kind == "COLLECTION":
