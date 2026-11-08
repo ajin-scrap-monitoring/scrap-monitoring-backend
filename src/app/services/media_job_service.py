@@ -135,6 +135,19 @@ def apply_snapshot(job: MediaClipJob, snapshot: ClipReceipt) -> None:
     )
 
 
+def schedule_clip_refresh(job: MediaClipJob, error_code: str | None = None) -> None:
+    """Hide uncertain file links and retain the basis needed for a GET-only refresh."""
+    context_keys = {"_eventTimeRequest", CONTEXT_KEY, "_v2Context", "_v2Simulated", "_v2Collection"}
+    origin = {key: value for key, value in (job.snapshot or {}).items() if key in context_keys}
+    if CONTEXT_KEY in origin and isinstance(origin[CONTEXT_KEY], dict):
+        # A delete reconciliation must never resume a pending extraction retry.
+        origin[CONTEXT_KEY] = {**origin[CONTEXT_KEY], "retry_failed": False}
+    job.snapshot = origin or None
+    job.status = "refreshing"
+    job.error_code = error_code
+    job.next_attempt_at = datetime.now(UTC)
+
+
 async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
     """Dispatch or poll one persisted job, recording failures before returning."""
     job.attempts += 1

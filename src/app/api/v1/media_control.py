@@ -1,5 +1,6 @@
 """Authenticated camera control API; Nginx delivers live/file bytes separately."""
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -36,7 +37,7 @@ from src.app.schemas.media_service import (
     RecordingPolicy,
 )
 from src.app.schemas.session import Session
-from src.app.services.event_export_service import CONTEXT_KEY, EXPORT_CATEGORY
+from src.app.services.event_export_service import EXPORT_CATEGORY
 from src.app.services.media_client import MediaServiceError, media_client
 from src.app.services.media_job_service import (
     apply_snapshot,
@@ -45,6 +46,7 @@ from src.app.services.media_job_service import (
     job_snapshot,
     media_job_worker,
     process_job,
+    schedule_clip_refresh,
 )
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
@@ -281,17 +283,38 @@ async def get_media_clip(clip_id: UUID, session: CurrentSession, db: Database) -
 )
 async def delete_media_clip(clip_id: UUID, db: Database) -> Response:
     async with media_job_worker.lock:
-        await media_client.delete_clip(clip_id)
+        try:
+            await media_client.delete_clip(clip_id)
+        except MediaServiceError as failure:
+            if failure.code not in ("MEDIA_TIMEOUT", "MEDIA_UNAVAILABLE"):
+                raise
+            job = await db.scalar(select(MediaClipJob).where(MediaClipJob.clip_id == str(clip_id)))
+            confirmed = False
+            try:
+                # A lost response does not cancel an upstream mutation. Check once,
+                # within the existing request budget, without issuing another DELETE.
+                async with asyncio.timeout(get_settings().MEDIA_REQUEST_TIMEOUT_SECONDS):
+                    detail = await media_client.get_clip(clip_id)
+                    if (
+                        detail.status in ("deleted", "expired")
+                        and detail.camera_id == get_settings().MEDIA_CAMERA_ID
+                    ):
+                        if job:
+                            apply_snapshot(job, detail)
+                        confirmed = True
+            except (MediaServiceError, TimeoutError):
+                pass
+            if job:
+                if not confirmed:
+                    schedule_clip_refresh(job, failure.code)
+                await db.commit()
+            if confirmed:
+                return Response(status_code=204)
+            raise failure
         # Refresh rather than invent deleted_at; repeated DELETE can retain expired.
         job = await db.scalar(select(MediaClipJob).where(MediaClipJob.clip_id == str(clip_id)))
         if job:
-            job.status = "refreshing"
-            job.snapshot = (
-                {CONTEXT_KEY: job.snapshot[CONTEXT_KEY]}
-                if job.category == EXPORT_CATEGORY and job.snapshot and CONTEXT_KEY in job.snapshot
-                else None
-            )
-            job.next_attempt_at = datetime.now(UTC)
+            schedule_clip_refresh(job)
             await db.commit()
         return Response(status_code=204)
 
