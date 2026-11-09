@@ -98,6 +98,7 @@ docker compose down
 * [docs/POSTGRESQL_TESTING.md](docs/POSTGRESQL_TESTING.md): 실제 PostgreSQL에서 API 저장·조회 검증
 * [docs/NOTIFICATION_READS.md](docs/NOTIFICATION_READS.md): 계정별 알림 읽음·미확인 개수·로그인 및 CSRF 검사
 * [docs/ALERT_POLICY_STORAGE.md](docs/ALERT_POLICY_STORAGE.md): 알림 정책 영속 저장·재시작 유지·ETag 동시 변경 검사
+* [docs/GMAIL_EMAIL_DELIVERY.md](docs/GMAIL_EMAIL_DELIVERY.md): 발송 전용 Gmail API·자동 알림 정책·전달 결과와 적용 경계
 * [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 

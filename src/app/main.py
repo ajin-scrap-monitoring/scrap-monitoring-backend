@@ -17,6 +17,7 @@ from src.app.db.session import close_db, get_sessionmaker, init_db
 from src.app.services.auth_bootstrap import bootstrap_accounts
 from src.app.services.camera_status_service import CameraStatusService
 from src.app.services.edge_v2_operations import edge_v2_operations_worker
+from src.app.services.email_delivery_service import email_delivery_worker
 from src.app.services.event_page_store import EventPageStore
 from src.app.services.media_client import MediaServiceError
 from src.app.services.media_job_service import media_job_worker
@@ -45,8 +46,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # Event recording requests and polling recover from the persistent outbox.
         media_job_worker.start()
         edge_v2_operations_worker.start()
+        email_delivery_worker.start(app.state.camera_status)
         yield
     finally:
+        await email_delivery_worker.stop()
         await edge_v2_operations_worker.stop()
         await media_job_worker.stop()
         await app.state.camera_status.close()

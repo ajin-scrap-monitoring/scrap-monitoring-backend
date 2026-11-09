@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
+        assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -70,19 +70,54 @@ async def test_settings_history_upgrade_preserves_existing_rows_without_backfill
             )
         )
         old_tables = [
-            table for table in Base.metadata.sorted_tables if table.name != "settings_history"
+            table
+            for table in Base.metadata.sorted_tables
+            if table.name not in {"settings_history", "email_episodes", "email_deliveries"}
         ]
         before = {
             table.name: (await connection.execute(table.select())).all() for table in old_tables
         }
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
+        assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
         for table in old_tables:
             assert (await connection.execute(table.select())).all() == before[table.name]
         assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
         await connection.run_sync(upgrade_schema)
         assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
+
+
+async def test_email_upgrade_preserves_all_previous_tables_without_backfill(engine):
+    async with engine.begin() as connection:
+
+        def previous(conn):
+            config = migration_config()
+            config.attributes["connection"] = conn
+            command.upgrade(config, "0005_settings_history")
+
+        await connection.run_sync(previous)
+        await connection.execute(
+            PitConfig.__table__.insert().values(
+                id="mail-existing",
+                name="Existing synthetic settings",
+                total_depth_cm=200,
+                critical_threshold_percent=90,
+                warning_threshold_percent=75,
+            )
+        )
+        tables = [
+            t
+            for t in Base.metadata.sorted_tables
+            if t.name not in {"email_episodes", "email_deliveries"}
+        ]
+        before = {t.name: (await connection.execute(t.select())).all() for t in tables}
+        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(require_current_schema)
+        for table in tables:
+            assert (await connection.execute(table.select())).all() == before[table.name]
+        for name in ("email_episodes", "email_deliveries"):
+            assert await connection.scalar(text(f"SELECT count(*) FROM {name}")) == 0
+        await connection.run_sync(upgrade_schema)
 
 
 async def test_export_alias_upgrade_preserves_existing_job(engine):
@@ -418,7 +453,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0005_settings_history" in (await cli(url, "current"))[1]
+    assert "0006_email_deliveries" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 

@@ -85,6 +85,34 @@ async def seed_transfer_source(path):
                     row.update(artifact_key=["scan", 123], key_hash="b" * 64)
                 if table.name == "notification_recipients":
                     row.update(email="synthetic@example.invalid", channels="email")
+                if table.name == "email_episodes":
+                    row.update(
+                        id="00000000-0000-4000-8000-000000000001",
+                        condition_id="fill-critical:pit-synthetic",
+                        condition_state="CRITICAL",
+                        condition_token="b" * 64,
+                        address_digest="a" * 64,
+                        recipient_id="synthetic-id",
+                        event_type="collection_required",
+                        phase="ACTIVE",
+                        sent_count=1,
+                    )
+                if table.name == "email_deliveries":
+                    row.update(
+                        id="00000000-0000-4000-8000-000000000002",
+                        episode_id="00000000-0000-4000-8000-000000000001",
+                        recipient_id="synthetic-id",
+                        address_digest="a" * 64,
+                        event_type="collection_required",
+                        phase="ALERT",
+                        status="SENT",
+                        sequence=1,
+                        attempts=1,
+                        error_code=None,
+                        provider_message_id="synthetic-message",
+                        subject="Synthetic mail",
+                        body="Synthetic delivery fixture",
+                    )
                 if table.name == "media_clip_jobs":
                     row.update(snapshot=None, next_attempt_at=None, clip_id=None)
                 if table.name == "event_export_aliases":

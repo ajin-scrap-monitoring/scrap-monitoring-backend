@@ -266,10 +266,11 @@ class AdminService:
         self,
         payload: TestNotificationRequest,
         db: AsyncSession,
-    ) -> None:
+    ) -> str | None:
         """Dispatch mock test alert and log to AlertLog database.
 
-        This records the request only; no external email/SMS delivery is performed.
+        With Gmail enabled, email is queued in the same transaction. Disabled
+        installations retain record-only behavior; SMS remains record-only.
         """
         stmt = select(NotificationRecipientModel).where(
             NotificationRecipientModel.id == payload.recipientId
@@ -291,11 +292,24 @@ class AdminService:
             channels_str,
         )
 
+        delivery_id = None
+        from src.app.core.config import get_settings
+        from src.app.services.email_delivery_service import enqueue_test
+
+        if get_settings().GMAIL_EMAIL_ENABLED and "email" in payload.channels:
+            delivery_id = await enqueue_test(db, rec_model)
+
         # Record test alert log
         msg = (
             f"[테스트 알림] {recipient_name} 담당자의 {channels_str} 테스트 요청을 기록했습니다. "
             "이메일·문자 실제 발송은 수행하지 않았습니다."
         )
+        if delivery_id:
+            msg = (
+                f"[테스트 알림] {recipient_name} 담당자의 이메일 요청을 "
+                "발송 대기열에 등록했습니다. "
+                "실제 발송 결과는 이메일 전달 상태에서 확인합니다. 문자 발송은 수행하지 않습니다."
+            )
         test_log = AlertLog(
             pit_id="pit-01",
             triggered_at=datetime.now(UTC),
@@ -307,6 +321,7 @@ class AdminService:
         )
         db.add(test_log)
         await db.commit()
+        return delivery_id
 
 
 admin_service = AdminService()

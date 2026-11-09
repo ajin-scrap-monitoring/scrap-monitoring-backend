@@ -29,6 +29,7 @@ PROJECT_CONTEXT.md
 handoff/
 Downloads/
 downloads/
+private-access/
 
 # Development and demo files
 demo_sensor.py

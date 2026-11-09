@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.api.admin_access import private_response, require_admin_change, require_administrator
 from src.app.api.errors import error_responses
 from src.app.db.session import get_db_session
+from src.app.models.email_delivery import EmailDelivery
 from src.app.schemas.admin import (
     AlertSettings,
     AlertSettingsUpdate,
@@ -17,6 +18,7 @@ from src.app.schemas.admin import (
     NotificationRecipientPatch,
     TestNotificationRequest,
 )
+from src.app.schemas.email_delivery import EmailDeliveryReceipt
 from src.app.schemas.session import Session
 from src.app.schemas.settings_history import SettingsHistoryPage, SettingsResource
 from src.app.services.admin_service import admin_service
@@ -187,9 +189,9 @@ async def update_notification_recipient(
 @notifications_admin_router.post(
     "/test",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Record a test notification request",
+    summary="Record or queue a test notification request",
     dependencies=[Depends(require_admin_change)],
-    responses=error_responses(404),
+    responses=error_responses(404, 409),
 )
 async def send_test_notification(
     payload: TestNotificationRequest,
@@ -197,10 +199,31 @@ async def send_test_notification(
 ) -> dict[str, str]:
     """Queue an immediate test notification to a recipient.
 
-    The current implementation records the request without external delivery.
+    Email is queued only when Gmail is enabled. SMS remains record-only.
     """
-    await admin_service.send_test_notification(payload=payload, db=db)
+    delivery_id = await admin_service.send_test_notification(payload=payload, db=db)
+    if delivery_id:
+        return {
+            "status": "accepted",
+            "message": "Email queued; SMS is record-only",
+            "emailDeliveryId": delivery_id,
+        }
     return {
         "status": "accepted",
         "message": "Test notification request recorded; no external delivery",
     }
+
+
+@notifications_admin_router.get(
+    "/email-deliveries/{delivery_id}",
+    response_model=EmailDeliveryReceipt,
+    responses=error_responses(404),
+)
+async def email_delivery_receipt(
+    delivery_id: str = Path(pattern=r"^[A-Za-z0-9-]{36}$"),
+    db: AsyncSession = Depends(get_db_session),
+) -> EmailDeliveryReceipt:
+    row = await db.get(EmailDelivery, delivery_id)
+    if row is None:
+        raise HTTPException(404, "Email delivery not found")
+    return EmailDeliveryReceipt.model_validate(row)
