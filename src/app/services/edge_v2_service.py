@@ -53,6 +53,9 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
 
     if isinstance(payload, Configuration):
         content = payload.model_dump(mode="json", include={"coordinate_frame", "sensors"})
+        # Missing/null means disabled. Preserve configuration hashes from before this extension.
+        if payload.judgment is not None:
+            content["judgment"] = payload.judgment.model_dump(mode="json")
         add("configuration", [payload.config_revision], content, "config_revision")
         for configured_sensor in payload.sensors:
             if configured_sensor.calibration:
@@ -84,7 +87,13 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
                 "sensors",
             )
     elif isinstance(payload, Assessment):
-        content = payload.model_dump(mode="json", exclude={"message_id"})
+        # New absent fields must not change the immutable hash of an older assessment.
+        absent = {
+            field
+            for field in ("section_profiles", "fusion_result")
+            if getattr(payload, field) is None
+        }
+        content = payload.model_dump(mode="json", exclude={"message_id", *absent})
         add(
             "assessment_revision",
             [payload.assessment_id, payload.revision],
@@ -174,6 +183,9 @@ def validate_scope(payload: Envelope, device: EdgeV2Device) -> None:
         ):
             if sensor_ids != expected:
                 raise EdgeV2Error(422, "SCHEMA_VALIDATION_FAILED", "sensors")
+    if isinstance(payload, Assessment) and payload.section_profiles is not None:
+        if {s.sensor_id for s in payload.section_profiles} != set(device.sensor_ids):
+            raise EdgeV2Error(422, "SCHEMA_VALIDATION_FAILED", "section_profiles")
 
 
 def receipt(message: EdgeV2Message, duplicate: bool) -> StorageAck:
