@@ -197,6 +197,24 @@ class Settings(BaseSettings):
     ALERT_SMTP_PASSWORD: str | None = None
     ALERT_RECIPIENT_EMAIL: str | None = None
 
+    # Send-only Gmail API credentials are mounted privately, never stored in the DB.
+    GMAIL_EMAIL_ENABLED: bool = False
+    GMAIL_CREDENTIALS_FILE: str | None = Field(default=None, repr=False)
+    GMAIL_SENDER_EMAIL: str | None = Field(
+        default=None, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", repr=False
+    )
+    GMAIL_POLL_SECONDS: float = Field(default=5.0, ge=1, le=60)
+    GMAIL_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0, le=60)
+    GMAIL_MAX_MESSAGES_24H: int = Field(default=450, ge=1, le=500)
+
+    @model_validator(mode="after")
+    def validate_gmail_configuration(self) -> "Settings":
+        if self.GMAIL_EMAIL_ENABLED and not (
+            self.GMAIL_CREDENTIALS_FILE and self.GMAIL_SENDER_EMAIL
+        ):
+            raise ValueError("Gmail email requires private credentials and a sender address")
+        return self
+
     # WebRTC / WHEP Media Server Integration
     MEDIA_SERVER_WHEP_URL: str | None = Field(
         default=None,

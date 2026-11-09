@@ -126,7 +126,9 @@ async def verify(port: int, password: str) -> None:
 
             await connection.run_sync(previous_history)
             old_tables = [
-                table for table in Base.metadata.sorted_tables if table.name != "settings_history"
+                table
+                for table in Base.metadata.sorted_tables
+                if table.name not in {"settings_history", "email_episodes", "email_deliveries"}
             ]
             old_rows = {
                 table.name: (await connection.execute(table.select())).all() for table in old_tables
@@ -229,7 +231,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0005_settings_history",)
+            assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"

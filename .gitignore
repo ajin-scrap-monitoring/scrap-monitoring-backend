@@ -50,6 +50,7 @@ logs/
 
 # 기타 로컬 참고 및 테스트 파일들
 downloads/
+private-access/
 proposal/
 HANDOFF.md
 test_edge_client.py

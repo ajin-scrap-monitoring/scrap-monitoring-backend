@@ -12,6 +12,7 @@ from src.app.models.edge_v2_projection import (
     EdgeV2Minute,
     EdgeV2Transition,
 )
+from src.app.models.email_delivery import EmailDelivery, EmailEpisode
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media import MediaIndex
 from src.app.models.media_job import EventExportAlias, MediaClipJob
@@ -21,6 +22,8 @@ from src.app.models.recipient import NotificationRecipientModel
 from src.app.models.settings_history import SettingsHistory
 
 __all__ = [
+    "EmailDelivery",
+    "EmailEpisode",
     "SettingsHistory",
     "NotificationRead",
     "AlertPolicy",
