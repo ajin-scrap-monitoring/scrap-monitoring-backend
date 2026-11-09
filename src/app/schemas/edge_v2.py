@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from src.app.schemas.edge_sections import FusionResult, IndependentJudgment, SectionResult
+
 Identifier = Annotated[str, Field(strict=True, min_length=1, max_length=128)]
 Counter = Annotated[int, Field(strict=True, ge=0, le=9007199254740991)]
 Integer = Annotated[int, Field(strict=True)]
@@ -271,6 +273,61 @@ class Assessment(Envelope):
     event: Event | None
     capabilities: Capabilities
     evidence: Evidence
+    # Optional independent-section results retain wire mm/mm² and ratios, not UI units.
+    section_profiles: list[SectionResult] | None = Field(default=None, min_length=2, max_length=2)
+    fusion_result: FusionResult | None = None
+
+    @model_validator(mode="after")
+    def section_consistency(self) -> Self:
+        sections = {s.sensor_id: s for s in self.section_profiles or []}
+        if self.section_profiles is not None and len(sections) != 2:
+            raise ValueError("Independent sections must name two distinct sensors")
+        if "DEFAULT_SETTINGS" in self.reason_codes and self.decision_state == "AVAILABLE":
+            raise ValueError("Default judgments cannot be marked AVAILABLE")
+        if any("DEFAULT_SETTINGS" in s.reason_codes for s in sections.values()) and (
+            "DEFAULT_SETTINGS" not in self.reason_codes or self.decision_state == "AVAILABLE"
+        ):
+            raise ValueError("Default section provenance must be retained by the judgment")
+        if (
+            any(s.state == "LIMITED" for s in sections.values())
+            and self.decision_state == "AVAILABLE"
+        ):
+            raise ValueError("Limited sections cannot produce an AVAILABLE judgment")
+        fusion = self.fusion_result
+        if fusion is not None:
+            if {c.sensor_id for c in fusion.components} != set(sections):
+                raise ValueError("Fusion requires both independent sections")
+            if len({s.profile.coordinate_frame_id for s in sections.values() if s.profile}) != 1:
+                raise ValueError("Fused sections must share a coordinate frame")
+            for component in fusion.components:
+                section = sections[component.sensor_id]
+                if (
+                    section.state == "UNAVAILABLE"
+                    or section.profile is None
+                    or section.profile.area_ratio is None
+                    or not math.isclose(
+                        section.profile.area_ratio, component.section_ratio, abs_tol=1e-9, rel_tol=0
+                    )
+                    or not any(
+                        scan.sensor_id == component.sensor_id
+                        and scan.scan_id == component.anchor_scan_id
+                        and scan.config_revision == self.config_revision
+                        and scan.coordinate_frame_id == section.profile.coordinate_frame_id
+                        for scan in self.evidence.scans
+                    )
+                ):
+                    raise ValueError(
+                        "Fusion components require matching sections and anchor evidence"
+                    )
+            if (
+                self.fill_estimate is None
+                or self.fill_estimate.method_version != fusion.model_version
+                or not math.isclose(self.fill_estimate.ratio, fusion.ratio, abs_tol=1e-9, rel_tol=0)
+            ):
+                raise ValueError("Fill estimate must match the explicit fusion result")
+        elif self.section_profiles is not None and self.fill_estimate is not None:
+            raise ValueError("Section-based fill requires an explicit fusion result")
+        return self
 
     @model_validator(mode="after")
     def assessment_consistency(self) -> Self:
@@ -417,11 +474,16 @@ class Configuration(Envelope):
     message_type: Literal["edge_configuration"]
     coordinate_frame: CoordinateFrame
     sensors: list[SensorConfiguration] = Field(min_length=2, max_length=2)
+    judgment: IndependentJudgment | None = None
 
     @model_validator(mode="after")
     def distinct_sensors(self) -> Self:
         if len({sensor.sensor_id for sensor in self.sensors}) != len(self.sensors):
             raise ValueError("Sensor IDs must be unique")
+        if self.judgment is not None and {s.sensor_id for s in self.judgment.sections} != {
+            sensor.sensor_id for sensor in self.sensors
+        }:
+            raise ValueError("Judgment sections must match the configured sensors")
         return self
 
 
