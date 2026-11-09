@@ -275,8 +275,13 @@ async def test_retry_from_before_24_hour_window_cannot_bypass_budget(mail, monke
     assert pending.status == "QUEUED" and pending.error_code == "EMAIL_DAILY_LIMIT"
 
 
-async def test_admin_test_is_durable_and_receipt_is_admin_only(client, mail):
-    db, _, recipient, _ = mail
+@pytest.mark.parametrize(
+    "enabled,channels", [(True, "email"), (False, "email"), (True, "sms"), (False, "sms")]
+)
+async def test_admin_test_is_durable_and_receipt_is_admin_only(client, mail, enabled, channels):
+    db, _, recipient, factory = mail
+    recipient.enabled, recipient.channels = enabled, channels
+    await db.commit()
     recipient_id = recipient.id
     await login(client)
     # Retrieve a CSRF token from the real authentication endpoint.
@@ -295,11 +300,37 @@ async def test_admin_test_is_durable_and_receipt_is_admin_only(client, mail):
     assert receipt.status_code == 200
     assert receipt.json()["status"] == "QUEUED"
     assert "body" not in receipt.json() and "address" not in receipt.json()
+    queued = await db.get(EmailDelivery, identifier)
+    sender = SyntheticSender()
+    assert await EmailDeliveryWorker(sender).deliver_one(factory, queued.due_at)
+    receipt = await client.get(f"/api/v1/notifications/email-deliveries/{identifier}")
+    assert receipt.json()["status"] == "SENT" and receipt.json()["attempts"] == 1
+    assert len(sender.requests) == 1 and sender.requests[0][0] == "receiver@example.test"
+    await db.refresh(recipient)
+    assert recipient.enabled is enabled and recipient.channels == channels
     await client.post("/api/v1/session", json={"username": "operator", "password": "operator1234"})
     assert (
         await client.get(f"/api/v1/notifications/email-deliveries/{identifier}")
     ).status_code == 403
     assert await db.scalar(select(func.count()).select_from(EmailDelivery)) == 1
+
+
+@pytest.mark.parametrize("change", ["deleted", "address"])
+async def test_manual_test_rechecks_target_before_send(mail, change):
+    db, _, recipient, factory = mail
+    identifier = await enqueue_test(db, recipient)
+    await db.commit()
+    queued = await db.get(EmailDelivery, identifier)
+    if change == "deleted":
+        await db.delete(recipient)
+    else:
+        recipient.email = "changed@example.test"
+    await db.commit()
+    sender = SyntheticSender()
+    assert await EmailDeliveryWorker(sender).deliver_one(factory, queued.due_at)
+    assert sender.requests == []
+    row = await db.get(EmailDelivery, identifier, populate_existing=True)
+    assert row.status == "CANCELLED" and row.error_code == "EMAIL_CONDITION_CHANGED"
 
 
 async def test_new_episode_cannot_bypass_same_condition_cooldown(client, mail):

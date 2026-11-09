@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -298,8 +297,7 @@ async def synchronize_snapshot(
 
 
 async def enqueue_test(db: AsyncSession, recipient: Recipient) -> str:
-    if not recipient.enabled or "email" not in recipient.channels.split(","):
-        raise HTTPException(409, "Recipient email delivery is disabled")
+    """Record an explicit administrator test independently of automatic subscriptions."""
     identifier = str(uuid4())
     db.add(
         EmailDelivery(
@@ -358,16 +356,14 @@ class EmailDeliveryWorker:
 
     async def _allowed(self, db: AsyncSession, job: EmailDelivery, now: datetime) -> bool:
         recipient = await db.get(Recipient, job.recipient_id, populate_existing=True)
-        if (
-            recipient is None
-            or not recipient.enabled
-            or "email" not in recipient.channels.split(",")
-        ):
+        if recipient is None:
             return False
         if address_digest(recipient.email) != job.address_digest:
             return False
         if job.phase == "TEST":
             return True
+        if not recipient.enabled or "email" not in recipient.channels.split(","):
+            return False
         if not get_settings().EDGE_V2_OPERATIONS_ENABLED:
             return False
         if not any(s.pit_id == job.pit_id for s in get_settings().EDGE_V2_MONITORING_SOURCES):
