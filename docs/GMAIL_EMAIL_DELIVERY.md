@@ -3,6 +3,10 @@
 선택적으로 Gmail API의 `gmail.send` 권한만 사용한다. Google 일반 비밀번호·앱 비밀번호·SMTP를
 사용하지 않는다. 기본값은 비활성화이며, 기능을 구현·배포했다고 실제 발송이 활성화되는 것은 아니다.
 
+이 백엔드가 보내는 알림과 관리자 테스트 메일은 발신자 표시 이름을 `Ajin_scrap_Team`으로 지정한다.
+실제 발신 주소는 `GMAIL_SENDER_EMAIL`을 유지한다. Gmail 계정의 프로필 이름이나 사용자가
+Gmail에서 직접 보내는 메일의 발신자 설정은 변경하지 않는다.
+
 ## 인증과 설정
 
 Google Cloud 프로젝트에서 Gmail API와 OAuth 동의 화면을 설정한다. 일회성 Mac/Linux CLI 인증에는
