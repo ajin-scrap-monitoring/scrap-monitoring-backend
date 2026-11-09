@@ -6,6 +6,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from email.headerregistry import Address
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -128,7 +129,9 @@ class GmailSender:
             raise GmailError("EMAIL_INVALID_TARGET")
         try:
             message = EmailMessage()
-            message["From"] = settings.GMAIL_SENDER_EMAIL
+            message["From"] = Address(
+                display_name="Ajin_scrap_Team", addr_spec=settings.GMAIL_SENDER_EMAIL
+            )
             message["To"] = recipient
             message["Subject"] = subject
             # A stable ID aids diagnosis; it does not make Gmail POST idempotent.
