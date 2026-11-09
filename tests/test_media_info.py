@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+from datetime import datetime
 
 import httpx
 import pytest
@@ -118,6 +119,8 @@ async def test_authenticated_json_only_read_and_no_business_writes(
         assert out["media_info"]["fps"] == 30000 / 1001
         assert out["media_info"]["fps_num"] == 30000 and out["media_info"]["fps_den"] == 1001
         assert out["media_info"]["width"] == 1920 and out["size_bytes"] == 123456
+        assert out["media_info"]["measured_at"] is None
+        assert out["media_info"]["metadata_origin"] == "unknown"
     else:
         assert out["file"] is None and out["segments"]["mixed"] is None
         assert out["segments"]["measured"] == 1 and out["segments"]["total"] == 10
@@ -148,7 +151,92 @@ async def test_unknown_preserves_null_values_and_measured_size(client, metadata,
     out = response.json()["media_info"]
     assert out["status"] == "unknown" and out["reason_code"] == reason
     assert all(out[key] is None for key in FORMAT)
+    assert out["measured_at"] is None and out["metadata_origin"] == "unknown"
     assert out["size_bytes"] == 123456
+
+
+@pytest.mark.parametrize("path", [CLIP, DAY])
+@pytest.mark.parametrize("origin", ["request_probe", "memory_cache", "persisted_probe", "unknown"])
+async def test_file_measurement_time_and_origin_survive_api_roundtrip(
+    client, metadata, path, origin
+):
+    await login(client, "operator")
+    info = {**measured(), "measured_at": "2026-01-01T00:00:01.234Z", "metadata_origin": origin}
+    metadata["clip"]["media_info"] = info
+    metadata["day"]["file"] = info
+    for _ in range(2):
+        response = await client.get(path)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        file = body["media_info" if path == CLIP else "file"]
+        assert datetime.fromisoformat(file["measured_at"]) == datetime.fromisoformat(
+            info["measured_at"]
+        )
+        assert file["measured_at"].endswith("Z")
+        assert file["metadata_origin"] == origin
+        assert body["timestamp_info"] == TIMESTAMP
+        if path == DAY:
+            assert "measured_at" not in body["segments"]
+            assert "metadata_origin" not in body["segments"]
+    assert all(request.method == "GET" for request in metadata["requests"])
+
+
+@pytest.mark.parametrize("path", [CLIP, DAY])
+async def test_legacy_reused_file_keeps_unknown_measurement_time(client, metadata, path):
+    await login(client)
+    info = {**measured(), "measured_at": None, "metadata_origin": "memory_cache"}
+    metadata["clip"]["media_info"] = info
+    metadata["day"]["file"] = info
+    response = await client.get(path)
+    assert response.status_code == 200, response.text
+    file = response.json()["media_info" if path == CLIP else "file"]
+    assert file["measured_at"] is None and file["metadata_origin"] == "memory_cache"
+
+
+@pytest.mark.parametrize("path", [CLIP, DAY])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"measured_at": "2026-01-01T09:00:00+09:00"},
+        {"measured_at": "2026-01-01T00:00:00"},
+        {"measured_at": 1767225600},
+        {"measured_at": "1767225600"},
+        {"measured_at": True},
+        {"measured_at": "not-a-timestamp"},
+        {"metadata_origin": "invented"},
+        {"metadata_origin": "/private/probe.json"},
+        {"metadata_origin": None},
+    ],
+)
+async def test_invalid_file_observation_fails_without_private_response(
+    client, metadata, path, change
+):
+    await login(client)
+    info = {**measured(), **change}
+    metadata["clip"]["media_info"] = info
+    metadata["day"]["file"] = info
+    response = await client.get(path)
+    assert response.status_code == 502, response.text
+    assert response.json()["error"]["code"] == "MEDIA_BAD_RESPONSE"
+    assert "/private" not in response.text
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"measured_at": "2026-01-01T00:00:00Z"}, {"metadata_origin": "request_probe"}],
+)
+async def test_unknown_file_cannot_claim_successful_probe(client, metadata, change):
+    await login(client)
+    metadata["clip"]["media_info"] = {
+        "status": "unknown",
+        "source": "file_probe",
+        "size_bytes": None,
+        "reason_code": "probe_failed",
+        **change,
+    }
+    response = await client.get(CLIP)
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "MEDIA_BAD_RESPONSE"
 
 
 @pytest.mark.parametrize(

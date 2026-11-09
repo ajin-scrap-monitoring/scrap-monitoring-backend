@@ -31,7 +31,9 @@ UUID를 검증하고 기존 상세에서 카메라 연결을 확인한 뒤 미�
     "fps_num": 30000,
     "fps_den": 1001,
     "size_bytes": 123456,
-    "reason_code": null
+    "reason_code": null,
+    "measured_at": "2026-01-01T00:00:01.234Z",
+    "metadata_origin": "persisted_probe"
   },
   "timestamp_info": {
     "time_basis": "server_received_at",
@@ -53,7 +55,25 @@ UUID를 검증하고 기존 상세에서 카메라 연결을 확인한 뒤 미�
 `fps_num/fps_den`으로 분수 프레임 속도를 보존하며 설정값으로 대체하지 않는다.
 이 파일 정보 검사는 초기 프레임에 대한 것으로 전체 파일 무결성 검사가 아니다.
 
+### 파일 검사 시각과 취득 경로
+
+클립의 `media_info`와 날짜 응답의 개별 `file`에 다음 필드를 제공한다.
+
+- `measured_at`: 실제 성공한 파일 검사 완료 시각(UTC) 또는 null. 조회·촬영·파일 수정
+  시각으로 대체하지 않는다. 재사용한 값의 검사 시각을 현재 시각으로 바꾸지 않는다.
+- `metadata_origin`: `request_probe`(이번 요청 또는 합쳐진 동시 요청에서 검사),
+  `memory_cache`(메모리 재사용), `persisted_probe`(현재 파일과 일치한 저장값 재사용),
+  `unknown`(취득 경로 불명) 중 하나다. 기존 `source=file_probe`는 유지한다.
+
+필드가 없는 이전 미디어 응답은 `measured_at=null`, `metadata_origin=unknown`으로 수용한다.
+시각을 저장하지 않은 과거 파일은 출처가 알려져 있어도 시각은 null일 수 있다.
+생성 과정의 검사 시각이 있어도 응답 취득 경로를 구분할 수 없으면 출처는 unknown일 수 있다.
+여러 파일을 집계하는 `segments`에는 단일 파일 검사 시각·출처를 복사하지 않는다.
+
+계약 근거: Media의 [파일 검사 시각과 취득 경로](https://github.com/ajin-scrap-monitoring/ajin-camera-media-service/blob/f6acd8f44b664648d9fc30292e29df5a6dfedd3a/docs/BACKEND_API_CONTRACT.md#파일-검사-시각과-취득-경로-q7-선택-필드).
+
 `status=unknown`이면 codec/width/height/fps/fps_num/fps_den은 모두 null이다.
+이때 검사 시각은 null, 취득 경로는 unknown이다.
 확인한 size_bytes만 남을 수 있으며, 0이나 임의 기본 해상도를 채우지 않는다.
 reason_code는 file_unavailable/probe_failed/probe_timeout/probe_unavailable/
 file_changed/metadata_unavailable 중 하나다. unknown은 정상적인200 응답이다.

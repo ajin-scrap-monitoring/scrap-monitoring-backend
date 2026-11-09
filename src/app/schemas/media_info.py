@@ -1,10 +1,11 @@
 """Actual file measurements; never substitute capture clocks or recording settings."""
 
 import math
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 
 class VideoFormat(BaseModel):
@@ -37,6 +38,10 @@ class FileMediaInfo(VideoFormat):
     status: Literal["ready", "unknown"]
     source: Literal["file_probe"]
     size_bytes: int | None = Field(ge=0, strict=True)
+    measured_at: AwareDatetime | None = None
+    metadata_origin: Literal["request_probe", "memory_cache", "persisted_probe", "unknown"] = (
+        "unknown"
+    )
     reason_code: (
         Literal[
             "file_unavailable",
@@ -48,6 +53,22 @@ class FileMediaInfo(VideoFormat):
         ]
         | None
     ) = None
+
+    @field_validator("measured_at", mode="before")
+    @classmethod
+    def measurement_timestamp_type(cls, value: object) -> object:
+        if value is not None and not isinstance(value, str | datetime):
+            raise ValueError("File measurement time must be an ISO8601 timestamp")
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+    @field_validator("measured_at")
+    @classmethod
+    def measurement_timestamp_utc(cls, value: datetime | None) -> datetime | None:
+        if value is not None:
+            if value.utcoffset() != timedelta(0):
+                raise ValueError("File measurement time must use UTC")
+            return value.astimezone(UTC)
+        return None
 
     @model_validator(mode="after")
     def measured_or_unknown(self) -> "FileMediaInfo":
@@ -71,8 +92,10 @@ class FileMediaInfo(VideoFormat):
                 )
             )
             or self.reason_code is None
+            or self.measured_at is not None
+            or self.metadata_origin != "unknown"
         ):
-            raise ValueError("Unknown file information must not claim measured format values")
+            raise ValueError("Unknown file information must not claim measurements or provenance")
         return self
 
 
