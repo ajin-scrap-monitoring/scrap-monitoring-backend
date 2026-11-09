@@ -73,16 +73,23 @@ class MediaClient:
                 timeout=settings.MEDIA_REQUEST_TIMEOUT_SECONDS,
                 follow_redirects=False,
             )
+        budget = (
+            settings.MEDIA_REQUEST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+        )
         try:
-            response = await self._client.request(
-                method,
-                f"{base_url.rstrip('/')}/{path.lstrip('/')}",
-                headers=headers,
-                json=payload.model_dump(mode="json") if payload else None,
-                params=params,
-                timeout=httpx.USE_CLIENT_DEFAULT if timeout_seconds is None else timeout_seconds,
-            )
-        except httpx.TimeoutException as exc:
+            # HTTPX read timeouts restart for each chunk; also bound the complete JSON I/O.
+            async with asyncio.timeout(budget):
+                response = await self._client.request(
+                    method,
+                    f"{base_url.rstrip('/')}/{path.lstrip('/')}",
+                    headers=headers,
+                    json=payload.model_dump(mode="json") if payload else None,
+                    params=params,
+                    timeout=httpx.USE_CLIENT_DEFAULT
+                    if timeout_seconds is None
+                    else timeout_seconds,
+                )
+        except (httpx.TimeoutException, TimeoutError) as exc:
             raise MediaServiceError(504, "MEDIA_TIMEOUT", retryable=True) from exc
         except httpx.RequestError as exc:
             raise MediaServiceError(503, "MEDIA_UNAVAILABLE", retryable=True) from exc
