@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 from email import message_from_bytes
+from email.utils import parseaddr
 
 import httpx
 import pytest
@@ -64,7 +65,7 @@ async def test_only_send_endpoint_and_refresh_credentials_are_used(gmail_setting
         raw = json.loads(request.content)["raw"]
         message = message_from_bytes(base64.urlsafe_b64decode(raw))
         assert message["To"] == "receiver@example.test"
-        assert message["From"] == "sender@example.test"
+        assert parseaddr(message["From"]) == ("Ajin_scrap_Team", "sender@example.test")
         return httpx.Response(200, json={"id": "synthetic-message"})
 
     sender = GmailSender(httpx.AsyncClient(transport=httpx.MockTransport(handle)))
