@@ -26,6 +26,7 @@ from src.app.core.config import get_settings
 from src.app.db.session import get_db_session
 from src.app.models.log import AlertLog, CollectionLog
 from src.app.models.media_job import MediaClipJob
+from src.app.schemas.errors import HTTPErrorResponse, MediaErrorResponse
 from src.app.schemas.media_info import ClipMediaInfo
 from src.app.schemas.media_service import (
     ClipDetail,
@@ -36,6 +37,7 @@ from src.app.schemas.media_service import (
     EventClipRequest,
     RecordingPolicy,
 )
+from src.app.schemas.media_storage import MediaStorageStatus
 from src.app.schemas.session import Session
 from src.app.services.event_export_service import EXPORT_CATEGORY
 from src.app.services.media_client import MediaServiceError, media_client
@@ -105,6 +107,28 @@ async def media_error_response(request: Request, exc: Exception) -> JSONResponse
 async def verify_media_access(session: CurrentSession) -> Response:
     """Nginx auth_request checks the same cookie used by the dashboard."""
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.get(
+    "/storage/status",
+    response_model=MediaStorageStatus,
+    responses={
+        **error_responses(*MEDIA_ERROR_CODES, media=True),
+        503: {
+            "model": MediaStorageStatus | HTTPErrorResponse | MediaErrorResponse,
+            "description": "Storage observation or media transport unavailable",
+        },
+    },
+)
+async def get_storage_status(
+    request: Request, response: Response, session: CurrentSession
+) -> MediaStorageStatus:
+    """Expose only validated observations; never derive admission capacity from limits."""
+    response.headers["Cache-Control"] = "no-store"
+    if request.query_params:
+        raise HTTPException(422, "Storage status does not accept query parameters")
+    response.status_code, result = await media_client.storage_status()
+    return result
 
 
 @router.get(
