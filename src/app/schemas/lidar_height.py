@@ -60,7 +60,10 @@ class SimulationSensorPose(BaseModel):
 
 
 class SimulationHeightReference(BaseModel):
-    """Development-only raw-range geometry, never a verified physical calibration."""
+    """Development-only geometry, never a verified physical calibration.
+
+    Raw ranges are the default; verified edge world coordinates require explicit pins.
+    """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, hide_input_in_errors=True)
     pit_id: Identifier
@@ -74,6 +77,8 @@ class SimulationHeightReference(BaseModel):
     sensor_poses: dict[Identifier, SimulationSensorPose] = Field(min_length=2, max_length=2)
     # Received angles are the default; spatial bins remain an explicit legacy option.
     sampling_policy: Literal["SENSOR_ANGLE", "SPATIAL_BIN"] = "SENSOR_ANGLE"
+    coordinate_source: Literal["RAW_RANGE", "EDGE_WORLD"] = "RAW_RANGE"
+    calibration_versions: dict[Identifier, Identifier] = Field(default_factory=dict, max_length=2)
     bin_count: int = Field(default=20, ge=2, le=200)
     minimum_points_per_bin: int = Field(default=3, ge=1, le=1000)
     minimum_coverage: float = Field(default=1.0, gt=0, le=1)
@@ -82,6 +87,15 @@ class SimulationHeightReference(BaseModel):
 
     @model_validator(mode="after")
     def valid_geometry(self) -> Self:
+        if self.coordinate_source == "EDGE_WORLD":
+            if self.sampling_policy != "SENSOR_ANGLE" or set(self.calibration_versions) != set(
+                self.sensor_poses
+            ):
+                raise ValueError(
+                    "Edge world coordinates require angle samples and both calibration pins"
+                )
+        elif self.calibration_versions:
+            raise ValueError("Calibration pins are only used by the edge world coordinate path")
         if not 0 < self.top_z_cm - self.floor_z_cm <= 1_000_000:
             raise ValueError("Simulation depth must be positive and bounded")
         polygon = self.boundary_xy_cm

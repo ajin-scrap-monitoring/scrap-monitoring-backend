@@ -18,6 +18,7 @@ from src.app.services.height_reference import (
     clock_allowed,
     height_reference,
     reference_depth,
+    reference_payload,
     reference_sensors,
     simulation_method,
 )
@@ -36,7 +37,7 @@ def height_method(source: MonitoringSource, depth_cm: float | None) -> str | Non
         else "HEIGHT_SECTION_V2:"
     )
     return prefix + digest(
-        [reference.model_dump(mode="json"), depth_cm, get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS]
+        [reference_payload(reference), depth_cm, get_settings().EDGE_V2_MEDIAN_WINDOW_SECONDS]
     )
 
 
@@ -68,7 +69,18 @@ async def project_height_fill(
         (s.scan.acquired_at for s in measurement.sensors if s.scan is not None), default=None
     )
     value = page.meanSectionFillPercent
-    simulated = isinstance(height_reference(source.pit_id), SimulationHeightReference)
+    reference = height_reference(source.pit_id)
+    simulated = isinstance(reference, SimulationHeightReference)
+    provenance = (
+        ["SIMULATION_GEOMETRY", "SIMULATION_SOURCE_CLOCK_UNVERIFIED", "HEIGHT_SECTION_ESTIMATE"]
+        if simulated
+        else ["HEIGHT_SECTION_ESTIMATE"]
+    )
+    if (
+        isinstance(reference, SimulationHeightReference)
+        and reference.coordinate_source == "EDGE_WORLD"
+    ):
+        provenance.append("EDGE_WORLD_COORDINATES")
     observation = FillObservation(
         simulated=simulated,
         time_basis="SIMULATION_SOURCE_UTC_UNVERIFIED" if simulated else "SOURCE_UTC",
@@ -86,11 +98,7 @@ async def project_height_fill(
         scope_token=method,
         value_percent=value,
         data_state="AVAILABLE" if value is not None else "UNAVAILABLE",
-        reason_codes=(
-            ["SIMULATION_GEOMETRY", "SIMULATION_SOURCE_CLOCK_UNVERIFIED", "HEIGHT_SECTION_ESTIMATE"]
-            if simulated
-            else ["HEIGHT_SECTION_ESTIMATE"]
-        )
+        reason_codes=provenance
         if value is not None
         else list(
             dict.fromkeys(

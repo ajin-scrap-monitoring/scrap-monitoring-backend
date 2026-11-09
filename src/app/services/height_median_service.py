@@ -18,6 +18,7 @@ from src.app.services.height_reference import (
     device_clock_allowed,
     height_reference,
     reference_depth,
+    reference_payload,
 )
 from src.app.services.observation_window import observation_slots
 
@@ -55,7 +56,7 @@ async def window_scope(db: AsyncSession, source: MonitoringSource, now: datetime
     return digest(
         [
             source.pit_id,
-            reference.model_dump(mode="json") if reference else None,
+            reference_payload(reference) if reference else None,
             pit.total_depth_cm if pit else None,
             pit.critical_threshold_percent if pit else settings.EDGE_V2_CRITICAL_THRESHOLD,
             settings.EDGE_V2_MEDIAN_WINDOW_SECONDS,

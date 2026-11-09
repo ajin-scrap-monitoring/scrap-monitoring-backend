@@ -1,11 +1,24 @@
 """Select explicit height contexts; simulator clocks and geometry stay separately labelled."""
 
+from typing import Any
+
 from src.app.core.config import get_settings
 from src.app.schemas.lidar_height import HeightReference, SimulationHeightReference
 
 HeightContext = HeightReference | SimulationHeightReference
 SIMULATION_METHOD = "SIMULATION_HEIGHT_SECTION_V1:"
 SIMULATION_ANGLE_METHOD = "SIMULATION_SENSOR_ANGLE_V1:"
+
+
+def reference_payload(reference: HeightContext) -> dict[str, Any]:
+    """Keep pre-extension raw-range method/window identities unchanged."""
+    exclude = (
+        {"coordinate_source", "calibration_versions"}
+        if isinstance(reference, SimulationHeightReference)
+        and reference.coordinate_source == "RAW_RANGE"
+        else set()
+    )
+    return reference.model_dump(mode="json", exclude=exclude)
 
 
 def simulation_method(reference: SimulationHeightReference) -> str:
