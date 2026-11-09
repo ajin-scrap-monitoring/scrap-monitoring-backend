@@ -191,7 +191,7 @@ async def update_notification_recipient(
     status_code=status.HTTP_202_ACCEPTED,
     summary="Record or queue a test notification request",
     dependencies=[Depends(require_admin_change)],
-    responses=error_responses(404, 409),
+    responses=error_responses(404),
 )
 async def send_test_notification(
     payload: TestNotificationRequest,
