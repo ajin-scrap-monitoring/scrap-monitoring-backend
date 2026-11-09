@@ -1,10 +1,15 @@
-"""Development-only raw-range projection; never creates verified sensor coordinates."""
+"""Development-only raw-range or edge-world projection; never certifies physical calibration."""
 
 import math
 from datetime import datetime, timedelta
 from statistics import fmean, median
 
-from src.app.schemas.edge_v2 import Configuration, Measurement, SensorObservation
+from src.app.schemas.edge_v2 import (
+    Configuration,
+    Measurement,
+    SensorConfiguration,
+    SensorObservation,
+)
 from src.app.schemas.lidar_height import (
     MAX_HEIGHT_SAMPLES,
     SimulationHeightReference,
@@ -77,6 +82,31 @@ def floor_section(
     return (a, tangent, length) if length > 1e-6 else None
 
 
+def world_calibration_matches(
+    reference: SimulationHeightReference,
+    sensor: SensorObservation,
+    configured: SensorConfiguration,
+    pose: SimulationSensorPose,
+) -> bool:
+    """Compare installation metadata, never transform supplied coordinates a second time."""
+    calibration = configured.calibration
+    if (
+        sensor.transform_state != "VERIFIED"
+        or sensor.transform_reason_codes
+        or calibration is None
+        or calibration.verification_state != "VERIFIED"
+        or sensor.calibration_version != calibration.version
+        or reference.calibration_versions.get(sensor.sensor_id) != calibration.version
+    ):
+        return False
+    return all(
+        math.isclose(calibration.translation_mm[i] / 10, pose.origin_cm[i], abs_tol=1e-6, rel_tol=0)
+        and math.isclose(calibration.rotation[i][0], pose.direction0[i], abs_tol=1e-6, rel_tol=0)
+        and math.isclose(calibration.rotation[i][1], pose.direction90[i], abs_tol=1e-6, rel_tol=0)
+        for i in range(3)
+    )
+
+
 def simulation_profile(
     measurement: Measurement,
     sensor: SensorObservation,
@@ -87,13 +117,15 @@ def simulation_profile(
     ttl_seconds: int,
     reference_distance_cm: float,
 ) -> LidarProfileV2:
-    """Ignore unavailable coordinate transforms, not freshness/configuration/raw-range validity.
+    """Ignore unavailable transforms only in the default raw-range path.
 
     Source UTC is preserved even when unverified. Receipt time never makes a stale scan fresh.
-    Geometry comes only from separately pinned simulator configuration, not wire coordinates.
+    Geometry comes from separately pinned simulator configuration. Opt-in world coordinates
+    require matching verified installation metadata and are never transformed again.
     """
     scan = sensor.scan
     by_angle = reference.sampling_policy == "SENSOR_ANGLE"
+    use_world = reference.coordinate_source == "EDGE_WORLD"
     result = LidarProfileV2(
         sensorId=sensor.sensor_id,
         measuredAt=scan.acquired_at if scan else None,
@@ -138,6 +170,12 @@ def simulation_profile(
         reason = "HEIGHT_SCAN_CLOCK_UNAVAILABLE"
     elif by_angle and len(scan.points) > MAX_HEIGHT_SAMPLES:
         reason = "HEIGHT_SAMPLE_LIMIT_EXCEEDED"
+    elif use_world and (
+        configured is None
+        or pose is None
+        or not world_calibration_matches(reference, sensor, configured, pose)
+    ):
+        reason = "HEIGHT_CALIBRATION_UNVERIFIED_OR_MISMATCHED"
     line = floor_section(reference, pose) if pose else None
     if reason is None and line is None:
         reason = "SIMULATION_FLOOR_SECTION_UNAVAILABLE"
@@ -149,6 +187,8 @@ def simulation_profile(
     assert scan is not None and pose is not None and line is not None
     origin, tangent, length = line
     result.calibrationState = "SIMULATION"
+    if use_world:
+        result.reasonCodes.append("EDGE_WORLD_COORDINATES")
     result.sectionLengthCm = length
     bins: list[list[float]] = [[] for _ in range(reference.bin_count)] if not by_angle else []
     values: list[float] = []
@@ -167,24 +207,42 @@ def simulation_profile(
         if by_angle:
             # Keep invalid received points as gaps; do not invent unreceived angle slots.
             result.samples.append(sample)
-        # Bound hostile wire integers before conversion. Coordinate calculation reasons refer
-        # to position_mm, which this raw-range path deliberately does not consume.
-        if (
-            not 0 < point.distance_mm <= 30_000_000
-            or reference.minimum_quality is not None
-            and point.quality < reference.minimum_quality
-        ):
-            continue
-        angle = math.radians(point.angle_mdeg / 1000)
-        direction = tuple(
-            u * math.cos(angle) + v * math.sin(angle)
-            for u, v in zip(pose.direction0, pose.direction90, strict=True)
-        )
-        if direction[2] >= -1e-9:
-            continue
-        x, y, z = (
-            p + point.distance_mm / 10 * d for p, d in zip(pose.origin_cm, direction, strict=True)
-        )
+        if use_world:
+            position = point.position_mm
+            if (
+                position is None
+                or point.calculation_reason_codes
+                or reference.minimum_quality is not None
+                and point.quality < reference.minimum_quality
+            ):
+                continue
+            # Bound wire integers before float conversion using the geometry schema's cm limit.
+            coordinates = (position.x, position.y, position.z)
+            if any(not -10_000_000 <= value <= 10_000_000 for value in coordinates):
+                continue
+            x, y, z = (value / 10 for value in coordinates)
+            if z >= pose.origin_cm[2]:
+                continue
+        else:
+            # Bound hostile wire integers before conversion. Coordinate calculation reasons refer
+            # to position_mm, which this raw-range path deliberately does not consume.
+            if (
+                not 0 < point.distance_mm <= 30_000_000
+                or reference.minimum_quality is not None
+                and point.quality < reference.minimum_quality
+            ):
+                continue
+            angle = math.radians(point.angle_mdeg / 1000)
+            direction = tuple(
+                u * math.cos(angle) + v * math.sin(angle)
+                for u, v in zip(pose.direction0, pose.direction90, strict=True)
+            )
+            if direction[2] >= -1e-9:
+                continue
+            x, y, z = (
+                p + point.distance_mm / 10 * d
+                for p, d in zip(pose.origin_cm, direction, strict=True)
+            )
         height = z - reference.floor_z_cm
         if height < -1e-6 or height > depth + 1e-6 or not inside((x, y), polygon):
             continue
