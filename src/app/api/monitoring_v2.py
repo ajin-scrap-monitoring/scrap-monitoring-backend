@@ -41,7 +41,11 @@ from src.app.services.edge_v2_history import alerts, collection_events, state_ev
 from src.app.services.fill_forecast_service import fill_forecast
 from src.app.services.load_history_v2_service import load_history
 from src.app.services.measurement_layout_service import measurement_layout
-from src.app.services.monitoring_v2_service import build_snapshot, lidar_profiles, monitoring_source
+from src.app.services.monitoring_v2_service import (
+    build_snapshot,
+    lidar_profile_snapshot,
+    monitoring_source,
+)
 from src.app.services.session_service import SESSION_COOKIE_NAME
 
 router = APIRouter(
@@ -132,7 +136,7 @@ async def profiles(
     response: Response, session: CurrentSession, source: Source, db: Database
 ) -> LidarProfilePageV2:
     response.headers["Cache-Control"] = "no-store"
-    return await lidar_profiles(db, source)
+    return await lidar_profile_snapshot(db, source)
 
 
 @router.get("/state-events", response_model=StateEventPageV2)

@@ -5,7 +5,7 @@ from statistics import fmean
 from typing import Literal, cast
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import get_settings
@@ -253,6 +253,22 @@ async def build_snapshot(
         snapshot.model_dump(mode="json", exclude={"serverTime", "snapshotId"})
     )
     return snapshot
+
+
+async def lidar_profile_snapshot(
+    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+) -> LidarProfilePageV2:
+    """Read points, window and status from one generation while receivers keep committing.
+
+    Use a short independent PostgreSQL snapshot so authentication's transaction and
+    caller-owned work remain untouched. No row locks or freshness exceptions are needed.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return await lidar_profiles(db, source, now)
+    async with AsyncSession(bind=db.bind, expire_on_commit=False) as reading:
+        await reading.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        await reading.execute(text("SET TRANSACTION READ ONLY"))
+        return await lidar_profiles(reading, source, now)
 
 
 async def lidar_profiles(
