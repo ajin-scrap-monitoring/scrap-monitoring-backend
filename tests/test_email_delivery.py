@@ -80,6 +80,68 @@ async def jobs(db):
     return list(await db.scalars(select(EmailDelivery).execution_options(populate_existing=True)))
 
 
+@pytest.mark.parametrize("mode", ["global", "custom"])
+@pytest.mark.parametrize(
+    "event_type",
+    ["collection_required", "pre_collection_alert", "measurement_error", "device_error"],
+)
+async def test_subscription_mode_selects_one_event_list(client, mail, mode, event_type):
+    db, policy, recipient, factory = mail
+    kind = "collection_required" if event_type == "pre_collection_alert" else event_type
+    policy.event_types = (
+        ["device_error"] if kind == "collection_required" else ["collection_required"]
+    )
+    recipient.subscription_mode, recipient.event_types = mode, kind
+    await db.commit()
+    ratio = (
+        0.95
+        if event_type == "collection_required"
+        else 0.8
+        if event_type == "pre_collection_alert"
+        else 0.5
+    )
+    snapshot = await tick(client, db, ratio, 0)
+    if event_type == "device_error":
+        snapshot.deviceStatus.snapshot.sensors[0].data_state = "UNAVAILABLE"
+        snapshot.deviceStatus.snapshot.sensors[0].reason_codes = ["SYNTHETIC_UNAVAILABLE"]
+    elif event_type == "measurement_error":
+        snapshot.dataState = "UNAVAILABLE"
+        snapshot.reasonCodes = ["SYNTHETIC_UNAVAILABLE"]
+    page = await active_snapshot_alerts(db, snapshot, include_health=True)
+    page.items = [item for item in page.items if item.type == event_type]
+    assert len(page.items) == 1
+    await synchronize_snapshot(db, snapshot, page, NOW)
+    await db.commit()
+    sender = SyntheticSender()
+    if mode == "custom":
+        assert await EmailDeliveryWorker(sender).deliver_one(factory, NOW)
+        assert len(sender.requests) == 1 and (await jobs(db))[0].status == "SENT"
+    else:
+        assert await jobs(db) == []
+        assert not await EmailDeliveryWorker(sender).deliver_one(factory, NOW)
+        assert sender.requests == []
+
+
+@pytest.mark.parametrize("mode_after", ["custom", "global"])
+async def test_custom_subscription_is_rechecked_after_common_policy_changes(
+    client, mail, mode_after
+):
+    db, policy, recipient, factory = mail
+    recipient.subscription_mode = "custom"
+    recipient.event_types = "collection_required"
+    await db.commit()
+    await collect(client, db)
+    assert (await jobs(db))[0].status == "QUEUED"
+    policy.event_types = ["device_error"]
+    recipient.subscription_mode = mode_after
+    await db.commit()
+    sender = SyntheticSender()
+    assert await EmailDeliveryWorker(sender).deliver_one(factory, NOW)
+    job = (await jobs(db))[0]
+    assert job.status == ("SENT" if mode_after == "custom" else "CANCELLED")
+    assert len(sender.requests) == (1 if mode_after == "custom" else 0)
+
+
 async def test_current_alert_is_queued_once_and_delivered_outside_transaction(client, mail):
     db, _, _, factory = mail
     await collect(client, db)
@@ -416,8 +478,11 @@ async def test_ineligible_recipient_has_no_automatic_job(client, mail, channel, 
     assert await jobs(db) == []
 
 
-async def test_warning_switch_controls_automatic_mail(client, mail):
-    db, policy, _, _ = mail
+@pytest.mark.parametrize("mode", ["global", "custom"])
+async def test_warning_switch_controls_automatic_mail(client, mail, mode):
+    db, policy, recipient, _ = mail
+    recipient.subscription_mode = mode
+    recipient.event_types = "collection_required"
     policy.pre_alert_enabled = False
     await db.commit()
     await collect(client, db, ratio=0.8)
@@ -455,8 +520,12 @@ async def test_health_condition_and_known_recovery_share_existing_evaluation(cli
     assert any(j.phase == "RECOVERY" and j.status == "SENT" for j in await jobs(db))
 
 
-async def test_policy_delay_change_is_applied_before_claim(client, mail):
-    db, policy, _, factory = mail
+@pytest.mark.parametrize("mode", ["global", "custom"])
+async def test_policy_delay_change_is_applied_before_claim(client, mail, mode):
+    db, policy, recipient, factory = mail
+    recipient.subscription_mode = mode
+    recipient.event_types = "collection_required"
+    await db.commit()
     await collect(client, db)
     policy.send_delay_minutes = 2
     await db.commit()

@@ -69,12 +69,17 @@ async def policy_for(db: AsyncSession, pit: str) -> MailPolicy:
 
 def eligible(recipient: Recipient, event_type: str, policy: MailPolicy) -> bool:
     kind = "collection_required" if event_type == "pre_collection_alert" else event_type
+    if recipient.subscription_mode == "global":
+        types = policy.types
+    elif recipient.subscription_mode == "custom":
+        types = tuple(recipient.event_types.split(","))
+    else:
+        return False
     return (
         recipient.enabled
         and "email" in recipient.channels.split(",")
-        and kind in policy.types
+        and kind in types
         and (event_type != "pre_collection_alert" or policy.pre_alert)
-        and (recipient.subscription_mode == "global" or kind in recipient.event_types.split(","))
     )
 
 
