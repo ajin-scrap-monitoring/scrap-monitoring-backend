@@ -73,8 +73,9 @@ def main() -> int:
             cwd=ROOT,
             env=environment,
             # Include pytest startup, collection, fixture teardown and process exit.
-            # The complete PostgreSQL suite can exceed ten minutes on a CI runner.
-            timeout=1800,
+            # The complete migrated-schema suite can approach thirty minutes on CI.
+            # Reserve time for the child to finish shutdown after pytest's summary.
+            timeout=2700,
             check=False,
         ).returncode
     finally:
