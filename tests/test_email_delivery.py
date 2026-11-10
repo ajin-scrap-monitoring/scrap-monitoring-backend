@@ -1,6 +1,6 @@
 """Durable delivery through current synthetic alarms and administrator requests."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select, update
@@ -93,6 +93,37 @@ async def test_current_alert_is_queued_once_and_delivered_outside_transaction(cl
     assert delivered.status == "SENT" and delivered.provider_message_id == "synthetic-provider-id"
     assert delivered.attempts == 1
     assert not await EmailDeliveryWorker(sender).deliver_one(factory, NOW + timedelta(seconds=2))
+
+
+@pytest.mark.parametrize("simulated", [False, True])
+@pytest.mark.parametrize("value,display", [(82.34999, "82.34"), (79.999, "79.99"), (80.0, "80.00")])
+@pytest.mark.parametrize(
+    "source,label", [("HEIGHT_SECTIONS", "단면 높이 비율"), ("EDGE_STATE", "적재율")]
+)
+async def test_warning_mail_formats_display_without_changing_observation(
+    client, mail, simulated, value, display, source, label
+):
+    db, _, _, _ = mail
+    snapshot = await tick(client, db, 0.8, 0)
+    page = await active_snapshot_alerts(db, snapshot)
+    assert len(page.items) == 1 and page.items[0].type == "pre_collection_alert"
+    item = page.items[0]
+    item.loadPercent = value
+    item.simulated = simulated
+    snapshot.summary.inputSource = source
+    stamp = datetime(2025, 4, 30, 18, 46, 12, 987654, tzinfo=UTC)
+    page.computedAt = stamp
+    await synchronize_snapshot(db, snapshot, page, stamp)
+    await db.commit()
+    job = (await jobs(db))[0]
+    assert job.subject == "[스크랩 모니터링] 스크랩 적재율 경고"
+    assert job.body == (
+        "[스크랩 모니터링] 스크랩 적재율 경고\n피트: pit-demo\n"
+        f"{label}: {display}%\n조건: fill-warning:pit-demo\n"
+        "판정 시각(UTC+9): 2025-05-01 03:46:12\n현재 판정에 따른 자동 알림입니다."
+    )
+    assert item.loadPercent == value and item.simulated is simulated
+    assert page.computedAt == stamp
 
 
 async def test_delay_rechecks_current_condition_and_cancels_after_clear(client, mail):

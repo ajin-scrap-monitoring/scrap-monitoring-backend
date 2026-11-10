@@ -5,7 +5,8 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
+from decimal import ROUND_DOWN, Decimal
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
@@ -234,13 +235,32 @@ async def synchronize_snapshot(
                 )
             )
             simulated = "[시뮬레이션] " if item.simulated is True else ""
+            warning = isinstance(item, ActiveFillAlertV2) and item.type == "pre_collection_alert"
+            title = f"[스크랩 모니터링] {item.title}" if warning else simulated + item.title
+            decision_time = (
+                "판정 시각(UTC+9): "
+                + page.computedAt.astimezone(timezone(timedelta(hours=9))).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                if warning
+                else f"판정 시각(UTC): {page.computedAt.isoformat()}"
+            )
             if isinstance(item, ActiveFillAlertV2):
                 label = (
                     "단면 높이 비율"
                     if snapshot.summary.inputSource == "HEIGHT_SECTIONS"
                     else "적재율"
                 )
-                detail = f"{label}: {item.loadPercent}%\n"
+                value = (
+                    str(
+                        Decimal(str(item.loadPercent)).quantize(
+                            Decimal("0.01"), rounding=ROUND_DOWN
+                        )
+                    )
+                    if warning
+                    else str(item.loadPercent)
+                )
+                detail = f"{label}: {value}%\n"
             else:
                 detail = (
                     f"대상: {item.componentKind}/{item.componentId}\n"
@@ -252,10 +272,8 @@ async def synchronize_snapshot(
                 "ALERT",
                 episode.sent_count + 1,
                 due,
-                simulated + item.title,
-                f"{simulated}{item.title}\n피트: {page.pitId}\n"
-                + detail
-                + f"조건: {item.id}\n판정 시각(UTC): {page.computedAt.isoformat()}\n"
+                title,
+                f"{title}\n피트: {page.pitId}\n" + detail + f"조건: {item.id}\n{decision_time}\n"
                 "현재 판정에 따른 자동 알림입니다.",
             )
     for episode in rows:
