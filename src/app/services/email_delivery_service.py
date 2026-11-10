@@ -5,7 +5,8 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
+from decimal import ROUND_DOWN, Decimal
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
@@ -31,6 +32,11 @@ from src.app.services.monitoring_v2_service import build_snapshot
 
 logger = logging.getLogger(__name__)
 Alert = ActiveFillAlertV2 | ActiveHealthAlertV2
+
+
+def korean_mail_time(value: datetime) -> str:
+    """Format mail display only; persisted timestamps remain UTC."""
+    return value.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def address_digest(address: str) -> str:
@@ -234,13 +240,29 @@ async def synchronize_snapshot(
                 )
             )
             simulated = "[시뮬레이션] " if item.simulated is True else ""
+            warning = isinstance(item, ActiveFillAlertV2) and item.type == "pre_collection_alert"
+            title = (
+                f"[스크랩 모니터링] {item.title}"
+                if isinstance(item, ActiveFillAlertV2)
+                else simulated + item.title
+            )
+            decision_time = f"판정 시각(UTC+9): {korean_mail_time(page.computedAt)}"
             if isinstance(item, ActiveFillAlertV2):
                 label = (
                     "단면 높이 비율"
                     if snapshot.summary.inputSource == "HEIGHT_SECTIONS"
                     else "적재율"
                 )
-                detail = f"{label}: {item.loadPercent}%\n"
+                value = (
+                    str(
+                        Decimal(str(item.loadPercent)).quantize(
+                            Decimal("0.01"), rounding=ROUND_DOWN
+                        )
+                    )
+                    if warning
+                    else str(item.loadPercent)
+                )
+                detail = f"{label}: {value}%\n"
             else:
                 detail = (
                     f"대상: {item.componentKind}/{item.componentId}\n"
@@ -252,10 +274,8 @@ async def synchronize_snapshot(
                 "ALERT",
                 episode.sent_count + 1,
                 due,
-                simulated + item.title,
-                f"{simulated}{item.title}\n피트: {page.pitId}\n"
-                + detail
-                + f"조건: {item.id}\n판정 시각(UTC): {page.computedAt.isoformat()}\n"
+                title,
+                f"{title}\n피트: {page.pitId}\n" + detail + f"조건: {item.id}\n{decision_time}\n"
                 "현재 판정에 따른 자동 알림입니다.",
             )
     for episode in rows:
@@ -287,7 +307,7 @@ async def synchronize_snapshot(
                     now,
                     "알림 조건 해소 확인",
                     f"피트: {page.pitId}\n조건: {episode.condition_id}\n"
-                    f"해소 판정 시각(UTC): {page.computedAt.isoformat()}\n"
+                    f"해소 판정 시각(UTC+9): {korean_mail_time(page.computedAt)}\n"
                     "물리 장비 수리나 수거 작업 완료를 뜻하지 않습니다.",
                 )
         elif not allowed or not unchanged or not same_scope or clear:
