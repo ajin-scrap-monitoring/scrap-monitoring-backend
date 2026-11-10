@@ -11,7 +11,7 @@ from src.app.core.config import get_settings
 from src.app.models.config import PitConfig
 from src.app.models.edge_v2 import EdgeV2Message
 from src.app.models.edge_v2_projection import EdgeV2Latest
-from src.app.schemas.edge_v2 import Measurement, StatusReport, UtcTime
+from src.app.schemas.edge_v2 import Assessment, Measurement, StatusReport, UtcTime
 from src.app.schemas.monitoring_v2 import LidarProfilePageV2, LidarProfileV2, MonitoringSource
 from src.app.services.edge_v2_service import device_status, digest, utc
 from src.app.services.height_reference import (
@@ -206,13 +206,18 @@ def filter_scan_mean(
 async def project_height_window(
     db: AsyncSession,
     source: MonitoringSource,
-    measurement: Measurement,
+    measurement: Measurement | Assessment,
     receipt: EdgeV2Message,
     page: LidarProfilePageV2,
+    *,
+    window_kind: str = "height_window",
+    scope_extension: object = None,
 ) -> LidarProfilePageV2:
-    key = (source.site_id, source.edge_id, "height_window")
+    key = (source.site_id, source.edge_id, window_kind)
     row = await db.get(EdgeV2Latest, key)
     scope = await window_scope(db, source, utc(receipt.received_at))
+    if scope_extension is not None:
+        scope = digest([scope, scope_extension])
     previous = HeightWindow.model_validate(row.payload) if row and row.payload else None
     sensors = (
         previous.sensors
@@ -232,7 +237,7 @@ async def project_height_window(
         row = EdgeV2Latest(
             site_id=source.site_id,
             edge_id=source.edge_id,
-            kind="height_window",
+            kind=window_kind,
             message_id=measurement.message_id,
             generated_at=measurement.generated_at,
             payload={},
@@ -248,17 +253,29 @@ async def project_height_window(
 
 
 async def read_height_window(
-    db: AsyncSession, source: MonitoringSource, page: LidarProfilePageV2, now: datetime
+    db: AsyncSession,
+    source: MonitoringSource,
+    page: LidarProfilePageV2,
+    now: datetime,
+    *,
+    window_kind: str = "height_window",
+    observation_kind: str = "measurement",
+    scope_extension: object = None,
 ) -> LidarProfilePageV2:
-    row = await db.get(EdgeV2Latest, (source.site_id, source.edge_id, "height_window"))
-    latest = await db.get(EdgeV2Latest, (source.site_id, source.edge_id, "measurement"))
+    row = await db.get(EdgeV2Latest, (source.site_id, source.edge_id, window_kind))
+    latest = await db.get(EdgeV2Latest, (source.site_id, source.edge_id, observation_kind))
     window = HeightWindow.model_validate(row.payload) if row and row.payload else None
+    scope = None
+    if window is not None:
+        scope = await window_scope(db, source, now)
+        if scope_extension is not None:
+            scope = digest([scope, scope_extension])
     if (
         row is None
         or latest is None
         or row.message_id != latest.message_id
         or window
-        and window.scope != await window_scope(db, source, now)
+        and window.scope != scope
     ):
         window = None
     pit = await db.get(PitConfig, source.pit_id)
@@ -268,7 +285,17 @@ async def read_height_window(
 async def invalidate_on_status(
     db: AsyncSession, status: StatusReport, now: datetime, same_instance: bool
 ) -> None:
-    row = await db.get(EdgeV2Latest, (status.site_id, status.edge_id, "height_window"))
+    kinds = ["height_window"]
+    if get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
+        kinds.append("filtered_profile_window")
+    for kind in kinds:
+        await invalidate_window_on_status(db, status, now, same_instance, kind)
+
+
+async def invalidate_window_on_status(
+    db: AsyncSession, status: StatusReport, now: datetime, same_instance: bool, kind: str
+) -> None:
+    row = await db.get(EdgeV2Latest, (status.site_id, status.edge_id, kind))
     if row is None:
         return
     if (

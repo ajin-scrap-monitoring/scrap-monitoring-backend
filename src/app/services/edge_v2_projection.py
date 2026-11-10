@@ -147,7 +147,7 @@ async def project(
             invalidate_on_status,
         )
 
-        if height_median_enabled():
+        if height_median_enabled() or get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
             await invalidate_on_status(db, payload, utc(receipt.received_at), same_instance)
         if old_status is not None and old_status != payload.overall_state:
             assigned_pit = next(
@@ -203,8 +203,14 @@ async def project(
 
         await db.flush()
         await project_height_fill(db, payload, receipt, filter_row)
-    elif isinstance(payload, Assessment) and not get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
-        await project_state(db, payload, receipt, filter_row)
+    elif isinstance(payload, Assessment):
+        if get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
+            from src.app.services.filtered_lidar_profiles import project_filtered_profiles
+
+            await db.flush()
+            await project_filtered_profiles(db, payload, receipt)
+        if not get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
+            await project_state(db, payload, receipt, filter_row)
 
 
 async def project_state(
