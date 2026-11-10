@@ -95,18 +95,20 @@ async def test_current_alert_is_queued_once_and_delivered_outside_transaction(cl
     assert not await EmailDeliveryWorker(sender).deliver_one(factory, NOW + timedelta(seconds=2))
 
 
+@pytest.mark.parametrize("critical", [False, True])
 @pytest.mark.parametrize("simulated", [False, True])
 @pytest.mark.parametrize("value,display", [(82.34999, "82.34"), (79.999, "79.99"), (80.0, "80.00")])
 @pytest.mark.parametrize(
     "source,label", [("HEIGHT_SECTIONS", "단면 높이 비율"), ("EDGE_STATE", "적재율")]
 )
-async def test_warning_mail_formats_display_without_changing_observation(
-    client, mail, simulated, value, display, source, label
+async def test_fill_mail_formats_display_without_changing_observation(
+    client, mail, critical, simulated, value, display, source, label
 ):
     db, _, _, _ = mail
-    snapshot = await tick(client, db, 0.8, 0)
+    snapshot = await tick(client, db, 0.95 if critical else 0.8, 0)
     page = await active_snapshot_alerts(db, snapshot)
-    assert len(page.items) == 1 and page.items[0].type == "pre_collection_alert"
+    assert len(page.items) == 1
+    assert page.items[0].type == ("collection_required" if critical else "pre_collection_alert")
     item = page.items[0]
     item.loadPercent = value
     item.simulated = simulated
@@ -116,10 +118,13 @@ async def test_warning_mail_formats_display_without_changing_observation(
     await synchronize_snapshot(db, snapshot, page, stamp)
     await db.commit()
     job = (await jobs(db))[0]
-    assert job.subject == "[스크랩 모니터링] 스크랩 적재율 경고"
+    title = "[스크랩 모니터링] " + ("스크랩 수거 필요" if critical else "스크랩 적재율 경고")
+    condition = "fill-critical" if critical else "fill-warning"
+    rendered_value = str(value) if critical else display
+    assert job.subject == title
     assert job.body == (
-        "[스크랩 모니터링] 스크랩 적재율 경고\n피트: pit-demo\n"
-        f"{label}: {display}%\n조건: fill-warning:pit-demo\n"
+        f"{title}\n피트: pit-demo\n"
+        f"{label}: {rendered_value}%\n조건: {condition}:pit-demo\n"
         "판정 시각(UTC+9): 2025-05-01 03:46:12\n현재 판정에 따른 자동 알림입니다."
     )
     assert item.loadPercent == value and item.simulated is simulated
@@ -200,6 +205,9 @@ async def test_recovery_requires_accepted_alert_and_known_clear(client, mail, re
         assert await EmailDeliveryWorker(sender).deliver_one(factory, NOW + timedelta(seconds=1))
         assert (await jobs(db))[-1].phase == "RECOVERY"
         assert "해소" in sender.requests[-1][1]
+        expected_time = (NOW + timedelta(hours=9, seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
+        assert f"해소 판정 시각(UTC+9): {expected_time}\n" in sender.requests[-1][2]
+        assert "시각(UTC):" not in sender.requests[-1][2]
     else:
         assert not await EmailDeliveryWorker(sender).deliver_one(
             factory, NOW + timedelta(seconds=1)
@@ -434,6 +442,9 @@ async def test_health_condition_and_known_recovery_share_existing_evaluation(cli
     sender = SyntheticSender()
     assert await EmailDeliveryWorker(sender).deliver_one(factory, NOW)
     assert (await jobs(db))[0].event_type == "device_error"
+    expected_time = (NOW + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+    assert f"판정 시각(UTC+9): {expected_time}\n" in sender.requests[0][2]
+    assert "시각(UTC):" not in sender.requests[0][2]
     sensor.data_state = "FRESH"
     sensor.reason_codes = []
     snapshot.serverTime = NOW + timedelta(seconds=1)

@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 Alert = ActiveFillAlertV2 | ActiveHealthAlertV2
 
 
+def korean_mail_time(value: datetime) -> str:
+    """Format mail display only; persisted timestamps remain UTC."""
+    return value.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def address_digest(address: str) -> str:
     return hashlib.sha256(address.strip().casefold().encode()).hexdigest()
 
@@ -236,15 +241,12 @@ async def synchronize_snapshot(
             )
             simulated = "[시뮬레이션] " if item.simulated is True else ""
             warning = isinstance(item, ActiveFillAlertV2) and item.type == "pre_collection_alert"
-            title = f"[스크랩 모니터링] {item.title}" if warning else simulated + item.title
-            decision_time = (
-                "판정 시각(UTC+9): "
-                + page.computedAt.astimezone(timezone(timedelta(hours=9))).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-                if warning
-                else f"판정 시각(UTC): {page.computedAt.isoformat()}"
+            title = (
+                f"[스크랩 모니터링] {item.title}"
+                if isinstance(item, ActiveFillAlertV2)
+                else simulated + item.title
             )
+            decision_time = f"판정 시각(UTC+9): {korean_mail_time(page.computedAt)}"
             if isinstance(item, ActiveFillAlertV2):
                 label = (
                     "단면 높이 비율"
@@ -305,7 +307,7 @@ async def synchronize_snapshot(
                     now,
                     "알림 조건 해소 확인",
                     f"피트: {page.pitId}\n조건: {episode.condition_id}\n"
-                    f"해소 판정 시각(UTC): {page.computedAt.isoformat()}\n"
+                    f"해소 판정 시각(UTC+9): {korean_mail_time(page.computedAt)}\n"
                     "물리 장비 수리나 수거 작업 완료를 뜻하지 않습니다.",
                 )
         elif not allowed or not unchanged or not same_scope or clear:
