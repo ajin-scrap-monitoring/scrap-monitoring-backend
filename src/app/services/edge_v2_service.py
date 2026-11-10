@@ -56,6 +56,9 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
         # Missing/null means disabled. Preserve configuration hashes from before this extension.
         if payload.judgment is not None:
             content["judgment"] = payload.judgment.model_dump(mode="json")
+            # Preserve pre-extension immutable configuration hashes when absent.
+            if payload.judgment.point_cloud is None:
+                content["judgment"].pop("point_cloud", None)
         add("configuration", [payload.config_revision], content, "config_revision")
         for configured_sensor in payload.sensors:
             if configured_sensor.calibration:
@@ -93,6 +96,8 @@ async def store_artifacts(db: AsyncSession, payload: Envelope) -> None:
             for field in ("section_profiles", "fusion_result")
             if getattr(payload, field) is None
         }
+        if "filtered_point_clouds" not in payload.model_fields_set:
+            absent.add("filtered_point_clouds")
         content = payload.model_dump(mode="json", exclude={"message_id", *absent})
         add(
             "assessment_revision",
