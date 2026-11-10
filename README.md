@@ -111,6 +111,7 @@ docker compose down
 * [docs/EVENT_RANGE_EXPORTS.md](docs/EVENT_RANGE_EXPORTS.md): 이벤트 구간 MP4 요청·상태 조회·다운로드·실패 재시도
 * [docs/RECORDING_MEDIA_INFO.md](docs/RECORDING_MEDIA_INFO.md): 영상의 실제 코덱·해상도·FPS 및 부분 측정 정보
 * [docs/MEDIA_STORAGE_STATUS.md](docs/MEDIA_STORAGE_STATUS.md): 미디어 파일시스템 용량·날짜 사용량·예약량의 읽기 전용 조회
+* [docs/FILTERED_POINT_CLOUD.md](docs/FILTERED_POINT_CLOUD.md): 원본과 분리된 점별 필터 XYZ의 수신·보존·인증 조회
 * [docs/RECORDING_THUMBNAILS.md](docs/RECORDING_THUMBNAILS.md): 녹화 썸네일 조회·준비·인증된 이미지 전달
 * [docs/SETTINGS_HISTORY.md](docs/SETTINGS_HISTORY.md): 관리자 계정별 알림·피트 설정 변경 이력
 * [docs/MEDIA_INTEGRATION.md](docs/MEDIA_INTEGRATION.md): 카메라 미디어 API, 이벤트 녹화 및 인증된 영상 접근 경로 설정

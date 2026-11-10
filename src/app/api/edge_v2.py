@@ -18,6 +18,7 @@ from src.app.schemas.edge_v2 import (
     Configuration,
     DeviceStatus,
     Envelope,
+    FilteredCloudSnapshot,
     Identifier,
     Measurement,
     StatusReport,
@@ -176,3 +177,56 @@ async def read_device_status(
     site_id: Annotated[Identifier, Path()], edge_id: Annotated[Identifier, Path()], db: Database
 ) -> DeviceStatus:
     return await device_status(db, site_id, edge_id)
+
+
+@router.get(
+    "/devices/{site_id}/{edge_id}/filtered-point-clouds",
+    response_model=FilteredCloudSnapshot,
+    dependencies=[Depends(get_session)],
+)
+async def read_filtered_clouds(
+    site_id: Annotated[Identifier, Path()],
+    edge_id: Annotated[Identifier, Path()],
+    response: Response,
+    db: Database,
+) -> FilteredCloudSnapshot:
+    """Read the retained STATE without changing graph sources or edge configuration."""
+    from src.app.core.config import get_settings
+    from src.app.services.edge_v2_projection import latest_message
+
+    response.headers["Cache-Control"] = "no-store"
+    if not any(
+        d.site_id == site_id and d.edge_id == edge_id for d in get_settings().EDGE_V2_DEVICES
+    ):
+        raise HTTPException(404, "Device not configured")
+    row = await latest_message(db, site_id, edge_id, "state")
+    if row is None or not get_settings().EDGE_V2_COMPACT_STORAGE_ENABLED:
+        from sqlalchemy import select
+
+        from src.app.models.edge_v2 import EdgeV2Message
+
+        row = await db.scalar(
+            select(EdgeV2Message)
+            .where(
+                EdgeV2Message.site_id == site_id,
+                EdgeV2Message.edge_id == edge_id,
+                EdgeV2Message.message_type == "edge_assessment",
+                EdgeV2Message.compact.is_(False),
+                EdgeV2Message.payload["assessment_type"].as_string() == "STATE",
+            )
+            .order_by(EdgeV2Message.generated_at.desc(), EdgeV2Message.id.desc())
+            .limit(1)
+        )
+    payload = row.payload if row is not None else {}
+    return FilteredCloudSnapshot.model_validate(
+        {
+            "site_id": site_id,
+            "edge_id": edge_id,
+            "message_id": payload.get("message_id"),
+            "assessment_id": payload.get("assessment_id"),
+            "config_revision": payload.get("config_revision"),
+            "generated_at": payload.get("generated_at"),
+            "field_present": "filtered_point_clouds" in payload,
+            "filtered_point_clouds": payload.get("filtered_point_clouds"),
+        }
+    )

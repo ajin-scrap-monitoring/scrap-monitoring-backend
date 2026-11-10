@@ -1,9 +1,19 @@
 """Bounded independent-section wire results; accepting data does not apply edge settings."""
 
 import math
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+
+from src.app.schemas.edge_point_cloud import PointCloudSettings
 
 Identifier = Annotated[str, Field(min_length=1, max_length=128)]
 Ratio = Annotated[float, Field(ge=0, le=1)]
@@ -123,6 +133,21 @@ class IndependentJudgment(SectionModel):
     sections: list[SectionSettings] = Field(min_length=2, max_length=2)
     window: SectionWindow
     fusion: FusionSettings | None
+    point_cloud: PointCloudSettings | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_absent_point_cloud(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        if self.point_cloud is None:
+            result.pop("point_cloud", None)
+        return result
+
+    @field_validator("point_cloud", mode="before")
+    @classmethod
+    def point_cloud_not_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Omit point_cloud to disable; explicit null is not a setting")
+        return value
 
     @model_validator(mode="after")
     def sensor_scope(self) -> Self:

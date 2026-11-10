@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from src.app.schemas.edge_point_cloud import FilteredPointCloud
 from src.app.schemas.edge_sections import FusionResult, IndependentJudgment, SectionResult
 
 Identifier = Annotated[str, Field(strict=True, min_length=1, max_length=128)]
@@ -257,6 +258,17 @@ class Evidence(ContractModel):
     vision_observations: list[VisionReference]
 
 
+class FilteredCloudSnapshot(ContractModel):
+    site_id: Identifier
+    edge_id: Identifier
+    message_id: Identifier | None
+    assessment_id: Identifier | None
+    config_revision: Identifier | None
+    generated_at: UtcTime | None
+    field_present: bool
+    filtered_point_clouds: list[FilteredPointCloud] | None
+
+
 class Assessment(Envelope):
     message_type: Literal["edge_assessment"]
     assessment_type: Literal["STATE", "EVENT"]
@@ -276,6 +288,32 @@ class Assessment(Envelope):
     # Optional independent-section results retain wire mm/mm² and ratios, not UI units.
     section_profiles: list[SectionResult] | None = Field(default=None, min_length=2, max_length=2)
     fusion_result: FusionResult | None = None
+    filtered_point_clouds: list[FilteredPointCloud] | None = Field(
+        default=None, min_length=2, max_length=2
+    )
+
+    @model_validator(mode="after")
+    def cloud_consistency(self) -> Self:
+        if self.filtered_point_clouds is None:
+            return self
+        clouds = self.filtered_point_clouds
+        if self.assessment_type != "STATE" or self.section_profiles is None:
+            raise ValueError("Filtered clouds require independent STATE sections")
+        if len({c.sensor_id for c in clouds}) != 2 or {c.sensor_id for c in clouds} != {
+            s.sensor_id for s in self.section_profiles
+        }:
+            raise ValueError("Cloud sensors must match independent sections")
+        refs = [r.model_dump(mode="json") for r in self.evidence.scans]
+        for cloud in clouds:
+            if any(
+                r.model_dump(mode="json") not in refs
+                or r.sensor_id != cloud.sensor_id
+                or r.config_revision != self.config_revision
+                or r.coordinate_frame_id != cloud.coordinate_frame_id
+                for r in cloud.source_scans
+            ):
+                raise ValueError("Cloud source references must match STATE evidence")
+        return self
 
     @model_validator(mode="after")
     def section_consistency(self) -> Self:
