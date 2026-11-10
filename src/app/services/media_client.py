@@ -18,6 +18,7 @@ from src.app.schemas.media_service import (
     RangeClipRequest,
     RecordingPolicy,
 )
+from src.app.schemas.media_storage import MediaStorageStatus
 
 Schema = TypeVar("Schema", bound=BaseModel)
 # A bounded file probe may take fifteen seconds; leave three seconds for JSON I/O.
@@ -176,6 +177,13 @@ class MediaClient:
             return schema.model_validate_json(response.content)
         except ValidationError as exc:
             raise MediaServiceError(502, "MEDIA_BAD_RESPONSE") from exc
+
+    async def storage_status(self) -> tuple[int, MediaStorageStatus]:
+        response = await self._request("GET", "storage/status", (200, 503), tokenless=True)
+        result = self._parse(response, MediaStorageStatus)
+        if (response.status_code == 200) != (result.status == "ready"):
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+        return response.status_code, result
 
     async def get_policy(self, camera_id: str) -> RecordingPolicy:
         response = await self._request(
