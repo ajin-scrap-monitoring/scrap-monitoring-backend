@@ -104,6 +104,9 @@ class LidarProfileV2(RequiredResponseFields):
     measuredAt: datetime | None = None
     configRevision: str | None = None
     calibrationVersion: str | None = None
+    sampleSource: Literal["MEASUREMENT", "FILTERED_POINT_CLOUD"] = "MEASUREMENT"
+    processingVersion: str | None = None
+    sourceScanId: str | None = None
     unit: Literal["cm"] = "cm"
     referenceDistanceCm: float
     simulated: bool = False

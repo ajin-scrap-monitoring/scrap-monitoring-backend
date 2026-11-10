@@ -277,6 +277,10 @@ async def lidar_profiles(
     from src.app.services.height_median_service import height_median_enabled, read_height_window
 
     when = now or datetime.now(UTC)
+    if get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
+        from src.app.services.filtered_lidar_profiles import filtered_lidar_profiles
+
+        return await filtered_lidar_profiles(db, source, when)
     page = await raw_lidar_profiles(db, source, when)
     if height_median_enabled():
         return await read_height_window(db, source, page, when)
