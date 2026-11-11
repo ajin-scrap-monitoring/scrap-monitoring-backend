@@ -173,6 +173,15 @@ def project_cloud(
             reason = "FILTERED_PROFILE_SETTINGS_MISMATCH"
     if reason:
         result.reasonCodes = [reason]
+        if reason == "FILTERED_PROFILE_STALE_OR_CLOCK_SKEW":
+            # Retain the existing hard-failure code for older clients. Detailed codes
+            # distinguish expiration from future timestamps; neither permits a hold.
+            assert assessment is not None and anchor is not None
+            timestamps = (assessment.generated_at, anchor.acquired_at)
+            if any(at > now for at in timestamps):
+                result.reasonCodes.append("FILTERED_PROFILE_FUTURE_TIMESTAMP")
+            if any(now - at >= ttl for at in timestamps):
+                result.reasonCodes.append("FILTERED_PROFILE_EXPIRED")
         return result
     assert cloud is not None and pose is not None and reference is not None
     line = floor_section(reference, pose)
