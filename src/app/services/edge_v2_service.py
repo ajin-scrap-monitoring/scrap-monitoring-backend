@@ -222,8 +222,13 @@ async def accept_message(
         from src.app.services.edge_v2_projection import lock_projection, project, receipt_payload
 
         compact = get_settings().EDGE_V2_COMPACT_STORAGE_ENABLED
+        # Historical evidence never mutates a live projection. Artifact uniqueness and
+        # savepoint retries still arbitrate concurrent immutable writes before the ACK.
+        projects_live = not (
+            isinstance(payload, Measurement) and payload.delivery_kind == "EVIDENCE"
+        )
         with phase(timing, "projection_lock"):
-            filter_row = await lock_projection(db, payload) if compact else None
+            filter_row = await lock_projection(db, payload) if compact and projects_live else None
         message = EdgeV2Message(
             site_id=payload.site_id,
             edge_id=payload.edge_id,
