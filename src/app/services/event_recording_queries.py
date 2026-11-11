@@ -329,6 +329,7 @@ def event_table(
             filters = [
                 event.site_id == source.site_id,
                 event.edge_id == source.edge_id,
+                event.payload["diagnosticOnly"].as_boolean().is_not(True),
                 or_(
                     event.payload["pitId"].as_string() == pit,
                     event.payload["pitId"].as_string().is_(None),

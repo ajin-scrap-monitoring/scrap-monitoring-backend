@@ -396,11 +396,37 @@ class Clock(ContractModel):
     offset_ms: Number | None
 
 
+class ScanUpdateAlarm(ContractModel):
+    """Optional operational alarm; never changes calculation freshness."""
+
+    state: Literal["UNKNOWN", "CLEAR", "PENDING", "ACTIVE", "RECOVERING"]
+    active: Annotated[bool, Field(strict=True)] | None
+    scan_age_ms: Annotated[float, Field(strict=True, ge=0)] | None
+    last_valid_scan_at: UtcTime | None
+    confirm_after_ms: Annotated[Literal[3000], BeforeValidator(require_integer)]
+    reason_codes: list[Identifier]
+
+    @model_validator(mode="after")
+    def state_consistency(self) -> Self:
+        expected = {
+            "UNKNOWN": (None, []),
+            "CLEAR": (False, []),
+            "PENDING": (False, ["SCAN_UPDATE_DELAY_PENDING"]),
+            "ACTIVE": (True, ["SCAN_UPDATE_DELAY_CONFIRMED"]),
+            "RECOVERING": (True, ["SCAN_UPDATE_RECOVERING"]),
+        }
+        active, reasons = expected[self.state]
+        if self.active is not active or self.reason_codes != reasons:
+            raise ValueError("Inconsistent scan update alarm")
+        return self
+
+
 class SensorStatus(ContractModel):
     sensor_id: Identifier
     data_state: Literal["FRESH", "STALE", "RECOVERING", "UNAVAILABLE", "UNKNOWN"]
     last_scan_at: UtcTime | None
     reason_codes: list[Identifier]
+    scan_update_alarm: ScanUpdateAlarm | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ServiceStatus(ContractModel):

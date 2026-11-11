@@ -16,7 +16,9 @@ PREPARING_REASONS = {"SCAN_RECOVERING", "FILTER_WARMING", "MEDIAN_WARMING", "INI
 def error_transition_event(row: EdgeV2Transition) -> Event | None:
     """Legacy status describes the occurrence only; state and reasons preserve its meaning."""
     data = row.payload
-    raw_reasons = data.get("reasonCodes")
+    if data.get("diagnosticOnly") is True:
+        return None
+    raw_reasons = data.get("operationalReasonCodes", data.get("reasonCodes"))
     reasons = (
         [reason for reason in raw_reasons if isinstance(reason, str)]
         if isinstance(raw_reasons, list)
@@ -25,8 +27,11 @@ def error_transition_event(row: EdgeV2Transition) -> Event | None:
     preparing = bool(PREPARING_REASONS.intersection(reasons))
     kind = row.kind
     if kind == "DEVICE_STATE_CHANGED":
-        previous, current = data.get("previous"), data.get("current")
-        if previous == current:
+        previous = data.get("operationalPrevious", data.get("previous"))
+        current = data.get("operationalCurrent", data.get("current"))
+        if previous == current and not (
+            "operationalCurrent" in data and data.get("diagnosticOnly") is False
+        ):
             return None
         if current in ("MEASUREMENT_UNAVAILABLE", "CONFIG_ERROR"):
             state, severity = "UNAVAILABLE", "error"
@@ -42,6 +47,16 @@ def error_transition_event(row: EdgeV2Transition) -> Event | None:
         else:
             return None
         detail = f"장치 보고 상태가 {previous}에서 {current}(으)로 변경되었습니다."
+        if data.get("scanUpdateAlarm") is True:
+            recovered = current == "HEALTHY"
+            title = "LiDAR 스캔 갱신 복구" if recovered else "LiDAR 스캔 갱신 지연"
+            severity = "info" if recovered else "warning"
+            action = "해제" if recovered else "발생"
+            detail = (
+                f"{data.get('sensorId')}의 확정된 스캔 지연 경고가 {action}했습니다. "
+                "다른 장치 상태의 복귀를 뜻하지 않습니다."
+            )
+
     elif kind == "MEASUREMENT_VALIDITY_CHANGED":
         previous, current = data.get("previousValid"), data.get("currentValid")
         if not isinstance(previous, bool) or not isinstance(current, bool) or previous == current:
@@ -103,6 +118,7 @@ async def error_history_events(
         event.site_id == source.site_id,
         event.edge_id == source.edge_id,
         event.kind.in_(["DEVICE_STATE_CHANGED", "MEASUREMENT_VALIDITY_CHANGED"]),
+        event.payload["diagnosticOnly"].as_boolean().is_not(True),
         or_(recorded_pit == pit_id, recorded_pit.is_(None)),
         event.occurred_at <= end,
     )

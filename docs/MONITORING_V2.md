@@ -109,3 +109,5 @@ docker build -t scrap-backend-issue29:local .
 현재 장비·측정 알림과 시작 시각의 선택적 통합 조회는 [현재 상태 계약](ACTIVE_HEALTH_ALERTS.md)을 참고한다.
 
 센서 위치·측정선·좌표계의 설정 기반 조회는 [측정 배치 계약](MEASUREMENT_LAYOUT.md)을 참고한다.
+
+센서별 선택 운영 경고와 계산용 최신성의 구분은 [스캔 갱신 지연 경고](SCAN_UPDATE_ALARMS.md)를 따른다.

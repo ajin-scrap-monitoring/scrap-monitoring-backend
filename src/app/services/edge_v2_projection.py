@@ -116,8 +116,10 @@ async def project(
     replace = current is None or payload.generated_at > utc(current.generated_at)
     same_instance = False
     old_status = None
+    previous_status = None
     if current is not None and isinstance(payload, StatusReport):
         previous = StatusReport.model_validate(current.payload)
+        previous_status = previous
         old_status = previous.overall_state
         same_instance = previous.orchestrator_instance_id == payload.orchestrator_instance_id
         if same_instance:
@@ -149,6 +151,29 @@ async def project(
 
         if height_median_enabled() or get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
             await invalidate_on_status(db, payload, utc(receipt.received_at), same_instance)
+        from src.app.services.scan_update_alarm_service import (
+            managed_report,
+            operational_device,
+            record_scan_alarms,
+        )
+
+        await record_scan_alarms(db, payload)
+        operational = {}
+        if (
+            previous_status is not None
+            and same_instance
+            and previous_status.config_revision == payload.config_revision
+            and (managed_report(previous_status) and managed_report(payload))
+        ):
+            before_state, before_reasons = operational_device(previous_status)
+            after_state, after_reasons = operational_device(payload)
+            operational = {
+                "diagnosticOnly": before_state == after_state
+                and set(before_reasons) == set(after_reasons),
+                "operationalPrevious": before_state,
+                "operationalCurrent": after_state,
+                "operationalReasonCodes": after_reasons,
+            }
         if old_status is not None and old_status != payload.overall_state:
             assigned_pit = next(
                 (
@@ -165,6 +190,7 @@ async def project(
                     occurred_at=payload.generated_at,
                     kind="DEVICE_STATE_CHANGED",
                     payload={
+                        **operational,
                         "previous": old_status,
                         "pitId": assigned_pit,
                         "current": payload.overall_state,

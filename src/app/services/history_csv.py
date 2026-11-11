@@ -167,6 +167,7 @@ async def guard_event_volume(
     if category in ("all", "error"):
         conditions.append(
             event.kind.in_(["DEVICE_STATE_CHANGED", "MEASUREMENT_VALIDITY_CHANGED"])
+            & event.payload["diagnosticOnly"].as_boolean().is_not(True)
             & or_(recorded_pit == pit, recorded_pit.is_(None))
         )
     if conditions:

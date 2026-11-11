@@ -16,13 +16,19 @@ from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.alert_lifecycle_service import lifecycle_scope, stamp
 from src.app.services.edge_v2_service import digest
 from src.app.services.error_history_service import PREPARING_REASONS
+from src.app.services.scan_update_alarm_service import (
+    SCAN_REASONS,
+    known_alarm,
+    operational_device,
+    unresolved_alarms,
+)
 
 TRACKER_KIND = "active_alert_starts"
 Alert = ActiveFillAlertV2 | ActiveHealthAlertV2
 
 
 def health_conditions(
-    snapshot: MonitoringSnapshotV2, now: datetime
+    snapshot: MonitoringSnapshotV2, now: datetime, unresolved: set[str] | None = None
 ) -> tuple[list[ActiveHealthAlertV2], list[ActiveHealthCoverageV2]]:
     """A stale status cannot assert a current physical fault or recovery."""
     device, source = snapshot.deviceStatus, snapshot.source
@@ -108,17 +114,18 @@ def health_conditions(
     coverage.append(
         ActiveHealthCoverageV2(componentKind="EDGE", componentId=source.edge_id, state="CHECKED")
     )
-    preparing = bool(PREPARING_REASONS.intersection(report.reason_codes))
-    if report.overall_state != "HEALTHY" and not (preparing and report.overall_state == "DEGRADED"):
+    operational_state, operational_reasons = operational_device(report)
+    preparing = bool(PREPARING_REASONS.intersection(operational_reasons))
+    if operational_state != "HEALTHY" and not (preparing and operational_state == "DEGRADED"):
         condition(
             "EDGE",
             source.edge_id,
-            report.overall_state,
+            operational_state,
             "Edge 장치 상태 이상",
-            report.reason_codes,
+            operational_reasons,
             "EDGE_STATUS",
             report.generated_at,
-            report.overall_state in ("MEASUREMENT_UNAVAILABLE", "CONFIG_ERROR"),
+            operational_state in ("MEASUREMENT_UNAVAILABLE", "CONFIG_ERROR"),
         )
     by_sensor = {s.sensor_id: s for s in report.sensors}
     for identifier in configured:
@@ -147,6 +154,43 @@ def health_conditions(
                 reasonCodes=reasons,
             )
         )
+        alarm = known_alarm(sensor) if sensor else None
+        if (
+            identifier in (unresolved or set())
+            and sensor is not None
+            and sensor.data_state in ("FRESH", "STALE", "RECOVERING")
+            and (alarm is None or alarm.state == "PENDING")
+            and set(sensor.reason_codes) <= SCAN_REASONS
+        ):
+            condition(
+                "LIDAR",
+                identifier,
+                "UNKNOWN",
+                "LiDAR 지연 경고 상태 확인 필요",
+                ["SCAN_UPDATE_ALARM_UNCONFIRMED"],
+                "EDGE_STATUS",
+                measured,
+            )
+            continue
+        # Only a currently trustworthy scan can use the optional operational policy.
+        if (
+            alarm is not None
+            and measured is not None
+            and timedelta(0)
+            <= now - measured
+            < timedelta(seconds=get_settings().EDGE_V2_ASSESSMENT_TTL_SECONDS)
+        ):
+            if alarm.active:
+                condition(
+                    "LIDAR",
+                    identifier,
+                    "SCAN_UPDATE_DELAY",
+                    "LiDAR 스캔 갱신 지연",
+                    alarm.reason_codes,
+                    "EDGE_STATUS",
+                    measured,
+                )
+            continue
         if state != "FRESH" and not preparing:
             condition(
                 "LIDAR",
@@ -217,7 +261,8 @@ async def record_starts(
     continuous = before is not None and timedelta(0) <= now - before < timedelta(
         seconds=min(30, get_settings().EDGE_V2_ASSESSMENT_TTL_SECONDS)
     )
-    conditions = {item.id: item.state for item in health_conditions(snapshot, now)[0]}
+    unresolved = await unresolved_alarms(db, snapshot.deviceStatus.snapshot)
+    conditions = {item.id: item.state for item in health_conditions(snapshot, now, unresolved)[0]}
     if fill_state in ("WARNING", "CRITICAL") and snapshot.dataState == "FRESH":
         policy = await db.get(AlertPolicy, source.pit_id)
         if fill_state == "CRITICAL" or not policy or policy.pre_alert_enabled:
