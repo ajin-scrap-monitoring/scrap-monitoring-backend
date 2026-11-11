@@ -13,7 +13,7 @@ from src.app.schemas.active_alerts_v2 import (
 from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.active_health_service import apply_starts, health_conditions
 from src.app.services.camera_status_service import CameraStatusService, camera_conditions
-from src.app.services.monitoring_v2_service import build_snapshot
+from src.app.services.monitoring_v2_service import monitoring_snapshot
 from src.app.services.scan_update_alarm_service import unresolved_alarms
 
 
@@ -26,7 +26,7 @@ async def active_fill_alerts(
     camera_status: CameraStatusService | None = None,
 ) -> ActiveFillAlertPageV2:
     now = now or datetime.now(UTC)
-    snapshot = await build_snapshot(db, source, now)
+    snapshot = await monitoring_snapshot(db, source, now)
     return await active_snapshot_alerts(
         db, snapshot, include_health=include_health, camera_status=camera_status
     )
