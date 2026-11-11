@@ -190,6 +190,15 @@ def test_incompatible_cloud_context_never_becomes_a_graph(world_context, kind):
 
     p = calculate(change)
     assert p.calibrationState == "UNAVAILABLE" and not p.samples and p.average is None
+    if kind in ("stale", "future"):
+        assert "FILTERED_PROFILE_STALE_OR_CLOCK_SKEW" in p.reasonCodes
+        specific = (
+            "FILTERED_PROFILE_EXPIRED" if kind == "stale" else "FILTERED_PROFILE_FUTURE_TIMESTAMP"
+        )
+        other = (
+            "FILTERED_PROFILE_FUTURE_TIMESTAMP" if kind == "stale" else "FILTERED_PROFILE_EXPIRED"
+        )
+        assert specific in p.reasonCodes and other not in p.reasonCodes
 
 
 @pytest.fixture
@@ -226,6 +235,11 @@ async def test_existing_api_selects_filtered_points_and_separate_five_second_sca
     await login(client)
     for second in range(7):
         a, page = await frame(client, db, cloud_context, second, 90 if second == 6 else 50.0125)
+        response = await client.get("/api/v2/monitoring/profiles?pit_id=pit-demo")
+        assert response.status_code == 200
+        reasons = response.json()["profiles"][0]["reasonCodes"]
+        assert ("HEIGHT_TEMPORAL_WARMING" in reasons) == (second < 4)
+        assert "HEIGHT_TEMPORAL_MISSING" not in reasons
     assert page.profiles[0].average == 90
     assert page.profiles[0].filteredAverage == pytest.approx(50.0125)
     assert page.meanSectionFillPercent == pytest.approx(50.0125)
@@ -358,3 +372,36 @@ def test_angle_order_is_preserved_with_original_index_correspondence(world_conte
     p = calculate(change)
     assert [s["sourceIndex"] for s in p.samples] == [7, 2]
     assert [s["positionRatio"] for s in p.samples] == pytest.approx([0.35, 0.25])
+
+
+@pytest.mark.parametrize("kind", ["window_missing", "no_current_height"])
+async def test_existing_api_does_not_describe_missing_representative_as_warming(
+    client, test_db_session, cloud_context, kind
+):
+    db = test_db_session
+    await prepare(client, db)
+    await login(client)
+    for second in range(5):
+        await frame(client, db, cloud_context, second)
+    if kind == "window_missing":
+        row = await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "filtered_profile_window"))
+        row.payload = {}
+        await db.commit()
+    else:
+        await legacy.frame(client, db, cloud_context, 5, 20)
+        _, assessment = inputs(5)
+        for cloud in assessment["filtered_point_clouds"]:
+            # Valid filtered coordinates, but outside this invented pit's height range.
+            cloud["xyz_mm"] = [[200, 500, -100], [200, 700, -100]]
+        assert (await send(client, assessment)).status_code == 201
+    response = await client.get("/api/v2/monitoring/profiles?pit_id=pit-demo")
+    assert response.status_code == 200
+    for profile in response.json()["profiles"]:
+        assert profile["filteredAverage"] is None
+        assert "HEIGHT_TEMPORAL_MISSING" in profile["reasonCodes"]
+        assert "HEIGHT_TEMPORAL_WARMING" not in profile["reasonCodes"]
+        assert "HEIGHT_TEMPORAL_WARMING_OR_MISSING" not in profile["reasonCodes"]
+        if kind == "window_missing":
+            assert any(sample["valid"] for sample in profile["samples"])
+        else:
+            assert not any(sample["valid"] for sample in profile["samples"])

@@ -198,9 +198,25 @@ def filter_scan_mean(
         profile.filteredAverage = float(median(cast(float, f.heights[0]) for f in history.frames))
         profile.sectionFillPercent = profile.filteredAverage / depth * 100
     elif profile.calibrationState in ("VERIFIED", "SIMULATION"):
-        profile.reasonCodes = list(
-            dict.fromkeys([*profile.reasonCodes, "HEIGHT_TEMPORAL_WARMING_OR_MISSING"])
+        # Only a matching, valid but incomplete window is safe to describe as warming.
+        # Missing current values or unmatched history must not authorize a UI hold.
+        warming = (
+            profile.average is not None
+            and profile.measuredAt is not None
+            and depth is not None
+            and depth > 0
+            and history is not None
+            and history.basis == "RECEIVED_POINTS"
+            and 0 < len(history.frames) < size
+            and history.frames[-1].at == profile.measuredAt
+            and all(len(f.heights) == 1 and f.heights[0] is not None for f in history.frames)
         )
+        reasons = (
+            ["HEIGHT_TEMPORAL_WARMING", "HEIGHT_TEMPORAL_WARMING_OR_MISSING"]
+            if warming
+            else ["HEIGHT_TEMPORAL_MISSING"]
+        )
+        profile.reasonCodes = list(dict.fromkeys([*profile.reasonCodes, *reasons]))
 
 
 async def project_height_window(
