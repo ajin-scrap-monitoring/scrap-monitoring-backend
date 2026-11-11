@@ -21,6 +21,7 @@ from src.app.schemas.edge_v2 import (
     StatusReport,
     StorageAck,
 )
+from src.app.services.receiver_timing import ReceiverTiming, phase
 
 
 def utc(value: datetime) -> datetime:
@@ -200,13 +201,20 @@ def receipt(message: EdgeV2Message, duplicate: bool) -> StorageAck:
 
 
 async def accept_message(
-    db: AsyncSession, payload: Envelope, original: dict[str, Any], device: EdgeV2Device
+    db: AsyncSession,
+    payload: Envelope,
+    original: dict[str, Any],
+    device: EdgeV2Device,
+    *,
+    timing: ReceiverTiming | None = None,
 ) -> StorageAck:
     """Commit all artifacts before issuing the ACK; replay returns the original receipt."""
     validate_scope(payload, device)
-    body_hash = digest(original)
+    with phase(timing, "body_hash"):
+        body_hash = digest(original)
     try:
-        existing = await db.scalar(message_query(payload))
+        with phase(timing, "receipt_lookup"):
+            existing = await db.scalar(message_query(payload))
         if existing is not None:
             if existing.body_hash != body_hash:
                 raise EdgeV2Error(409, "IDEMPOTENCY_CONFLICT")
@@ -214,7 +222,8 @@ async def accept_message(
         from src.app.services.edge_v2_projection import lock_projection, project, receipt_payload
 
         compact = get_settings().EDGE_V2_COMPACT_STORAGE_ENABLED
-        filter_row = await lock_projection(db, payload) if compact else None
+        with phase(timing, "projection_lock"):
+            filter_row = await lock_projection(db, payload) if compact else None
         message = EdgeV2Message(
             site_id=payload.site_id,
             edge_id=payload.edge_id,
@@ -233,7 +242,8 @@ async def accept_message(
         )
         db.add(message)
         try:
-            await db.flush()
+            with phase(timing, "receipt_flush"):
+                await db.flush()
         except IntegrityError:
             await db.rollback()
             existing = await db.scalar(message_query(payload))
@@ -242,11 +252,15 @@ async def accept_message(
             if existing.body_hash != body_hash:
                 raise EdgeV2Error(409, "IDEMPOTENCY_CONFLICT") from None
             return receipt(existing, True)
-        await store_artifacts(db, payload)
+        with phase(timing, "artifacts"):
+            await store_artifacts(db, payload)
         if filter_row is not None:
-            await project(db, payload, original, message, filter_row)
-        await db.flush()
-        await db.commit()
+            with phase(timing, "projection"):
+                await project(db, payload, original, message, filter_row)
+        with phase(timing, "projection_flush"):
+            await db.flush()
+        with phase(timing, "commit"):
+            await db.commit()
         return receipt(message, False)
     except EdgeV2Error:
         await db.rollback()
