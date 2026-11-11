@@ -85,8 +85,8 @@ async def test_one_captured_snapshot_supplies_both_display_areas(
     async def forbidden_rebuild(*args, **kwargs):
         raise AssertionError("Alert lookup must reuse the captured snapshot")
 
-    monkeypatch.setattr(route, "build_snapshot", captured)
-    monkeypatch.setattr(alert_service, "build_snapshot", forbidden_rebuild)
+    monkeypatch.setattr(route, "monitoring_snapshot", captured)
+    monkeypatch.setattr(alert_service, "monitoring_snapshot", forbidden_rebuild)
     response = await client.get(URL, params=PARAMS)
     assert response.status_code == 200
     body = response.json()
@@ -111,7 +111,7 @@ async def test_measurement_arriving_between_snapshot_and_alerts_cannot_mix_state
         await tick(client, db, 0.5, 1)
         return captured
 
-    monkeypatch.setattr(route, "build_snapshot", captured_before_new_measurement)
+    monkeypatch.setattr(route, "monitoring_snapshot", captured_before_new_measurement)
     body = (await client.get(URL, params=PARAMS)).json()
     assert_shared_basis(body)
     assert body["snapshot"]["summary"]["loadPercent"] == 99
@@ -136,7 +136,7 @@ async def test_pending_and_stale_pairs_keep_original_evaluation_times(
     async def captured(db, assigned):
         return await build_snapshot(db, assigned, NOW + timedelta(seconds=seconds))
 
-    monkeypatch.setattr(route, "build_snapshot", captured)
+    monkeypatch.setattr(route, "monitoring_snapshot", captured)
     body = (await client.get(URL, params=PARAMS)).json()
     assert_shared_basis(body)
     assert body["activeAlerts"]["evaluationState"] == state
@@ -213,7 +213,7 @@ async def test_warning_switch_and_error_state_keep_same_basis(client, test_db_se
     async def captured(db, source):
         return await build_snapshot(db, source, when)
 
-    monkeypatch.setattr(route, "build_snapshot", captured)
+    monkeypatch.setattr(route, "monitoring_snapshot", captured)
     body = (await client.get(URL, params=PARAMS)).json()
     assert_shared_basis(body)
     assert body["activeAlerts"]["evaluationState"] == "ERROR"
@@ -260,6 +260,9 @@ async def test_error_or_cancellation_releases_read_transaction(
     await login(client)
 
     async def fail(*args, **kwargs):
+        # The metadata snapshot has already closed its independent reader. Alarm
+        # lookups can open the caller's transaction, which the route still releases.
+        await test_db_session.execute(select(AlertLog.id).limit(1))
         assert test_db_session.in_transaction()
         raise failure()
 

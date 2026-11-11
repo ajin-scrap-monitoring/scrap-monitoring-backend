@@ -42,8 +42,8 @@ from src.app.services.fill_forecast_service import fill_forecast
 from src.app.services.load_history_v2_service import load_history
 from src.app.services.measurement_layout_service import measurement_layout
 from src.app.services.monitoring_v2_service import (
-    build_snapshot,
     lidar_profile_snapshot,
+    monitoring_snapshot,
     monitoring_source,
 )
 from src.app.services.session_service import SESSION_COOKIE_NAME
@@ -224,7 +224,7 @@ async def collection_revisions(
 async def read_snapshot(db: AsyncSession, source: MonitoringSource) -> MonitoringSnapshotV2:
     """Release the read transaction between frames, including on errors/cancellation."""
     try:
-        return await build_snapshot(db, source)
+        return await monitoring_snapshot(db, source)
     finally:
         await db.rollback()
 
@@ -249,7 +249,7 @@ async def snapshot_with_alerts(
     """Return both display areas from one snapshot, releasing the read transaction."""
     response.headers["Cache-Control"] = "no-store"
     try:
-        current = await build_snapshot(db, source)
+        current = await monitoring_snapshot(db, source)
         active = await active_snapshot_alerts(
             db,
             current,

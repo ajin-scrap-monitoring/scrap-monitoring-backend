@@ -80,6 +80,23 @@ def monitoring_source(pit_id: str) -> MonitoringSource:
     raise HTTPException(404, "MONITORING_SOURCE_NOT_CONFIGURED")
 
 
+async def monitoring_snapshot(
+    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+) -> MonitoringSnapshotV2:
+    """Capture display metadata from one committed generation without blocking receivers.
+
+    Authentication may already have opened the caller's transaction. Use a short,
+    independent PostgreSQL read snapshot and release it before camera/network work.
+    Internal write workflows retain build_snapshot and their own transaction.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return await build_snapshot(db, source, now)
+    async with AsyncSession(bind=db.bind, expire_on_commit=False) as reading:
+        await reading.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        await reading.execute(text("SET TRANSACTION READ ONLY"))
+        return await build_snapshot(reading, source, now)
+
+
 async def build_snapshot(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> MonitoringSnapshotV2:

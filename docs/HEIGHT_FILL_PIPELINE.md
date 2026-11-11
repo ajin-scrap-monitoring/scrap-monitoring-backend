@@ -4,6 +4,13 @@
 
 ## 입력과 표시
 
+PostgreSQL의 화면 snapshot·snapshot-with-alerts·active-alerts와 SSE의 각 적재율 조회는
+짧은 독립 읽기 전용 REPEATABLE READ에서 관측·필터·운영 판단을 읽는다. 수신 저장이
+조회 도중 완료돼도 서로 다른 버전의 측정 ID를 비교해 FILTER_UNAVAILABLE을 만들지 않는다.
+읽기는 수신 행을 잠그지 않으며 인증 트랜잭션을 변경하지 않고, 카메라 등 외부 조회 전에
+종료한다. 실제 결측·준비 중·오래된 관측과 설정 변경에 따른 무효화는 계속 표시한다.
+내부 판정·발송 등 쓰기 작업의 build_snapshot은 기존 호출자 트랜잭션을 유지한다.
+
 측정 저장 트랜잭션에서 최신 프로필을 계산하고 별도 `height_fill` 최신 행에 작은 숫자·출처·식별 정보만 저장한다. 과거 EVIDENCE·늦은 관측·같은 메시지 재전송은 창을 진행시키지 않는다. 점 원문을 추가 보관하지 않는다.
 
 `summary.inputSource`는 EDGE_STATE 또는 HEIGHT_SECTIONS다. snapshot의 `assessment`와 그 수신 시각은 원래 엣지 판정을 유지한다. 높이 모드의 `fillObservation`은 출처·측정 message_id·별도 observation_id·생성/수신/관측 시각·계산 방법과 입력 비율이다. 엣지 `capabilities.fill`을 변경하거나 엣지가 보낸 것처럼 새 STATE를 만들지 않는다.
