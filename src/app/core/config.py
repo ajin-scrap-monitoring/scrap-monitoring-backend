@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     EDGE_V2_CRITICAL_THRESHOLD: float = Field(default=90.0, gt=5.0, le=100.0)
     # Explicit activation preserves legacy installations until migration/deployment review.
     EDGE_V2_COMPACT_STORAGE_ENABLED: bool = False
+    # Temporary receiver diagnostics; no credentials or original message bodies are logged.
+    EDGE_V2_RECEIVER_TIMING_ENABLED: bool = False
+    EDGE_V2_RECEIVER_TIMING_MIN_MS: float = Field(default=0, ge=0, le=60000)
     EDGE_V2_MEDIAN_WINDOW_SECONDS: int = Field(default=5, ge=3, le=31)
     EDGE_V2_CRITICAL_CONFIRM_SECONDS: int = Field(default=3, ge=0, le=60)
     # Sensor-to-empty-floor distance, separate from the pit's total depth.

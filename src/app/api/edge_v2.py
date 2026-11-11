@@ -11,6 +11,7 @@ from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.v1.session import get_session
+from src.app.core.config import get_settings
 from src.app.core.edge_v2_security import EdgeV2Device, EdgeV2Error, authenticate_device
 from src.app.db.session import get_db_session
 from src.app.schemas.edge_v2 import (
@@ -26,6 +27,7 @@ from src.app.schemas.edge_v2 import (
     StorageError,
 )
 from src.app.services.edge_v2_service import accept_message, device_status
+from src.app.services.receiver_timing import ReceiverTiming
 
 
 def readable_message_id(value: Any) -> str | None:
@@ -37,7 +39,7 @@ class ContractRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
 
-        async def wrapped(request: Request) -> Response:
+        async def contract_handler(request: Request) -> Response:
             try:
                 return await handler(request)
             except (EdgeV2Error, RequestValidationError, HTTPException) as exc:
@@ -72,6 +74,23 @@ class ContractRoute(APIRoute):
                     headers=headers,
                 )
 
+        async def wrapped(request: Request) -> Response:
+            settings = get_settings()
+            timing = (
+                ReceiverTiming()
+                if request.method == "POST" and settings.EDGE_V2_RECEIVER_TIMING_ENABLED
+                else None
+            )
+            request.state.edge_receiver_timing = timing
+            status = 500
+            try:
+                response = await contract_handler(request)
+                status = response.status_code
+                return response
+            finally:
+                if timing is not None:
+                    timing.emit(status, settings.EDGE_V2_RECEIVER_TIMING_MIN_MS)
+
         return wrapped
 
 
@@ -104,6 +123,9 @@ async def receive(
 ) -> StorageAck:
     original: dict[str, Any] = await request.json()
     request.state.edge_message_id = payload.message_id
+    timing = getattr(request.state, "edge_receiver_timing", None)
+    if timing is not None:
+        timing.bind(payload)
     if request.headers.get("idempotency-key") != payload.message_id:
         raise EdgeV2Error(422, "SCHEMA_VALIDATION_FAILED", "Idempotency-Key")
     # Standard JSON disallows NaN/Infinity, including fields not consumed by validators.
@@ -111,7 +133,7 @@ async def receive(
         json.dumps(original, allow_nan=False)
     except ValueError:
         raise EdgeV2Error(422, "SCHEMA_VALIDATION_FAILED") from None
-    ack = await accept_message(db, payload, original, device)
+    ack = await accept_message(db, payload, original, device, timing=timing)
     response.status_code = 200 if ack.duplicate else 201
     return ack
 
