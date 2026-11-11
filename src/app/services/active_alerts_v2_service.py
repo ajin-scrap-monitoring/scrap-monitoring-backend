@@ -14,6 +14,7 @@ from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.active_health_service import apply_starts, health_conditions
 from src.app.services.camera_status_service import CameraStatusService, camera_conditions
 from src.app.services.monitoring_v2_service import build_snapshot
+from src.app.services.scan_update_alarm_service import unresolved_alarms
 
 
 async def active_fill_alerts(
@@ -43,7 +44,8 @@ async def active_snapshot_alerts(
     result = await _fill_alerts(db, source, snapshot, now)
     if include_health:
         result.scope = "ALL"
-        health, result.coverage = health_conditions(snapshot, now)
+        unresolved = await unresolved_alarms(db, snapshot.deviceStatus.snapshot)
+        health, result.coverage = health_conditions(snapshot, now, unresolved)
         result.items.extend(health)
     await apply_starts(db, source, snapshot, result.items, now)
     if include_health and camera_status is not None:
