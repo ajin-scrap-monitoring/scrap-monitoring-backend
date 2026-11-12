@@ -64,7 +64,9 @@ def prepare_assets(root: Path, destination: Path, reference: str, audit: Path) -
                 )
 
             content = re.sub(r"\]\(([^\s)]+)\)", link, content)
-        documents[Path(name).name] = content.encode()
+        # GitHub rewrites leading-dot upload names; keep downloadable names/checksums stable.
+        asset_name = "env.example" if name == ".env.example" else Path(name).name
+        documents[asset_name] = content.encode()
     notices = json.loads(audit.read_text())
     if not notices.get("packages") or not notices.get("notices"):
         raise ValueError("Runtime dependency inventory and notices are required")

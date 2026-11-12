@@ -15,7 +15,7 @@
 | mutable 기본 tag | `latest` 이미지는 게시하지 않음 |
 | 검증 범위 | 동일 소스 main CI 성공, 이미지 격리 시작·readiness·로그인·인증 요구 확인, 런타임 의존성 고지 수집 |
 
-Release asset은 `.env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.schema.json`,
+Release asset은 `env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.schema.json`,
 `image-reference.txt`, `runtime-dependencies.json`, `SHA256SUMS`다. 실제 `.env`, OAuth 인증 파일,
 현장 데이터, 서버별 Compose와 비공개 파일은 포함하지 않는다. 전체 설정과 조건부 필수 항목은
 [CONFIGURATION.md](CONFIGURATION.md)에 있다. `runtime-dependencies.json`에는 이미지에 설치된
@@ -23,6 +23,10 @@ Release asset은 `.env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.s
 원래 고지 파일도 이미지 내부에 유지한다. 프로젝트 자체에는 별도 라이선스를 부여하지 않는다.
 
 ## 게시 순서
+
+저장소의 `.env.example`은 Release에서 `env.example`로 제공한다. 내려받은 예시는 배포 담당자의
+비공개 설정 경로로 복사하여 사용한다. 숨김 파일명은 GitHub 업로드 중 바뀔 수 있으므로 asset과
+체크섬 목록에는 동일한 공개 파일명 `env.example`을 사용한다.
 
 1. 변경은 PR로 main에 병합한다. 코드·문서·검증을 완료하고 `pyproject.toml`의 `project.version`을
    게시할 버전으로 정한다. 버전 변경 시 `uv lock`으로 lock의 프로젝트 메타데이터도 맞춘다.
@@ -41,7 +45,8 @@ Release asset은 `.env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.s
 5. 최초 GHCR Package는 Repository와 별도로 Public 설정이 필요할 수 있다. 관리자가 Backend package의
    Visibility를 Public으로 맞춘다. workflow는 로그인 정보 없는 manifest 조회가 성공해야 GitHub Release를 게시한다.
    이 검사에서 중단됐다면 Public 설정 후 workflow를 재실행한다. 기존에 게시된 GitHub Release가 있으면 재실행은 중단한다.
-6. asset을 모두 draft Release에 첨부하고 마지막에 게시한다. workflow summary와 `image-reference.txt`의
+6. asset을 모두 draft Release에 첨부한 뒤 실제 다운로드 파일의 체크섬을 검사하고 마지막에 게시한다.
+   다운로드 이름이나 내용이 목록과 다르면 draft 상태에서 중단한다. workflow summary와 `image-reference.txt`의
    digest 및 두 이미지 tag, Public 접근을 확인한다. 배포 Repository는 digest를 선택한다.
 
 실제 version tag push·이미지 게시·GitHub Release 게시를 해야 공식 산출물 제공이 완료된다.
