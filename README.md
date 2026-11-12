@@ -36,11 +36,12 @@ uv run uvicorn src.app.main:app --host 0.0.0.0 --port 8000
 ## 설정
 
 환경 설정은 `.env` 파일을 통해 주입받으며, `.env.example`을 복사하여 사용할 수 있습니다.
+전체 설정의 의미·조건부 필수 여부·기본값·형식 예시는 [설정 명세](docs/CONFIGURATION.md)를 참고합니다.
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `APP_ENV` | `development` | 실행 환경 (`development`, `production`, `test`) |
-| `PORT` | `8000` | 서버 바인드 포트 |
+| `PORT` | `8000` | 실행기 참고용 포트. 기본 이미지의 리스너는 설정 명세 참고 |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./test_scrap_monitoring.db` | 비동기 DB 접속 URL (운영 시 PostgreSQL asyncpg 권장) |
 | `EDGE_API_KEY` | `dev-edge-secret-key-12345` | 엣지 센서 데이터 인입 시 검증할 비밀키 |
 | `DEFAULT_WARNING_THRESHOLD` | `75.0` | 스크랩 경고 기본 임계율 (%) |
@@ -65,6 +66,9 @@ uv run pytest -v
 
 ## 배포 및 Docker Compose 실행
 
+버전별 GHCR 이미지·digest·공개 asset과 실행/migration 절차는 [이미지 Release 안내](docs/RELEASING.md)를 따릅니다.
+배포 Repository가 고정 digest와 실제 환경값을 선택하며, 이 Repository의 Release는 서버를 직접 교체하지 않습니다.
+
 Docker Compose를 사용하여 백엔드 서비스를 컨테이너로 손쉽게 실행할 수 있습니다. 수집된 측정치와 데이터베이스는 `./data` 디렉토리에 안전하게 영구 보존됩니다.
 
 ```bash
@@ -83,6 +87,9 @@ docker compose down
 ```
 
 ## 문서
+
+* [docs/CONFIGURATION.md](docs/CONFIGURATION.md): 모든 앱 설정과 실행 도구 입력의 의미·필수 여부·기본값·형식 예시
+* [docs/RELEASING.md](docs/RELEASING.md): 버전별 GHCR 이미지·GitHub Release·공개 asset과 실행/migration 경계
 
 * [docs/COMPACT_LIDAR_STORAGE.md](docs/COMPACT_LIDAR_STORAGE.md): 최신 라이다 관측·중앙값·분 요약·상태 사건과 활성화 설정
 * [docs/LIDAR_HEIGHT_PROFILES.md](docs/LIDAR_HEIGHT_PROFILES.md): 검증 좌표·바닥 기준을 사용하는 높이 프로필과 단면 기준 계산
