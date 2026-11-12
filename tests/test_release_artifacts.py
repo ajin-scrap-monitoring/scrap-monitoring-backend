@@ -92,7 +92,7 @@ def test_assets_keep_private_environment_out_and_pin_document_links(tmp_path, mo
     destination = tmp_path / "assets"
     prepare_assets(root, destination, REFERENCE, audit)
     assert {p.name for p in destination.iterdir()} == {
-        ".env.example",
+        "env.example",
         "CONFIGURATION.md",
         "RELEASING.md",
         "settings.schema.json",
@@ -100,6 +100,7 @@ def test_assets_keep_private_environment_out_and_pin_document_links(tmp_path, mo
         "runtime-dependencies.json",
         "SHA256SUMS",
     }
+    assert not any(p.name.startswith(".") for p in destination.iterdir())
     assert all("must-not-be-published" not in p.read_text() for p in destination.iterdir())
     assert "/blob/v0.1.0/.env.example" in (destination / "CONFIGURATION.md").read_text()
     schema = json.loads((destination / "settings.schema.json").read_text())

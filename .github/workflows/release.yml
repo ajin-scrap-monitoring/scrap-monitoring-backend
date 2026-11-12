@@ -145,7 +145,10 @@ jobs:
             --audit "$RUNNER_TEMP/runtime-dependencies.json"
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
             --notes "Source: $COMMIT. Image: $IMAGE_REFERENCE. 설정 명세와 공개 예시, 실행·migration 안내 및 의존성 고지를 제공한다." \
-            "$assets/.env.example" "$assets/CONFIGURATION.md" "$assets/RELEASING.md" \
+            "$assets/env.example" "$assets/CONFIGURATION.md" "$assets/RELEASING.md" \
             "$assets/settings.schema.json" "$assets/image-reference.txt" \
             "$assets/runtime-dependencies.json" "$assets/SHA256SUMS"
+          downloaded=$(mktemp -d "$RUNNER_TEMP/backend-release-download.XXXXXXXX")
+          gh release download "$GITHUB_REF_NAME" --dir "$downloaded"
+          (cd "$downloaded" && sha256sum --strict --check SHA256SUMS)
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest
