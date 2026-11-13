@@ -50,6 +50,10 @@ HOST/PORT만 변경하여 컨테이너 리스너가 바뀐다고 가정하지 �
 | `EDGE_V2_OPERATIONS_ENABLED` | v2 운영 판정 작업자 | 선택 | `false` | `true` |
 | `EDGE_V2_CRITICAL_THRESHOLD` | 피트 DB 설정이 없을 때 v2 위험 기준(%) | 선택 | `90.0` | `90.0` (5 초과~100) |
 | `EDGE_V2_COMPACT_STORAGE_ENABLED` | 최신 투영·분 요약 저장 사용 | 높이·필터 기능에 필요 | `false` | `true` |
+| `EDGE_V2_RAW_RETENTION_ENABLED` | 오래된 스캔 원문 자동 정리 | 활성 시 compact 필요 | `false` | `true` |
+| `EDGE_V2_RAW_RETENTION_DAYS` | 스캔 원문 보관 기간(일) | 선택 | `30` | `30`, `14`, `7` (1~3650) |
+| `EDGE_V2_RAW_RETENTION_BATCH_SIZE` | 테이블별 한 배치 최대 대상 수 | 선택 | `100` | `100` (1~1000) |
+| `EDGE_V2_RAW_RETENTION_INTERVAL_SECONDS` | 한 순회 완료 후 다음 순회 대기(초) | 선택 | `3600` | `3600` (60~86400) |
 | `EDGE_V2_RECEIVER_TIMING_ENABLED` | 수신 처리 구간의 임시 진단 로그 | 선택 | `false` | `false` |
 | `EDGE_V2_RECEIVER_TIMING_MIN_MS` | 진단 로그의 최소 처리 시간(ms) | 선택 | `0` | `100` (0~60000) |
 | `EDGE_V2_MEDIAN_WINDOW_SECONDS` | 시간 중앙값 창 길이(초) | 선택 | `5` | `5` (3~31 홀수) |

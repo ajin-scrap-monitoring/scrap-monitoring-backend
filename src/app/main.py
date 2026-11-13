@@ -21,6 +21,7 @@ from src.app.services.email_delivery_service import email_delivery_worker
 from src.app.services.event_page_store import EventPageStore
 from src.app.services.media_client import MediaServiceError
 from src.app.services.media_job_service import media_job_worker
+from src.app.services.raw_retention_worker import raw_retention_worker
 
 logger = logging.getLogger("app.main")
 
@@ -47,8 +48,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         media_job_worker.start()
         edge_v2_operations_worker.start()
         email_delivery_worker.start(app.state.camera_status)
+        raw_retention_worker.start()
         yield
     finally:
+        await raw_retention_worker.stop()
         await email_delivery_worker.stop()
         await edge_v2_operations_worker.stop()
         await media_job_worker.stop()

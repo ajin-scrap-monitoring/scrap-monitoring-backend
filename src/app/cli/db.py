@@ -4,19 +4,40 @@ import argparse
 import asyncio
 import sys
 
-from src.app.db.migration import current_revisions, require_current_schema, upgrade_schema
+from alembic.script import ScriptDirectory
+
+from src.app.db.migration import (
+    current_revisions,
+    migration_config,
+    require_current_schema,
+    upgrade_schema,
+)
+from src.app.db.raw_retention_prepare import PRE_RETENTION_REVISION, prepare_retention_indexes
 from src.app.db.schema_guard import SchemaStateError
 from src.app.db.session import close_db, get_engine
 
 
 async def run(operation: str, adopt_legacy: bool = False) -> None:
     try:
-        async with get_engine().begin() as connection:
-            if operation == "upgrade":
+        if operation == "upgrade":
+            # Commit older structural migrations before concurrent lookup-index
+            # preparation. A failed preparation leaves the valid version-6 schema.
+            scripts = ScriptDirectory.from_config(migration_config())
+            prior = {
+                rev.revision for rev in scripts.iterate_revisions(PRE_RETENTION_REVISION, "base")
+            }
+            async with get_engine().begin() as connection:
+                revisions = await connection.run_sync(current_revisions)
+                if not revisions or set(revisions) <= prior:
+                    await connection.run_sync(upgrade_schema, adopt_legacy, PRE_RETENTION_REVISION)
+            await prepare_retention_indexes(get_engine())
+            async with get_engine().begin() as connection:
                 await connection.run_sync(upgrade_schema, adopt_legacy)
                 await connection.run_sync(require_current_schema)
-                print("Database migration completed")
-            elif operation == "check":
+            print("Database migration completed")
+            return
+        async with get_engine().begin() as connection:
+            if operation == "check":
                 await connection.run_sync(require_current_schema)
                 print("Database schema is current")
             else:

@@ -231,7 +231,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
+            assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"
