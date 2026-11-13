@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     EDGE_V2_CRITICAL_THRESHOLD: float = Field(default=90.0, gt=5.0, le=100.0)
     # Explicit activation preserves legacy installations until migration/deployment review.
     EDGE_V2_COMPACT_STORAGE_ENABLED: bool = False
+    # Opt-in raw expiration preserves receipt/artifact hashes and all event/summary history.
+    EDGE_V2_RAW_RETENTION_ENABLED: bool = False
+    EDGE_V2_RAW_RETENTION_DAYS: int = Field(default=30, ge=1, le=3650)
+    EDGE_V2_RAW_RETENTION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
+    EDGE_V2_RAW_RETENTION_INTERVAL_SECONDS: float = Field(default=3600, ge=60, le=86400)
     # Temporary receiver diagnostics; no credentials or original message bodies are logged.
     EDGE_V2_RECEIVER_TIMING_ENABLED: bool = False
     EDGE_V2_RECEIVER_TIMING_MIN_MS: float = Field(default=0, ge=0, le=60000)
@@ -103,6 +108,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_monitoring_sources(self) -> "Settings":
+        if self.EDGE_V2_RAW_RETENTION_ENABLED and not self.EDGE_V2_COMPACT_STORAGE_ENABLED:
+            raise ValueError("Raw retention requires compact latest-observation storage")
         if self.EDGE_V2_COLLECTION_DROP_METERS is not None and (
             self.EDGE_V2_COLLECTION_STABLE_BAND_METERS >= self.EDGE_V2_COLLECTION_DROP_METERS
         ):

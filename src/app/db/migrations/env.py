@@ -1,21 +1,34 @@
 """Async Alembic environment, also usable with an existing run_sync connection."""
 
 import asyncio
+from typing import Any
 
 from alembic import context
 from sqlalchemy.engine import Connection
 
 from src.app import models
 from src.app.db.migration import guard_upgrade
+from src.app.db.migrations.raw_retention_v1 import INDEX_NAMES
 from src.app.db.session import close_db, get_engine
 
 config = context.config
 
 
+def include_object(
+    _object: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
+) -> bool:
+    # These lookup indexes deliberately use different PostgreSQL/SQLite expressions
+    # and are managed by their versioned migration, not model autogeneration.
+    return not (type_ == "index" and name in INDEX_NAMES)
+
+
 def migrate(connection: Connection) -> None:
     guard_upgrade(connection, bool(config.attributes.get("adopt_legacy", False)))
     context.configure(
-        connection=connection, target_metadata=models.AuthUser.metadata, compare_type=True
+        connection=connection,
+        target_metadata=models.AuthUser.metadata,
+        compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()

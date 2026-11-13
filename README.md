@@ -89,6 +89,7 @@ docker compose down
 ## 문서
 
 * [docs/CONFIGURATION.md](docs/CONFIGURATION.md): 모든 앱 설정과 실행 도구 입력의 의미·필수 여부·기본값·형식 예시
+* [docs/RAW_RETENTION.md](docs/RAW_RETENTION.md): 스캔 원문 기본 30일 보관·14일/7일 설정 변경·미리보기와 자동 정리
 * [docs/RELEASING.md](docs/RELEASING.md): 버전별 GHCR 이미지·GitHub Release·공개 asset과 실행/migration 경계
 
 * [docs/COMPACT_LIDAR_STORAGE.md](docs/COMPACT_LIDAR_STORAGE.md): 최신 라이다 관측·중앙값·분 요약·상태 사건과 활성화 설정

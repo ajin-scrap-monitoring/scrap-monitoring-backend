@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
+        assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -79,7 +79,7 @@ async def test_settings_history_upgrade_preserves_existing_rows_without_backfill
         }
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0006_email_deliveries",)
+        assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
         for table in old_tables:
             assert (await connection.execute(table.select())).all() == before[table.name]
         assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
@@ -453,7 +453,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0006_email_deliveries" in (await cli(url, "current"))[1]
+    assert "0007_raw_retention" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 
