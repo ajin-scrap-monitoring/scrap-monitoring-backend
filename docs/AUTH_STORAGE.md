@@ -4,6 +4,9 @@
 
 ## 최초 배포 설정
 
+관리자 로그인 인계 메모와 실제 DB 계정의 차이, 비밀값 없는 메모 형식과 보관 방법은
+[비공개 인증자료 설정](PRIVATE_CREDENTIAL_SETUP.md)을 참고한다.
+
 실행할 Compose가 읽는 비공개 환경 설정 파일에 초기 비밀번호를 설정한다. 기본 배포는 프로젝트 루트 `.env`, 별도 테스트 백엔드는 `data/backend-check/backend.env`다.
 
 ```dotenv

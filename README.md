@@ -106,6 +106,7 @@ docker compose down
 * [docs/NOTIFICATION_READS.md](docs/NOTIFICATION_READS.md): 계정별 알림 읽음·미확인 개수·로그인 및 CSRF 검사
 * [docs/ALERT_POLICY_STORAGE.md](docs/ALERT_POLICY_STORAGE.md): 알림 정책 영속 저장·재시작 유지·ETag 동시 변경 검사
 * [docs/GMAIL_EMAIL_DELIVERY.md](docs/GMAIL_EMAIL_DELIVERY.md): 발송 전용 Gmail API·자동 알림 정책·전달 결과와 적용 경계
+* [docs/PRIVATE_CREDENTIAL_SETUP.md](docs/PRIVATE_CREDENTIAL_SETUP.md): 비공개 인증자료 형식 예시·외부 설정·계정 교체와 관리자 인계 자료 취급
 * [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 
