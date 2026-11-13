@@ -9,6 +9,9 @@ Gmail에서 직접 보내는 메일의 발신자 설정은 변경하지 않는�
 
 ## 인증과 설정
 
+비밀값을 제외한 파일 형식과 서버 등록·계정 교체 절차는
+[비공개 인증자료 설정](PRIVATE_CREDENTIAL_SETUP.md)을 참고한다.
+
 Google Cloud 프로젝트에서 Gmail API와 OAuth 동의 화면을 설정한다. 일회성 Mac/Linux CLI 인증에는
 Desktop OAuth client와 시스템 브라우저·로컬 콜백·PKCE를 사용할 수 있다. 서비스가 직접 웹 로그인을
 제공하는 방식으로 바뀌면 그 플랫폼에 맞는 별도 client를 사용한다. 인증 코드 수동 복사 방식은 사용하지 않는다.
