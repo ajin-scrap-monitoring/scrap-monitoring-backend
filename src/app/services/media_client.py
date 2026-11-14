@@ -23,6 +23,9 @@ from src.app.schemas.media_storage import MediaStorageStatus
 Schema = TypeVar("Schema", bound=BaseModel)
 # A bounded file probe may take fifteen seconds; leave three seconds for JSON I/O.
 MEDIA_INFO_TIMEOUT_SECONDS = 18.0
+# This client only receives control JSON, never video or unbounded media catalogues.
+MEDIA_JSON_MAX_BYTES = 8 * 1024 * 1024
+MEDIA_JSON_CHUNK_BYTES = 64 * 1024
 
 
 class MediaServiceError(Exception):
@@ -80,7 +83,7 @@ class MediaClient:
         try:
             # HTTPX read timeouts restart for each chunk; also bound the complete JSON I/O.
             async with asyncio.timeout(budget):
-                response = await self._client.request(
+                async with self._client.stream(
                     method,
                     f"{base_url.rstrip('/')}/{path.lstrip('/')}",
                     headers=headers,
@@ -89,7 +92,26 @@ class MediaClient:
                     timeout=httpx.USE_CLIENT_DEFAULT
                     if timeout_seconds is None
                     else timeout_seconds,
-                )
+                ) as upstream:
+                    length = upstream.headers.get("content-length")
+                    if length and length.isdecimal() and int(length) > MEDIA_JSON_MAX_BYTES:
+                        raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+                    body = bytearray()
+                    async for chunk in upstream.aiter_bytes(chunk_size=MEDIA_JSON_CHUNK_BYTES):
+                        if len(body) + len(chunk) > MEDIA_JSON_MAX_BYTES:
+                            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+                        body.extend(chunk)
+                    # HTTPX already decoded Content-Encoding while streaming. Do not
+                    # decode it again when constructing the bounded JSON response.
+                    headers = dict(upstream.headers)
+                    headers.pop("content-encoding", None)
+                    headers.pop("content-length", None)
+                    response = httpx.Response(
+                        upstream.status_code,
+                        headers=headers,
+                        content=bytes(body),
+                        request=upstream.request,
+                    )
         except (httpx.TimeoutException, TimeoutError) as exc:
             raise MediaServiceError(504, "MEDIA_TIMEOUT", retryable=True) from exc
         except httpx.RequestError as exc:
