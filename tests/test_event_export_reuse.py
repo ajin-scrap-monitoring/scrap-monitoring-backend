@@ -116,10 +116,13 @@ async def test_lost_create_response_is_recovered_by_lookup_without_post(
     headers = await login(client)
     extractor["lost"] = True
     event, _, first = await start(client, test_db_session, headers)
-    assert first.status_code == 504
+    assert first.status_code == 202
+    assert first.json()["status"] == "pending"
+    assert first.json()["errorCode"] == "MEDIA_TIMEOUT"
     seen = len(extractor["requests"])
     found = await client.get(f"{API}/{event}/exports")
     assert found.json()["status"] == "pending" and found.json()["clipId"] is None
+    assert found.json()["statusPath"] == first.json()["statusPath"]
     assert len(extractor["requests"]) == seen
     again = await client.post(f"{API}/{event}/exports", json=payload(), headers=headers)
     assert again.status_code == 200 and again.json()["requestId"] == found.json()["requestId"]
@@ -233,7 +236,9 @@ async def test_alias_failed_retry_and_worker_preserve_binding(client, test_db_se
     retry = await client.post(
         f"{API}/{event}/exports", json={**alias, "retryFailed": True}, headers=headers
     )
-    assert retry.status_code == 504
+    assert retry.status_code == 202
+    assert retry.json()["status"] == "pending"
+    assert retry.json()["statusPath"] == first.json()["statusPath"]
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
     job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)

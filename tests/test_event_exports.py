@@ -220,7 +220,10 @@ async def test_lost_response_worker_recovery_get_never_posts(client, test_db_ses
     headers = await login(client)
     extractor["lost"] = True
     event, body, r = await start(client, test_db_session, headers)
-    assert r.status_code == 504
+    assert r.status_code == 202
+    assert r.json()["requestId"] == body["requestId"]
+    assert r.json()["status"] == "pending"
+    assert r.json()["errorCode"] == "MEDIA_TIMEOUT"
     path = f"{API}/{event}/exports/{body['requestId']}"
     assert (await client.get(path)).json()["status"] == "pending"
     assert len(extractor["requests"]) == 1
@@ -270,7 +273,9 @@ async def test_failed_retry_lost_response_keeps_intent(client, test_db_session, 
     retry = await client.post(
         f"{API}/{event}/exports", json={**body, "retryFailed": True}, headers=headers
     )
-    assert retry.status_code == 504
+    assert retry.status_code == 202
+    assert retry.json()["status"] == "pending"
+    assert retry.json()["statusPath"] == r.json()["statusPath"]
     assert (await client.get(r.json()["statusPath"])).json()["status"] == "processing"
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
@@ -281,6 +286,44 @@ async def test_failed_retry_lost_response_keeps_intent(client, test_db_session, 
     assert len(extractor["clips"]) == 1 and clip["attempt_count"] == 2
     await test_db_session.refresh(job)
     assert job.snapshot[CONTEXT_KEY]["retry_failed"] is False
+
+
+async def test_transient_delivery_failure_returns_durable_pending_receipt(
+    client, test_db_session, extractor
+):
+    headers = await login(client)
+    extractor["error"] = (503, "STORAGE_UNAVAILABLE")
+    _, body, response = await start(client, test_db_session, headers)
+    assert response.status_code == 202
+    receipt = response.json()
+    assert receipt["requestId"] == body["requestId"] and receipt["status"] == "pending"
+    assert receipt["errorCode"] == "STORAGE_UNAVAILABLE"
+    assert not extractor["clips"] and len(extractor["requests"]) == 1
+    # Polling uses the durable receipt and does not dispatch another preparation.
+    assert (await client.get(receipt["statusPath"])).json()["status"] == "pending"
+    assert len(extractor["requests"]) == 1
+    job = await test_db_session.scalar(select(MediaClipJob))
+    await test_db_session.refresh(job)
+    assert job.next_attempt_at is not None
+    extractor["error"] = None
+    job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    await test_db_session.commit()
+    await MediaJobWorker().run_once(test_db_session)
+    result = (await client.get(receipt["statusPath"])).json()
+    assert result["status"] == "processing" and result["clipId"]
+    assert len(extractor["clips"]) == 1
+
+
+async def test_permanent_delivery_failure_does_not_return_acceptance(
+    client, test_db_session, extractor
+):
+    headers = await login(client)
+    extractor["error"] = (404, "RECORDING_NOT_FOUND_IN_RANGE")
+    _, _, response = await start(client, test_db_session, headers)
+    assert response.status_code == 404
+    job = await test_db_session.scalar(select(MediaClipJob))
+    await test_db_session.refresh(job)
+    assert job.status == "blocked" and job.next_attempt_at is None
 
 
 @pytest.mark.parametrize(
@@ -328,7 +371,14 @@ async def test_safe_upstream_errors(client, test_db_session, extractor, status, 
     headers = await login(client)
     extractor["error"] = (status, code)
     _, _, r = await start(client, test_db_session, headers)
-    assert r.status_code == status and r.json()["error"]["code"] == code
+    if status == 503:
+        assert r.status_code == 202
+        assert r.json()["status"] == "pending" and r.json()["errorCode"] == code
+        job = await test_db_session.scalar(select(MediaClipJob))
+        await test_db_session.refresh(job)
+        assert job.next_attempt_at is not None
+    else:
+        assert r.status_code == status and r.json()["error"]["code"] == code
     assert "private-secret" not in r.text
 
 
