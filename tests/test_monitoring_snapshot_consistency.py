@@ -15,6 +15,7 @@ from src.app.schemas.edge_v2 import Measurement
 from src.app.services import active_alerts_v2_service as alert_service
 from src.app.services import monitoring_v2_service as service
 from src.app.services.edge_v2_service import accept_message
+from tests.pg_wait_diagnostics import report_pending_writer
 from tests.test_height_fill_pipeline import START, frame, prepare
 from tests.test_height_fill_pipeline import height_context as height_context
 from tests.test_monitoring_v2 import login
@@ -56,15 +57,26 @@ async def test_receiver_commit_cannot_mix_display_observation_and_filter(
         if entity is EdgeV2Latest and ident[-1] == "height_fill" and not committed:
             committed = True
             async with AsyncSession(test_engine, expire_on_commit=False) as writer:
-                await asyncio.wait_for(
-                    accept_message(
+                progress = {"stage": "acquiring_connection"}
+
+                async def receive():
+                    connection = await writer.connection()
+                    raw = await connection.get_raw_connection()
+                    progress["pid"] = raw.driver_connection.get_server_pid()
+                    progress["stage"] = "accept_message"
+                    return await accept_message(
                         writer,
                         Measurement.model_validate(next_body),
                         next_body,
                         get_settings().EDGE_V2_DEVICES[0],
-                    ),
-                    5,
-                )
+                    )
+
+                diagnostic = asyncio.create_task(report_pending_writer(test_engine, progress))
+                try:
+                    await asyncio.wait_for(receive(), 5)
+                finally:
+                    diagnostic.cancel()
+                    await asyncio.gather(diagnostic, return_exceptions=True)
         return result
 
     monkeypatch.setattr(AsyncSession, "get", commit_after_observation)
