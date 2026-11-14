@@ -338,7 +338,17 @@ async def request_export(
             await db.commit()
         if reused:
             return 200, export_response(job)
-        code = await process_job(job, db)
+        try:
+            code = await process_job(job, db)
+        except MediaServiceError as exc:
+            if not exc.retryable or job.next_attempt_at is None:
+                raise
+            # The request binding and retryable job are already committed. A lost
+            # media response must not turn durable acceptance into an HTTP failure.
+            if job.status in ("failed", "blocked"):
+                job.status = "pending"
+                await db.commit()
+            return 202, export_response(job)
         return code, export_response(job)
 
 
