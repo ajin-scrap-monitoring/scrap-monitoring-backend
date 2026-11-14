@@ -266,6 +266,12 @@ async def accept_message(
             await db.flush()
         with phase(timing, "commit"):
             await db.commit()
+        if (isinstance(payload, Measurement) and projects_live) or (
+            isinstance(payload, Assessment) and payload.assessment_type == "STATE"
+        ):
+            from src.app.services.edge_v2_operations import edge_v2_operations_worker
+
+            edge_v2_operations_worker.wake()
         return receipt(message, False)
     except EdgeV2Error:
         await db.rollback()

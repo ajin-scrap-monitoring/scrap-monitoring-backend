@@ -339,3 +339,53 @@ async def test_worker_shutdown_cancels_owned_task(monkeypatch):
     await worker.stop()
     assert stopped.is_set()
     assert worker._task is None
+
+
+async def test_committed_arrivals_during_sweep_wake_one_followup(monkeypatch):
+    worker = EdgeV2OperationsWorker()
+    entered, release, followed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def sweep(db):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+        else:
+            followed.set()
+
+    monkeypatch.setattr(worker, "run_once", sweep)
+    worker.start()
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        for _ in range(20):
+            worker.wake()
+        release.set()
+        # The followup must not wait for the one-second recovery interval.
+        await asyncio.wait_for(followed.wait(), timeout=0.5)
+        await asyncio.sleep(0)
+        assert calls == 2
+    finally:
+        await worker.stop()
+
+
+async def test_periodic_recovery_after_failed_sweep_without_wake(monkeypatch):
+    worker = EdgeV2OperationsWorker()
+    recovered = asyncio.Event()
+    calls = 0
+
+    async def sweep(db):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("synthetic failure")
+        recovered.set()
+
+    monkeypatch.setattr(worker, "run_once", sweep)
+    worker.start()
+    try:
+        await asyncio.wait_for(recovered.wait(), timeout=2)
+        assert calls == 2
+    finally:
+        await worker.stop()
