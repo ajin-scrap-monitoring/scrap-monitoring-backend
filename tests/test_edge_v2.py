@@ -241,7 +241,13 @@ async def send(client, path, payload, token=TOKEN, **kwargs):
         ("/configurations", configuration),
     ],
 )
-async def test_all_receivers_commit_before_ack_and_replay(client, test_engine, path, factory):
+async def test_all_receivers_commit_before_ack_and_replay(
+    client, test_engine, path, factory, monkeypatch
+):
+    from src.app.services.edge_v2_operations import edge_v2_operations_worker
+
+    wakes = []
+    monkeypatch.setattr(edge_v2_operations_worker, "wake", lambda: wakes.append(True))
     payload = factory()
     first = await send(client, path, payload)
     assert first.status_code == 201, first.text
@@ -257,6 +263,7 @@ async def test_all_receivers_commit_before_ack_and_replay(client, test_engine, p
     replay = await send(client, path, dict(reversed(list(payload.items()))))
     assert replay.status_code == 200
     assert replay.json() == {**ack, "duplicate": True}
+    assert len(wakes) == (1 if path in ("/measurements", "/assessments") else 0)
 
 
 async def test_idempotency_spans_apis_and_device_scopes(client, test_db_session):
@@ -629,6 +636,10 @@ async def test_new_status_instance_and_missing_status(client, test_db_session):
 
 
 async def test_commit_failure_never_returns_accepted_ack(client, test_db_session, monkeypatch):
+    from src.app.services.edge_v2_operations import edge_v2_operations_worker
+
+    wakes = []
+    monkeypatch.setattr(edge_v2_operations_worker, "wake", lambda: wakes.append(True))
     original_commit = test_db_session.commit
 
     async def fail_commit():
@@ -638,10 +649,12 @@ async def test_commit_failure_never_returns_accepted_ack(client, test_db_session
     response = await send(client, "/measurements", measurement())
     assert response.status_code == 503
     assert response.json()["accepted"] is False and response.json()["error"]["retryable"] is True
+    assert not wakes
     monkeypatch.setattr(test_db_session, "commit", original_commit)
     assert await test_db_session.scalar(select(func.count()).select_from(EdgeV2Message)) == 0
     assert await test_db_session.scalar(select(func.count()).select_from(EdgeV2Artifact)) == 0
     assert (await send(client, "/measurements", measurement())).status_code == 201
+    assert len(wakes) == 1
 
 
 async def test_full_scan_over_64_kib_is_preserved(client, test_db_session):

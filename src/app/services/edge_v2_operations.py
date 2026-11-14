@@ -201,6 +201,12 @@ class EdgeV2OperationsWorker:
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._wake = asyncio.Event()
+
+    def wake(self) -> None:
+        """Coalesce committed observations without making receivers await evaluation."""
+        if self._task is not None and not self._task.done():
+            self._wake.set()
 
     def start(self) -> None:
         if get_settings().EDGE_V2_OPERATIONS_ENABLED and self._task is None:
@@ -228,6 +234,8 @@ class EdgeV2OperationsWorker:
 
     async def _run(self) -> None:
         while True:
+            # Clear before reading so arrivals during a sweep trigger another sweep.
+            self._wake.clear()
             try:
                 async with get_sessionmaker()() as db:
                     await self.run_once(db)
@@ -236,7 +244,11 @@ class EdgeV2OperationsWorker:
             except Exception:
                 # Avoid emitting SQL parameters, raw data or credentials in failures.
                 logger.error("V2 operational processing failed; retrying next sweep")
-            await asyncio.sleep(1)
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=1)
+            except TimeoutError:
+                # Periodic recovery still works after restart or a missed wake signal.
+                pass
 
 
 edge_v2_operations_worker = EdgeV2OperationsWorker()
