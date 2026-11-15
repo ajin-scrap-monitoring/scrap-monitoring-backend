@@ -26,7 +26,7 @@ async def calendar_thumbnails(thumbnails, monkeypatch):
     original = media_client._client
 
     async def handle(request):
-        if request.url.path.endswith("/daily-recordings"):
+        if request.url.path.endswith("/daily-recordings/summary"):
             data["requests"].append(request)
             assert request.method == "GET"
             assert "cookie" not in request.headers and "authorization" not in request.headers
@@ -205,7 +205,7 @@ async def test_whole_lookup_has_one_time_budget(client, calendar_thumbnails, mon
 
     from src.app.services.daily_recording_service import daily_recording_service
 
-    monkeypatch.setattr(daily_recording_service, "list", slow)
+    monkeypatch.setattr(daily_recording_service, "metadata_list", slow)
     monkeypatch.setattr(get_settings(), "MEDIA_REQUEST_TIMEOUT_SECONDS", 0.01)
     await login(client)
     r = await client.get(PATH)

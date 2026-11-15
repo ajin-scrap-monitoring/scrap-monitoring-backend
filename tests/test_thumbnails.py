@@ -81,6 +81,13 @@ async def thumbnails(monkeypatch):
             return httpx.Response(
                 data["post_status"] if request.method == "POST" else 200, json=out
             )
+        if daily and request.url.path.endswith("/summary"):
+            return httpx.Response(
+                200,
+                json={
+                    k: v for k, v in data["day"].items() if k not in ("gaps", "available_intervals")
+                },
+            )
         return httpx.Response(200, json=data["day" if daily else "clip"])
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as mock:
