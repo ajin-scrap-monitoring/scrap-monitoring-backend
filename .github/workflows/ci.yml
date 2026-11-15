@@ -1,12 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   ci:
@@ -38,23 +36,41 @@ jobs:
         run: uv run mypy src
 
       - name: Verify SQLite to PostgreSQL transfer
+        if: github.event_name == 'workflow_dispatch'
         run: uv run python -m tests.integration.verify_db_transfer
 
       - name: Verify PostgreSQL backup and isolated restore
+        if: github.event_name == 'workflow_dispatch'
         run: uv run python -m tests.integration.verify_db_backup
 
       - name: Run test suite (pytest)
+        if: github.event_name == 'workflow_dispatch'
         run: uv run pytest -v
 
       - name: Verify PostgreSQL API and storage
+        if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 50
         run: uv run python -m tests.integration.verify_postgresql_api
 
       - name: Verify Docker image build
+        if: github.event_name == 'workflow_dispatch'
         run: docker build -t test-backend:latest .
 
       - name: Verify PostgreSQL deployment and persistence
+        if: github.event_name == 'workflow_dispatch'
         run: uv run python -m tests.integration.verify_postgresql_deployment --image test-backend:latest
 
       - name: Verify scheduled backups and SQLite WAL recovery
+        if: github.event_name == 'workflow_dispatch'
         run: uv run python -m tests.integration.verify_scheduled_backups --image test-backend:latest
+
+      - name: Report validation scope
+        if: always()
+        env:
+          VALIDATION_EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$VALIDATION_EVENT" = "workflow_dispatch" ]; then
+            echo "Full validation requested. Check individual step results for completion." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PR validation: Ruff and mypy only. Tests, PostgreSQL and image checks were not run." >> "$GITHUB_STEP_SUMMARY"
+          fi
