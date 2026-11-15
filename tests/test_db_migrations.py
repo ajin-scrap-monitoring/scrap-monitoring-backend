@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from alembic import command
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.app.db.base import Base
@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
+        assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -75,13 +75,22 @@ async def test_settings_history_upgrade_preserves_existing_rows_without_backfill
             if table.name not in {"settings_history", "email_episodes", "email_deliveries"}
         ]
         before = {
-            table.name: (await connection.execute(table.select())).all() for table in old_tables
+            table.name: (
+                await connection.execute(
+                    select(*(c for c in table.c if c.name != "operations_email_enabled"))
+                )
+            ).all()
+            for table in old_tables
         }
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
+        assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
         for table in old_tables:
-            assert (await connection.execute(table.select())).all() == before[table.name]
+            assert (
+                await connection.execute(
+                    select(*(c for c in table.c if c.name != "operations_email_enabled"))
+                )
+            ).all() == before[table.name]
         assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
         await connection.run_sync(upgrade_schema)
         assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
@@ -110,11 +119,22 @@ async def test_email_upgrade_preserves_all_previous_tables_without_backfill(engi
             for t in Base.metadata.sorted_tables
             if t.name not in {"email_episodes", "email_deliveries"}
         ]
-        before = {t.name: (await connection.execute(t.select())).all() for t in tables}
+        before = {
+            t.name: (
+                await connection.execute(
+                    select(*(c for c in t.c if c.name != "operations_email_enabled"))
+                )
+            ).all()
+            for t in tables
+        }
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
         for table in tables:
-            assert (await connection.execute(table.select())).all() == before[table.name]
+            assert (
+                await connection.execute(
+                    select(*(c for c in table.c if c.name != "operations_email_enabled"))
+                )
+            ).all() == before[table.name]
         for name in ("email_episodes", "email_deliveries"):
             assert await connection.scalar(text(f"SELECT count(*) FROM {name}")) == 0
         await connection.run_sync(upgrade_schema)
@@ -453,7 +473,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0007_raw_retention" in (await cli(url, "current"))[1]
+    assert "0008_operations_recipient" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 
@@ -473,3 +493,45 @@ async def test_cli_connection_failure_does_not_expose_credentials():
     )
     assert code == 1 and "failed" in error
     assert "must-not-leak" not in output + error and "Traceback" not in error
+
+
+async def test_operations_upgrade_preserves_recipients_and_guards_opt_in_rollback(engine):
+    async with engine.begin() as connection:
+
+        def migrate(conn, revision, downgrade=False):
+            config = migration_config()
+            config.attributes["connection"] = conn
+            (command.downgrade if downgrade else command.upgrade)(config, revision)
+
+        await connection.run_sync(migrate, "0007_raw_retention")
+        await connection.execute(
+            text(
+                "INSERT INTO notification_recipients "
+                "(id,version_id,name,team,email,enabled,channels,"
+                "subscription_mode,event_types,created_at) "
+                "VALUES ('existing',7,'Existing','Team','old@example.com',true,"
+                "'email','custom','device_error','2026-01-01 00:00:00+00')"
+            )
+        )
+        before = (await connection.execute(text("SELECT * FROM notification_recipients"))).one()
+        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(require_current_schema)
+        row = (await connection.execute(text("SELECT * FROM notification_recipients"))).one()
+        assert tuple(row[:-1]) == tuple(before)
+        assert row[-1] == 0
+        await connection.run_sync(upgrade_schema)
+        await connection.execute(
+            text("UPDATE notification_recipients SET operations_email_enabled=true")
+        )
+        with pytest.raises(RuntimeError, match="Disable operations subscriptions"):
+            await connection.run_sync(migrate, "0007_raw_retention", True)
+        assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
+        await connection.execute(
+            text("UPDATE notification_recipients SET operations_email_enabled=false")
+        )
+        await connection.run_sync(migrate, "0007_raw_retention", True)
+        assert (
+            await connection.execute(text("SELECT * FROM notification_recipients"))
+        ).one() == before
+        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(require_current_schema)

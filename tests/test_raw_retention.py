@@ -320,8 +320,11 @@ async def test_cli_default_run_is_read_only(test_engine, test_db_session, monkey
 
     if test_engine.dialect.name == "sqlite":
         async with test_engine.begin() as connection:
-            # Model tables are the unchanged version-6 table schema. The normal
-            # migration then adds the auxiliary version-7 lookup indexes.
+            # Reconstruct the version-6 table schema from the current model fixture
+            # before adding the version-7 lookup indexes and later schema changes.
+            await connection.execute(
+                text("ALTER TABLE notification_recipients DROP COLUMN operations_email_enabled")
+            )
             await connection.execute(
                 text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)")
             )
@@ -412,6 +415,10 @@ async def test_postgresql_existing_data_migration_allows_ingestion_writer(
     async with test_engine.begin() as conn:
         for name in [ARTIFACT_INDEX, MESSAGE_INDEX]:
             await conn.execute(text(f"DROP INDEX {name}"))
+        # Remove the later recipient column too: this fixture must actually match v6.
+        await conn.execute(
+            text("ALTER TABLE notification_recipients DROP COLUMN operations_email_enabled")
+        )
         await conn.execute(text("UPDATE alembic_version SET version_num='0006_email_deliveries'"))
     started = asyncio.Event()
     writer_ready = asyncio.Event()

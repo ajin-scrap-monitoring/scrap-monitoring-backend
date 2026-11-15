@@ -1,6 +1,6 @@
 """Notification Recipient ORM Model."""
 
-from sqlalchemy import Boolean, Integer, String
+from sqlalchemy import Boolean, Integer, String, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.app.db.base import Base
@@ -18,6 +18,9 @@ class NotificationRecipientModel(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    operations_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     channels: Mapped[str] = mapped_column(String(100), default="email,sms", nullable=False)
     subscription_mode: Mapped[str] = mapped_column(String(50), default="global", nullable=False)
     event_types: Mapped[str] = mapped_column(

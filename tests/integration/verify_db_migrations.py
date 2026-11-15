@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from alembic import command
 from asyncpg import InvalidPasswordError
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -125,19 +125,46 @@ async def verify(port: int, password: str) -> None:
                 command.upgrade(config, "0004_minute_history_summary")
 
             await connection.run_sync(previous_history)
+            await connection.execute(
+                text(
+                    "INSERT INTO notification_recipients "
+                    "(id,version_id,name,team,email,enabled,channels,"
+                    "subscription_mode,event_types,created_at) "
+                    "VALUES ('legacy-recipient',4,'Existing','Test','legacy@example.com',true,"
+                    "'email','custom','device_error','2026-01-01 00:00:00+00')"
+                )
+            )
             old_tables = [
                 table
                 for table in Base.metadata.sorted_tables
                 if table.name not in {"settings_history", "email_episodes", "email_deliveries"}
             ]
             old_rows = {
-                table.name: (await connection.execute(table.select())).all() for table in old_tables
+                table.name: (
+                    await connection.execute(
+                        select(*(c for c in table.c if c.name != "operations_email_enabled"))
+                    )
+                ).all()
+                for table in old_tables
             }
             await connection.run_sync(upgrade_schema)
             await connection.run_sync(require_current_schema)
             for table in old_tables:
-                assert (await connection.execute(table.select())).all() == old_rows[table.name]
+                assert (
+                    await connection.execute(
+                        select(*(c for c in table.c if c.name != "operations_email_enabled"))
+                    )
+                ).all() == old_rows[table.name]
             assert await connection.scalar(text("SELECT count(*) FROM settings_history")) == 0
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT operations_email_enabled FROM notification_recipients "
+                        "WHERE id='legacy-recipient'"
+                    )
+                )
+                is False
+            )
             assert (
                 await connection.execute(text("SELECT " + minute_columns + " FROM edge_v2_minutes"))
             ).all() == minute_before
@@ -231,7 +258,7 @@ async def verify(port: int, password: str) -> None:
                 raise AssertionError("Legacy DB must require explicit adoption")
             await connection.run_sync(upgrade_schema, True)
             await connection.run_sync(require_current_schema)
-            assert await connection.run_sync(current_revisions) == ("0007_raw_retention",)
+            assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
         async with factory() as db:
             assert (await db.get(PitConfig, "pit-synthetic")).critical_threshold_percent == 93
             assert (await db.get(AuthUser, "synthetic")).password_hash == "synthetic-preserved-hash"
