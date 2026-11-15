@@ -4,9 +4,15 @@ from uuid import UUID
 
 from src.app.core.config import get_settings
 from src.app.schemas.daily_recording import (
+    DailyAvailableInterval,
+    DailyGap,
+    DailyIntervalPage,
+    DailyMetadataPage,
     DailyPage,
     DailyPolicy,
     DailyRecording,
+    DailyRecordingMetadata,
+    DailyRecordingState,
     DailyRecordingSummary,
     DailySummaryPage,
 )
@@ -14,7 +20,7 @@ from src.app.schemas.media_info import DailyMediaInfo
 from src.app.services.media_client import MediaClient, MediaServiceError, media_client
 
 
-def public_recording(recording: DailyRecording) -> DailyRecording:
+def public_recording[Recording: DailyRecordingState](recording: Recording) -> Recording:
     """Rewrite validated relative paths; never expose upstream URLs or error text."""
     if recording.camera_id != get_settings().MEDIA_CAMERA_ID:
         raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
@@ -96,6 +102,56 @@ class DailyRecordingService:
         if item.recording_id != recording_id:
             raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
         return public_recording(item)
+
+    async def metadata_list(self, params: dict[str, str | int]) -> DailyMetadataPage:
+        """Read the upstream summary directly, without fetching either evidence array."""
+        response = await self.client._request(
+            "GET",
+            f"cameras/{get_settings().MEDIA_CAMERA_ID}/daily-recordings/summary",
+            (200,),
+            params=params,
+            daily=True,
+        )
+        page = self.client._parse(response, DailyMetadataPage)
+        if len(page.items) > int(params["limit"]):
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+        return page.model_copy(update={"items": [public_recording(item) for item in page.items]})
+
+    async def metadata(self, recording_id: UUID) -> DailyRecordingMetadata:
+        response = await self.client._request(
+            "GET", f"daily-recordings/{recording_id}/summary", (200,), daily=True
+        )
+        item = self.client._parse(response, DailyRecordingMetadata)
+        if item.recording_id != recording_id:
+            raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        return public_recording(item)
+
+    async def interval_page[Interval: DailyGap | DailyAvailableInterval](
+        self,
+        recording_id: UUID,
+        kind: str,
+        page_type: type[DailyIntervalPage[Interval]],
+        params: dict[str, str | int],
+    ) -> DailyIntervalPage[Interval]:
+        # Establish camera ownership without the legacy full-detail read. Reading
+        # metadata and a page can race an upstream revision; never mix those states.
+        metadata = await self.metadata(recording_id)
+        response = await self.client._request(
+            "GET", f"daily-recordings/{recording_id}/{kind}", (200,), params=params, daily=True
+        )
+        page = self.client._parse(response, page_type)
+        if page.recording_id != recording_id:
+            raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        if page.revision != metadata.revision:
+            raise MediaServiceError(409, "DAILY_SNAPSHOT_CHANGED")
+        if len(page.items) > int(params["limit"]):
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+        previous = metadata.window_start_at
+        for interval in page.items:
+            if interval.start_at < previous or interval.end_at > metadata.coverage_as_of_at:
+                raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+            previous = interval.end_at
+        return page
 
     async def export(self, recording_id: UUID) -> tuple[int, DailyRecording]:
         await self.detail(recording_id)

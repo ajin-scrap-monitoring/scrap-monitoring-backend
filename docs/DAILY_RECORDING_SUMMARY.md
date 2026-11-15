@@ -1,5 +1,9 @@
 # 날짜 녹화 목록 요약 조회
 
+> 기존 호환 경로다. 큰 원본은 전체 읽기 한도에 걸릴 수 있으므로 새 화면은
+> [요약 목록·상세와 구간 페이지](DAILY_RECORDING_PAGINATION.md)를 사용한다.
+> 새 경로는 배열·개수 필드 및 커서 계약이 다르므로 첫 페이지부터 전환한다.
+
 ```http
 GET /api/v2/recordings/daily?view=summary&from_date=2026-01-01&to_date=2026-01-08&limit=100
 ```

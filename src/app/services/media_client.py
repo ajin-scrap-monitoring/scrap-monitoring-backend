@@ -120,6 +120,9 @@ class MediaClient:
             # Only contract codes are forwarded; arbitrary error text may contain secrets.
             known_codes = {
                 "DAILY_RECORDING_NOT_FOUND",
+                "DAILY_SNAPSHOT_CHANGED",
+                "DAILY_RESPONSE_TOO_LARGE",
+                "CATALOG_METADATA_ERROR",
                 "DAY_NOT_CLOSED",
                 "DAY_FINALIZING",
                 "NO_RECORDING_DATA",

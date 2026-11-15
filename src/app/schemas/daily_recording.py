@@ -54,7 +54,7 @@ class DailyError(BaseModel):
     message: str
 
 
-class DailyRecording(BaseModel):
+class DailyRecordingState(BaseModel):
     """Do not equate a calendar window, recorded duration and export readiness."""
 
     recording_id: UUID
@@ -69,8 +69,6 @@ class DailyRecording(BaseModel):
     coverage_as_of_at: AwareDatetime
     playable_until_at: AwareDatetime | None
     recorded_seconds: float = Field(ge=0, le=86400, allow_inf_nan=False)
-    gaps: list[DailyGap]
-    available_intervals: list[DailyAvailableInterval]
     playback_state: Literal["pending", "ready", "unavailable"]
     playback_protocol: Literal["hls"] | None
     playback_path: str | None
@@ -103,7 +101,7 @@ class DailyRecording(BaseModel):
         return value.astimezone(UTC) if value is not None else None
 
     @model_validator(mode="after")
-    def validate_window(self) -> "DailyRecording":
+    def validate_window(self) -> "DailyRecordingState":
         midnight = datetime.combine(self.recording_date, time(), ZoneInfo("Asia/Seoul"))
         if self.window_start_at != midnight or self.window_end_at != midnight + timedelta(days=1):
             raise ValueError("Expected a Korean calendar day")
@@ -113,6 +111,21 @@ class DailyRecording(BaseModel):
             self.window_start_at <= self.playable_until_at <= self.coverage_as_of_at
         ):
             raise ValueError("Playback cannot extend beyond confirmed coverage")
+        return self
+
+
+class DailyRecordingMetadata(DailyRecordingState):
+    """Upstream summary evidence; omitted arrays and counts remain unknown."""
+
+    revision: int = Field(ge=0, strict=True)
+
+
+class DailyRecording(DailyRecordingState):
+    gaps: list[DailyGap]
+    available_intervals: list[DailyAvailableInterval]
+
+    @model_validator(mode="after")
+    def validate_intervals(self) -> "DailyRecording":
         for intervals in (self.gaps, self.available_intervals):
             previous = self.window_start_at
             for interval in intervals:
@@ -140,3 +153,25 @@ class DailySummaryPage(BaseModel):
     view: Literal["summary"] = "summary"
     items: list[DailyRecordingSummary]
     next_cursor: str | None
+
+
+class DailyMetadataPage(BaseModel):
+    items: list[DailyRecordingMetadata] = Field(max_length=100)
+    next_cursor: str | None = Field(max_length=4096)
+
+
+class DailyIntervalPage[Interval: DailyInterval](BaseModel):
+    """One bounded upstream page, never an automatically combined history."""
+
+    recording_id: UUID
+    revision: int = Field(ge=0, strict=True)
+    snapshot: str = Field(min_length=1, max_length=4096)
+    items: list[Interval] = Field(max_length=500)
+    total: int = Field(ge=0, strict=True)
+    next_cursor: str | None = Field(min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_page(self) -> "DailyIntervalPage[Interval]":
+        if len(self.items) > self.total or (not self.items and self.next_cursor is not None):
+            raise ValueError("Invalid interval page size")
+        return self

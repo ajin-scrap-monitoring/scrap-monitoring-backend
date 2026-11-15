@@ -19,7 +19,7 @@
 | 수거 사건 | `GET /api/v2/monitoring/collection-events?pit_id=...` | 사건·개정·철회 이력. 수거 완료 확인으로 자동 해석하지 않음 |
 | 공통 알림 | `GET /api/v1/notifications` | 사용자별 읽음과 미확인 개수 |
 | 기존 사건 목록 | `GET /api/v1/events` | 기존 이력의 사건 목록·필터·페이지 |
-| 날짜 녹화 | `GET /api/v2/recordings/daily`, `GET /api/v2/recordings/daily/{id}` | 날짜 목록·확보/누락 구간·재생과 export 상태 |
+| 날짜 녹화 | `GET /api/v2/recordings/daily/summary`, `GET /api/v2/recordings/daily/{id}/summary` | 작은 상태 조회와 [필요한 구간 페이지](DAILY_RECORDING_PAGINATION.md). 기존 전체 조회는 호환 경로 |
 | 영상 재생 | `/media/cameras/{id}/live`, `/media/daily-recordings/{id}/hls/index.m3u8` | 게이트웨이가 영상 바이트와 인증을 처리. FastAPI로 영상 본체를 보내지 않음 |
 | 관리자 | `GET /api/v1/settings/alerts?pit_id=...`, `GET /api/v1/notification-recipients` | administrator 권한. 변경은 CSRF, 알림 설정 변경은 If-Match 추가 |
 

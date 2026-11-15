@@ -12,9 +12,14 @@ from pydantic import BeforeValidator
 from src.app.api.errors import MEDIA_ERROR_CODES, error_responses
 from src.app.api.v1.media_control import CurrentSession, require_media_admin
 from src.app.schemas.daily_recording import (
+    DailyAvailableInterval,
+    DailyGap,
+    DailyIntervalPage,
+    DailyMetadataPage,
     DailyPage,
     DailyPolicy,
     DailyRecording,
+    DailyRecordingMetadata,
     DailyStatus,
     DailySummaryPage,
 )
@@ -93,6 +98,66 @@ async def list_daily_recordings(
     if view == "summary":
         return await daily_recording_service.summary(params)
     return await daily_recording_service.list(params)
+
+
+@router.get("/summary", response_model=DailyMetadataPage)
+async def list_daily_metadata(
+    session: CurrentSession,
+    from_date: CalendarDate | None = None,
+    to_date: CalendarDate | None = None,
+    status: DailyStatus | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=4096),
+) -> DailyMetadataPage:
+    """Large-recording list: no full arrays or fabricated array counts."""
+    if from_date and to_date and from_date >= to_date:
+        raise HTTPException(422, "from_date must precede to_date")
+    params: dict[str, str | int] = {"limit": limit}
+    for key, value in {
+        "from_date": from_date.isoformat() if from_date else None,
+        "to_date": to_date.isoformat() if to_date else None,
+        "status": status,
+        "cursor": cursor,
+    }.items():
+        if value is not None:
+            params[key] = value
+    return await daily_recording_service.metadata_list(params)
+
+
+async def interval_page_params(
+    limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None, min_length=1, max_length=4096),
+) -> dict[str, str | int]:
+    return {"limit": limit, **({"cursor": cursor} if cursor is not None else {})}
+
+
+@router.get("/{recording_id}/summary", response_model=DailyRecordingMetadata)
+async def get_daily_metadata(recording_id: UUID, session: CurrentSession) -> DailyRecordingMetadata:
+    return await daily_recording_service.metadata(recording_id)
+
+
+@router.get("/{recording_id}/gaps", response_model=DailyIntervalPage[DailyGap])
+async def get_daily_gaps(
+    recording_id: UUID,
+    session: CurrentSession,
+    params: Annotated[dict[str, str | int], Depends(interval_page_params)],
+) -> DailyIntervalPage[DailyGap]:
+    return await daily_recording_service.interval_page(
+        recording_id, "gaps", DailyIntervalPage[DailyGap], params
+    )
+
+
+@router.get(
+    "/{recording_id}/available-intervals", response_model=DailyIntervalPage[DailyAvailableInterval]
+)
+async def get_daily_available_intervals(
+    recording_id: UUID,
+    session: CurrentSession,
+    params: Annotated[dict[str, str | int], Depends(interval_page_params)],
+) -> DailyIntervalPage[DailyAvailableInterval]:
+    return await daily_recording_service.interval_page(
+        recording_id, "available-intervals", DailyIntervalPage[DailyAvailableInterval], params
+    )
 
 
 @router.get("/{recording_id}", response_model=DailyRecording)
