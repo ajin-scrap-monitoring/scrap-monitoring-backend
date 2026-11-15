@@ -7,11 +7,12 @@
 미디어 제어 JSON은 압축 해제 후 최대8MiB까지 수신한다. 알려진 Content-Length가 상한을
 넘으면 본문을 읽기 전에 거절하고, 길이 미제공·압축 응답도 분할 수신 중 상한을 검사한다.
 초과 시502 `MEDIA_BAD_RESPONSE`를 반환해 백엔드 전체 메모리 고갈을 방지한다.
-이는 대형 응답을 정상 조회로 바꾸는 기능이 아니다. 미디어는 내부 조각 목록 등 소비자가
-사용하지 않는 대형 자료를 공개 메타데이터 JSON에서 제외해야 한다. 시간 제한은 유지한다.
+대형 공개 이력이 있는 날짜는 [요약·구간 페이지 조회](DAILY_RECORDING_PAGINATION.md)로
+연결한다. 백엔드가 작은 요약과 필요한 구간 페이지만 요청한다. 시간 제한은 유지한다.
 
-목록의 구간 배열이 필요하지 않은 화면은 [날짜 목록 요약 조회](DAILY_RECORDING_SUMMARY.md)의
-`view=summary`를 사용한다. 기본 전체 목록과 선택한 녹화 상세는 기존 형식을 유지한다.
+새 화면은 `/api/v2/recordings/daily/summary` 목록과 `/{recording_id}/summary` 상세를
+사용한다. 기존 [날짜 목록 요약 조회](DAILY_RECORDING_SUMMARY.md)의 `view=summary`와
+기본 전체 목록·상세는 호환 경로로 기존 형식을 유지하며 대형 원본 조회 비용이 남아 있다.
 
 - 기존 `MEDIA_SERVICE_URL=http://<media-host>:8889/api/v1` 설정이 있으면 같은 호스트의 `/api/v2`를 사용한다.
 - 날짜 기능만 연결하거나 별도 주소를 지정하려면 `MEDIA_DAILY_SERVICE_URL=http://<media-host>:8889/api/v2`를 설정한다. 이 값이 우선한다.
@@ -57,7 +58,7 @@
 
 ## 응답과 재생 시간축
 
-응답은 카메라 계약과 같은 snake_case 필드를 사용한다. 날짜 `recording_date`는 한국 날짜를 유지하고 모든 시각은 UTC ISO 8601로 제공한다. `revision` 등 계약에 추가될 수 있는 관리 필드는 현재 화면 응답에 포함하지 않는다.
+응답은 카메라 계약과 같은 snake_case 필드를 사용한다. 날짜 `recording_date`는 한국 날짜를 유지하고 모든 시각은 UTC ISO 8601로 제공한다. 기존 전체 응답은 `revision`을 포함하지 않으며 새 요약·구간 페이지는 스냅샷 대조를 위해 제공한다.
 
 - `window_start_at/end_at`: 한국 자정부터 다음 자정 미만의 관리 시간창.
 - `status`와 `coverage`: 녹화 중은 recording/null, 마감 후 complete/partial/none. closed는 MP4 준비 완료와 별개다.
