@@ -417,3 +417,94 @@ async def test_record_only_test_notification_does_not_claim_delivery(
     assert (await client.get("/api/v1/notifications")).json()["unreadCount"] == 0
     await test_db_session.refresh(row)
     assert row.status == "RECORDED"
+
+
+async def test_operations_opt_in_is_separate_and_uses_recipient_etag(client, test_engine):
+    created = await client.post(
+        "/api/v1/notification-recipients",
+        json={
+            "name": "Operations example",
+            "team": "Test",
+            "email": "ops@example.com",
+            "channels": ["email"],
+            "eventTypes": ["device_error"],
+            "subscriptionMode": "custom",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["operationsEmailEnabled"] is False
+    path = "/api/v1/notification-recipients/" + created.json()["id"]
+    original = created.headers["ETag"]
+    saved = await client.patch(
+        path, json={"operationsEmailEnabled": True}, headers={"If-Match": original}
+    )
+    assert saved.status_code == 200
+    assert saved.json()["operationsEmailEnabled"] is True
+    for field in ("eventTypes", "subscriptionMode", "channels", "enabled"):
+        assert saved.json()[field] == created.json()[field]
+    rejected = await client.patch(
+        path, json={"operationsEmailEnabled": False}, headers={"If-Match": original}
+    )
+    assert rejected.status_code == 412
+    etag = saved.headers["ETag"]
+    for value in (None, "true", 1):
+        assert (
+            await client.patch(
+                path, json={"operationsEmailEnabled": value}, headers={"If-Match": etag}
+            )
+        ).status_code == 422
+    assert (
+        await client.patch(path, json={"channels": ["sms"]}, headers={"If-Match": etag})
+    ).status_code == 422
+    token = client.headers.pop("X-CSRF-Token")
+    assert (
+        await client.patch(path, json={"operationsEmailEnabled": False}, headers={"If-Match": etag})
+    ).status_code == 403
+    client.headers["X-CSRF-Token"] = token
+    listed = (await client.get("/api/v1/notification-recipients")).json()["items"]
+    assert next(r for r in listed if r["id"] == created.json()["id"])["operationsEmailEnabled"]
+    disabled = await client.patch(
+        path,
+        json={"operationsEmailEnabled": False, "channels": ["sms"]},
+        headers={"If-Match": etag},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["operationsEmailEnabled"] is False
+    # Preference edits only: no business email episode or delivery is created.
+    from sqlalchemy import text
+
+    async with async_sessionmaker(test_engine)() as db:
+        for table in ("email_episodes", "email_deliveries"):
+            assert await db.scalar(text(f"SELECT count(*) FROM {table}")) == 0
+
+
+async def test_operations_only_recipient_requires_custom_email_selection(client, test_engine):
+    payload = {
+        "name": "Operations only",
+        "team": "Test",
+        "email": "only@example.com",
+        "channels": ["email"],
+        "eventTypes": [],
+        "subscriptionMode": "custom",
+        "operationsEmailEnabled": True,
+    }
+    for changes in (
+        {"operationsEmailEnabled": False},
+        {"channels": ["sms"]},
+        {"subscriptionMode": "global"},
+        {"operationsEmailEnabled": "true"},
+    ):
+        assert (
+            await client.post("/api/v1/notification-recipients", json=payload | changes)
+        ).status_code == 422
+    response = await client.post("/api/v1/notification-recipients", json=payload)
+    assert response.status_code == 201
+    assert response.json()["eventTypes"] == []
+    assert response.json()["operationsEmailEnabled"] is True
+    from src.app.services.email_delivery_service import MailPolicy, eligible
+
+    async with async_sessionmaker(test_engine)() as db:
+        recipient = await db.get(NotificationRecipientModel, response.json()["id"])
+        assert recipient is not None
+        for kind in ("collection_required", "measurement_error", "device_error"):
+            assert not eligible(recipient, kind, MailPolicy())

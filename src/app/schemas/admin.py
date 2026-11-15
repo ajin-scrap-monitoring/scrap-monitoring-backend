@@ -85,6 +85,7 @@ class NotificationRecipient(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     phone: str | None = None
     enabled: bool = True
+    operationsEmailEnabled: bool = False
     channels: list[NotificationChannel]
     subscriptionMode: Literal["global", "custom"] = "global"
     eventTypes: list[ConfigurableAlertEventType]
@@ -100,9 +101,10 @@ class NotificationRecipientCreate(BaseModel):
     email: str = Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     phone: str | None = Field(default=None, max_length=50)
     enabled: bool = True
+    operationsEmailEnabled: bool = Field(default=False, strict=True)
     channels: list[NotificationChannel] = Field(min_length=1, max_length=2)
     subscriptionMode: Literal["global", "custom"] = "global"
-    eventTypes: list[ConfigurableAlertEventType] = Field(min_length=1, max_length=3)
+    eventTypes: list[ConfigurableAlertEventType] = Field(max_length=3)
 
     @model_validator(mode="after")
     def validate_selections(self) -> Self:
@@ -111,6 +113,12 @@ class NotificationRecipientCreate(BaseModel):
             values = getattr(self, field)
             if len(values) != len(set(values)):
                 raise ValueError(f"{field} must contain unique values")
+        if not self.eventTypes and (
+            not self.operationsEmailEnabled or self.subscriptionMode != "custom"
+        ):
+            raise ValueError("Empty business alerts require custom operations-only subscriptions")
+        if self.operationsEmailEnabled and "email" not in self.channels:
+            raise ValueError("Operations email requires the email channel")
         return self
 
 
@@ -124,6 +132,7 @@ class NotificationRecipientPatch(BaseModel):
     email: str | None = Field(default=None, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     phone: str | None = Field(default=None, max_length=50)
     enabled: bool | None = None
+    operationsEmailEnabled: bool | None = Field(default=None, strict=True)
     channels: list[NotificationChannel] | None = Field(default=None, min_length=1, max_length=2)
     subscriptionMode: Literal["global", "custom"] | None = None
     eventTypes: list[ConfigurableAlertEventType] | None = Field(default=None, max_length=3)

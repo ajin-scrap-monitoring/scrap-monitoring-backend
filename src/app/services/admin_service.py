@@ -79,6 +79,7 @@ class AdminService:
                     email=r.email,
                     phone=r.phone,
                     enabled=r.enabled,
+                    operationsEmailEnabled=r.operations_email_enabled,
                     channels=channels,
                     subscriptionMode=cast(SubscriptionMode, r.subscription_mode),
                     eventTypes=event_types,
@@ -126,6 +127,7 @@ class AdminService:
             email=str(payload.email),
             phone=payload.phone,
             enabled=payload.enabled,
+            operations_email_enabled=payload.operationsEmailEnabled,
             channels=",".join(payload.channels),
             subscription_mode=payload.subscriptionMode,
             event_types=",".join(payload.eventTypes),
@@ -153,6 +155,7 @@ class AdminService:
             email=rec_model.email,
             phone=rec_model.phone,
             enabled=rec_model.enabled,
+            operationsEmailEnabled=rec_model.operations_email_enabled,
             channels=payload.channels,
             subscriptionMode=payload.subscriptionMode,
             eventTypes=payload.eventTypes,
@@ -178,6 +181,16 @@ class AdminService:
         version = rec_model.version_id
         if if_match is not None and if_match != f'"{version}"':
             raise HTTPException(412, "Recipient changed; retrieve the current version first")
+        operations_enabled = (
+            payload.operationsEmailEnabled
+            if payload.operationsEmailEnabled is not None
+            else rec_model.operations_email_enabled
+        )
+        channels = (
+            payload.channels if payload.channels is not None else rec_model.channels.split(",")
+        )
+        if operations_enabled and "email" not in channels:
+            raise HTTPException(422, "Operations email requires the email channel")
         changes: dict[str, Any] = {"version_id": version + 1}
 
         if payload.email and str(payload.email) != rec_model.email:
@@ -200,6 +213,8 @@ class AdminService:
             changes["phone"] = payload.phone
         if payload.enabled is not None:
             changes["enabled"] = payload.enabled
+        if payload.operationsEmailEnabled is not None:
+            changes["operations_email_enabled"] = payload.operationsEmailEnabled
         if payload.channels is not None:
             changes["channels"] = ",".join(payload.channels)
         if payload.subscriptionMode is not None:
@@ -256,6 +271,7 @@ class AdminService:
             email=rec_model.email,
             phone=rec_model.phone,
             enabled=rec_model.enabled,
+            operationsEmailEnabled=rec_model.operations_email_enabled,
             channels=channels,
             subscriptionMode=cast(SubscriptionMode, rec_model.subscription_mode),
             eventTypes=event_types,
