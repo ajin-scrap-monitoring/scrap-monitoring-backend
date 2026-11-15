@@ -15,7 +15,7 @@ from src.app.schemas.edge_v2 import Measurement
 from src.app.services import active_alerts_v2_service as alert_service
 from src.app.services import monitoring_v2_service as service
 from src.app.services.edge_v2_service import accept_message
-from tests.pg_wait_diagnostics import report_pending_writer
+from tests.pg_wait_diagnostics import receiver_diagnostics, report_pending_writer
 from tests.test_height_fill_pipeline import START, frame, prepare
 from tests.test_height_fill_pipeline import height_context as height_context
 from tests.test_monitoring_v2 import login
@@ -73,7 +73,8 @@ async def test_receiver_commit_cannot_mix_display_observation_and_filter(
 
                 diagnostic = asyncio.create_task(report_pending_writer(test_engine, progress))
                 try:
-                    await asyncio.wait_for(receive(), 5)
+                    with receiver_diagnostics(progress):
+                        await asyncio.wait_for(receive(), 5)
                 finally:
                     diagnostic.cancel()
                     await asyncio.gather(diagnostic, return_exceptions=True)
