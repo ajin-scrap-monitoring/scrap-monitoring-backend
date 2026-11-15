@@ -1,6 +1,8 @@
 """Authenticated JSON-only client for the camera media service."""
 
 import asyncio
+import logging
+from datetime import UTC
 from typing import Any, TypeVar
 from urllib.parse import quote
 from uuid import UUID
@@ -19,6 +21,9 @@ from src.app.schemas.media_service import (
     RecordingPolicy,
 )
 from src.app.schemas.media_storage import MediaStorageStatus
+from src.app.schemas.policy_capacity import PolicyCapacityValidation
+
+logger = logging.getLogger(__name__)
 
 Schema = TypeVar("Schema", bound=BaseModel)
 # A bounded file probe may take fifteen seconds; leave three seconds for JSON I/O.
@@ -203,6 +208,31 @@ class MediaClient:
         except ValidationError as exc:
             raise MediaServiceError(502, "MEDIA_BAD_RESPONSE") from exc
 
+    def _parse_policy_update(self, response: httpx.Response, schema: type[Schema]) -> Schema:
+        """Separate upstream capacity evidence from the unchanged strict policy contract."""
+        try:
+            raw = response.json()
+            if not isinstance(raw, dict):
+                raise ValueError("Expected a policy object")
+            evidence = None
+            if "capacity_validation" in raw:
+                evidence = PolicyCapacityValidation.model_validate(raw.pop("capacity_validation"))
+            policy = schema.model_validate(raw)
+        except (ValueError, TypeError) as exc:
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE") from exc
+        if evidence is not None and (evidence.status != "estimated_fit" or evidence.warnings):
+            # Only validated codes and status reach the local operating log. Upstream
+            # messages, paths, budgets and observations may contain private details.
+            logger.warning(
+                "RECORDING_POLICY_CAPACITY policy=%s status=%s applied=true "
+                "evaluated_at=%s codes=%s",
+                schema.__name__,
+                evidence.status,
+                evidence.evaluated_at.astimezone(UTC).isoformat(),
+                ",".join(warning.code for warning in evidence.warnings),
+            )
+        return policy
+
     async def storage_status(self) -> tuple[int, MediaStorageStatus]:
         response = await self._request("GET", "storage/status", (200, 503), tokenless=True)
         result = self._parse(response, MediaStorageStatus)
@@ -220,7 +250,7 @@ class MediaClient:
         response = await self._request(
             "PUT", f"cameras/{quote(camera_id, safe='')}/recording-policy", (200,), policy
         )
-        return self._parse(response, RecordingPolicy)
+        return self._parse_policy_update(response, RecordingPolicy)
 
     async def create_clip(self, request: ClipRequest) -> tuple[int, ClipReceipt]:
         response = await self._request("POST", "clips", (200, 202), request)

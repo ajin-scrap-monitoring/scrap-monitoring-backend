@@ -61,7 +61,11 @@ class DailyRecordingService:
             update,
             daily=True,
         )
-        return self.client._parse(response, DailyPolicy)
+        return (
+            self.client._parse_policy_update(response, DailyPolicy)
+            if update is not None
+            else self.client._parse(response, DailyPolicy)
+        )
 
     async def list(self, params: dict[str, str | int]) -> DailyPage:
         response = await self.client._request(

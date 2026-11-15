@@ -42,7 +42,7 @@
 논리 삭제와 파일 정리 결과, 실패 후 재시도 및 삭제 이후 필드 해석은
 [파일 정리 상태](RECORDING_CLEANUP.md)를 따른다. 503 정리 실패를 성공으로 바꾸지 않는다.
 
-정책 PUT 본문은 `{"enabled": true, "retention_days": 30}`이며 두 필드 모두 필요하다. `enabled`는 boolean, `retention_days`는 1~365 정수다. 다른 필드와 잘못된 타입은 422다. 정책 변경의 적용 시점과 기존 날짜 보관 정책은 미디어 서비스 규칙을 따른다.
+정책 PUT 본문은 `{"enabled": true, "retention_days": 30}`이며 두 필드 모두 필요하다. `enabled`는 boolean, `retention_days`는 1~365 정수다. 다른 필드와 잘못된 타입은 422다. 정책 변경의 적용 시점과 기존 날짜 보관 정책은 미디어 서비스 규칙을 따른다. 추가 용량 검증 응답과 운영 로그 처리는 [정책 저장 응답](RECORDING_POLICY_RESPONSES.md)을 따른다.
 
 목록 쿼리:
 
