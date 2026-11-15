@@ -1,7 +1,9 @@
 """Read-only v2 dashboard projection; no legacy metrics, alerts or recording jobs."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from statistics import fmean
+from time import monotonic
 from typing import Literal, cast
 
 from fastapi import HTTPException
@@ -33,6 +35,8 @@ from src.app.services.simulation_height import simulation_profile
 
 # Allow one-second worker scheduling, but expose a stopped worker promptly.
 MAX_PENDING_EVALUATION_SECONDS = 3
+PENDING_READ_BUDGET_SECONDS = 0.1
+PENDING_READ_INTERVAL_SECONDS = 0.025
 
 
 async def recent_operation_matches(
@@ -91,6 +95,37 @@ async def monitoring_snapshot(
     """
     if db.get_bind().dialect.name != "postgresql":
         return await build_snapshot(db, source, now)
+    snapshot = await postgres_snapshot(db, source, now)
+    deadline = monotonic() + PENDING_READ_BUDGET_SECONDS
+    while (
+        snapshot.dataState == "FRESH"
+        and "OPERATIONS_EVALUATION_UNAVAILABLE" in snapshot.reasonCodes
+        and snapshot.operations is not None
+        and snapshot.operations.effectiveState == "UNKNOWN"
+    ):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        # The previous read session is closed before waiting for a real committed judgment.
+        await asyncio.sleep(min(PENDING_READ_INTERVAL_SECONDS, remaining))
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        budget = asyncio.timeout(remaining)
+        try:
+            async with budget:
+                snapshot = await postgres_snapshot(db, source, now)
+        except TimeoutError:
+            if not budget.expired():
+                raise
+            break
+    return snapshot
+
+
+async def postgres_snapshot(
+    db: AsyncSession, source: MonitoringSource, now: datetime | None = None
+) -> MonitoringSnapshotV2:
+    """Release one consistent read before a pending-evaluation retry or camera work."""
     async with AsyncSession(bind=db.bind, expire_on_commit=False) as reading:
         await reading.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         await reading.execute(text("SET TRANSACTION READ ONLY"))
