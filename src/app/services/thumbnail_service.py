@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from src.app.core.config import get_settings
-from src.app.schemas.daily_recording import DailyRecording
+from src.app.schemas.daily_recording import DailyRecordingMetadata
 from src.app.schemas.media_service import ClipDetail
 from src.app.schemas.thumbnail import ClipThumbnailInfo, DailyThumbnailInfo, ThumbnailRequest
 from src.app.services.daily_recording_service import daily_recording_service
@@ -25,7 +25,7 @@ async def daily_thumbnail_for_date(recording_date: date) -> DailyThumbnailInfo |
         raise HTTPException(422, "Recording date exceeds the supported calendar") from exc
     try:
         async with asyncio.timeout(get_settings().MEDIA_REQUEST_TIMEOUT_SECONDS):
-            page = await daily_recording_service.list(
+            page = await daily_recording_service.metadata_list(
                 {
                     "from_date": recording_date.isoformat(),
                     "to_date": next_date.isoformat(),
@@ -42,7 +42,7 @@ async def daily_thumbnail_for_date(recording_date: date) -> DailyThumbnailInfo |
             if parent.recording_date != recording_date:
                 raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
 
-            def validate_parent(current: DailyRecording) -> None:
+            def validate_parent(current: DailyRecordingMetadata) -> None:
                 if current.recording_date != recording_date:
                     raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
 
@@ -68,7 +68,7 @@ async def thumbnail(
     daily: bool = False,
     prepare: ThumbnailRequest | None = None,
     validate_clip: Callable[[ClipDetail], None] | None = None,
-    validate_daily: Callable[[DailyRecording], None] | None = None,
+    validate_daily: Callable[[DailyRecordingMetadata], None] | None = None,
 ) -> tuple[int, Thumbnail]:
     """A bounded selected-resource request never creates video exports or retries itself."""
     try:
@@ -90,13 +90,15 @@ async def _thumbnail(
     daily: bool,
     prepare: ThumbnailRequest | None,
     validate_clip: Callable[[ClipDetail], None] | None,
-    validate_daily: Callable[[DailyRecording], None] | None,
+    validate_daily: Callable[[DailyRecordingMetadata], None] | None,
 ) -> tuple[int, Thumbnail]:
     prefix, _, image = paths(identifier, daily)
-    response = await media_client._request("GET", prefix, (200,), daily=daily, tokenless=True)
-    parent: DailyRecording | ClipDetail
+    response = await media_client._request(
+        "GET", prefix + "/summary" if daily else prefix, (200,), daily=daily, tokenless=True
+    )
+    parent: DailyRecordingMetadata | ClipDetail
     if daily:
-        parent = media_client._parse(response, DailyRecording)
+        parent = media_client._parse(response, DailyRecordingMetadata)
         parent_id = parent.recording_id
         expiries = [parent.expires_at, parent.export_expires_at]
     else:
@@ -115,7 +117,7 @@ async def _thumbnail(
         raise MediaServiceError(410, ("DAILY_RECORDING_" if daily else "CLIP_") + state)
     if validate_clip is not None and isinstance(parent, ClipDetail):
         validate_clip(parent)
-    if validate_daily is not None and isinstance(parent, DailyRecording):
+    if validate_daily is not None and isinstance(parent, DailyRecordingMetadata):
         validate_daily(parent)
     suffix = "thumbnail" if prepare is not None else "thumbnail-info"
     try:

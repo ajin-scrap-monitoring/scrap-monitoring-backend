@@ -97,6 +97,16 @@ class Camera:
             if not ready:
                 self.item["export_state"] = "processing"
             return httpx.Response(200 if ready else 202, json=self.item)
+        if request.url.path.endswith("/summary"):
+            summary = {
+                k: v for k, v in self.item.items() if k not in ("gaps", "available_intervals")
+            }
+            return httpx.Response(
+                200,
+                json={"items": [summary], "next_cursor": None}
+                if request.url.path.endswith("/daily-recordings/summary")
+                else summary,
+            )
         if request.url.path.endswith("/daily-recordings"):
             return httpx.Response(200, json={"items": [self.item], "next_cursor": "opaque+/="})
         return httpx.Response(200, json=self.item)

@@ -95,6 +95,15 @@ async def metadata(monkeypatch):
                     status, json={"error": {"code": code, "message": "private-secret"}}
                 )
             return httpx.Response(200, json=data["day" if daily else "clip"])
+        if daily and request.url.path.endswith("/summary"):
+            return httpx.Response(
+                200,
+                json={
+                    k: v
+                    for k, v in data["day_detail"].items()
+                    if k not in ("gaps", "available_intervals")
+                },
+            )
         if request.url.path.endswith("/daily-recordings"):
             return httpx.Response(200, json={"items": [data["day_detail"]], "next_cursor": None})
         return httpx.Response(200, json=data["day_detail" if daily else "clip_detail"])

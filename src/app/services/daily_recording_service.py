@@ -171,7 +171,7 @@ class DailyRecordingService:
         return response.status_code, public_recording(item)
 
     async def media_info(self, recording_id: UUID) -> DailyMediaInfo:
-        item = await self.detail(recording_id)
+        item = await self.metadata(recording_id)
         if item.status in ("deleted", "expired"):
             raise MediaServiceError(410, "DAILY_RECORDING_" + item.status.upper())
         info = await self.client.metadata(
@@ -182,8 +182,8 @@ class DailyRecordingService:
         return info
 
     async def delete(self, recording_id: UUID) -> None:
-        # Check camera ownership before the destructive request.
-        await self.detail(recording_id)
+        # Check camera ownership before the destructive request without loading history.
+        await self.metadata(recording_id)
         await self.client._request(
             "DELETE",
             f"daily-recordings/{recording_id}",
