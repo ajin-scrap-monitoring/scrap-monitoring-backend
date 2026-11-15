@@ -1,0 +1,15 @@
+# Private operator configuration. Real addresses belong only in private-access.
+[monitor]
+enabled = false
+server_name = backend-server
+# One email per line, or separate emails with commas.
+recipients =
+warning_percent = 75
+critical_percent = 90
+interval_seconds = 300
+reminder_seconds = 3600
+
+# Use the filesystem mount point, not a database file. Add disk sections as needed.
+[disk:system]
+path = /
+require_mount = true
