@@ -159,8 +159,8 @@ def test_expired_scan_marker_cannot_stand_in_for_anchor_metadata():
         SectionAnchor.model_validate({"raw_expired": True})
 
 
-@pytest.mark.parametrize("kind", ["missing", "raw_range", "physical", "collection"])
-def test_section_mode_requires_explicit_geometry_and_separate_collection_policy(kind):
+@pytest.mark.parametrize("kind", ["missing", "raw_range", "physical", "compact_disabled"])
+def test_section_mode_requires_explicit_compact_edge_world_geometry(kind):
     from tests.test_lidar_height import REFERENCE as PHYSICAL_REFERENCE
 
     settings = {
@@ -181,12 +181,7 @@ def test_section_mode_requires_explicit_geometry_and_separate_collection_policy(
         settings["EDGE_V2_SIMULATION_HEIGHT_REFERENCES"] = []
         settings["EDGE_V2_HEIGHT_REFERENCES"] = [PHYSICAL_REFERENCE]
     else:
-        settings.update(
-            EDGE_V2_OPERATIONS_ENABLED=True,
-            EDGE_V2_HEIGHT_FILL_ENABLED=True,
-            EDGE_V2_COLLECTION_DETECTION_ENABLED=True,
-            EDGE_V2_COLLECTION_DROP_METERS=3,
-        )
+        settings["EDGE_V2_COMPACT_STORAGE_ENABLED"] = False
     with pytest.raises(ValidationError, match="Section profiles require"):
         Settings(_env_file=None, **settings)
 

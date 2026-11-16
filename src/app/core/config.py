@@ -146,17 +146,13 @@ class Settings(BaseSettings):
         if self.EDGE_V2_SECTION_PROFILES_ENABLED and (
             not references
             or not self.EDGE_V2_COMPACT_STORAGE_ENABLED
-            or self.EDGE_V2_COLLECTION_DETECTION_ENABLED
             or any(
                 not isinstance(reference, SimulationHeightReference)
                 or reference.coordinate_source != "EDGE_WORLD"
                 for reference in references
             )
         ):
-            raise ValueError(
-                "Section profiles require compact edge-world simulation references and "
-                "disabled height collection detection"
-            )
+            raise ValueError("Section profiles require compact edge-world simulation references")
         if self.EDGE_V2_FILTERED_PROFILES_ENABLED and (
             not references
             or not self.EDGE_V2_COMPACT_STORAGE_ENABLED

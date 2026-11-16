@@ -44,7 +44,12 @@ def height_method(source: MonitoringSource, depth_cm: float | None) -> str | Non
 
 @consistent_height_references
 async def project_height_fill(
-    db: AsyncSession, measurement: Measurement, receipt: EdgeV2Message, row: EdgeV2Filter
+    db: AsyncSession,
+    measurement: Measurement,
+    receipt: EdgeV2Message,
+    row: EdgeV2Filter,
+    *,
+    display_input: bool = True,
 ) -> None:
     from src.app.services.edge_v2_projection import project_input
     from src.app.services.height_median_service import project_height_window
@@ -59,7 +64,8 @@ async def project_height_fill(
         None,
     )
     if source is None:
-        row.payload = {}
+        if display_input:
+            row.payload = {}
         return
     page = await raw_lidar_profiles(db, source, utc(receipt.received_at))
     stabilized = await project_height_window(db, source, measurement, receipt, page)
@@ -126,9 +132,10 @@ async def project_height_fill(
         current.message_id = measurement.message_id
         current.generated_at = measurement.generated_at
         current.payload = observation.model_dump(mode="json")
-    await project_input(
-        db, observation, receipt, row, height_filtered_percent=stabilized.meanSectionFillPercent
-    )
+    if display_input:
+        await project_input(
+            db, observation, receipt, row, height_filtered_percent=stabilized.meanSectionFillPercent
+        )
 
 
 async def height_snapshot(
@@ -137,6 +144,8 @@ async def height_snapshot(
     device: DeviceStatus,
     pit: PitConfig | None,
     now: datetime,
+    *,
+    collection_only: bool = False,
 ) -> tuple[
     FillObservation | None,
     DashboardDataState,
@@ -187,10 +196,22 @@ async def height_snapshot(
         reasons.append("HEIGHT_CONTEXT_UNAVAILABLE_OR_CHANGED")
     elif observation.value_percent is None or observed is None:
         state = "UNAVAILABLE"
-    row = await db.get(EdgeV2Filter, (source.site_id, source.edge_id))
     raw = observation.value_percent if state == "FRESH" else None
     if state != "FRESH":
         return observation, state, reasons, None, None, "UNAVAILABLE"
+    if collection_only:
+        from src.app.services.height_median_service import read_height_window
+        from src.app.services.monitoring_v2_service import raw_lidar_profiles
+
+        # Collection keeps the same raw height window. The selected display filter
+        # belongs to section fusion and cannot establish a raw height observation.
+        page = await raw_lidar_profiles(db, source, now)
+        filtered = await read_height_window(db, source, page, now)
+        value = filtered.meanSectionFillPercent
+        if value is not None:
+            return observation, state, reasons, raw, value, "READY"
+        return observation, "UNKNOWN", [*reasons, "HEIGHT_COLLECTION_WARMING"], raw, None, "WARMING"
+    row = await db.get(EdgeV2Filter, (source.site_id, source.edge_id))
     if (
         row is None
         or row.payload.get("message_id") != observation.message_id
