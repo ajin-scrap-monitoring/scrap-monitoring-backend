@@ -23,6 +23,7 @@ from src.app.services.edge_v2_service import utc
 from src.app.services.height_reference import consistent_height_references
 from src.app.services.measurement_error_episodes import mark_measurement_episode
 from src.app.services.observation_window import observation_slots
+from src.app.services.receipt_compaction import minimal_receipt
 
 
 async def lock_projection(db: AsyncSession, payload: Envelope) -> EdgeV2Filter:
@@ -53,12 +54,11 @@ def receipt_payload(payload: Envelope) -> dict[str, Any]:
         return payload.model_dump(mode="json")
     if not isinstance(payload, (Measurement, Assessment, StatusReport)):
         return payload.model_dump(mode="json")
-    return {
-        **payload.model_dump(mode="json", include=set(Envelope.model_fields)),
-        "message_type": payload.message_type,
-        "assessment_type": payload.assessment_type if isinstance(payload, Assessment) else None,
-        "retention": "LATEST_ONLY",
-    }
+    # All identity/time/config metadata already has durable, indexed columns.
+    return minimal_receipt(
+        payload.schema_version,
+        payload.assessment_type if isinstance(payload, Assessment) else None,
+    )
 
 
 async def latest_message(
