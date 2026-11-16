@@ -236,12 +236,21 @@ async def project(
             get_settings().EDGE_V2_HEIGHT_FILL_ENABLED
             or get_settings().EDGE_V2_HEIGHT_MEDIAN_ENABLED
         )
-        and not get_settings().EDGE_V2_SECTION_PROFILES_ENABLED
+        and (
+            not get_settings().EDGE_V2_SECTION_PROFILES_ENABLED
+            or get_settings().EDGE_V2_COLLECTION_DETECTION_ENABLED
+        )
     ):
         from src.app.services.height_fill_service import project_height_fill
 
         await db.flush()
-        await project_height_fill(db, payload, receipt, filter_row)
+        await project_height_fill(
+            db,
+            payload,
+            receipt,
+            filter_row,
+            display_input=not get_settings().EDGE_V2_SECTION_PROFILES_ENABLED,
+        )
     elif isinstance(payload, Assessment):
         if get_settings().EDGE_V2_SECTION_PROFILES_ENABLED:
             from src.app.services.section_profile_service import project_section_input

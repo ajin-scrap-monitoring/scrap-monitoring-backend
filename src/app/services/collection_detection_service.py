@@ -15,7 +15,7 @@ from src.app.schemas.fill_observation import FillObservation
 from src.app.schemas.lidar_height import SimulationHeightReference
 from src.app.schemas.monitoring_v2 import MonitoringSnapshotV2, MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
-from src.app.services.height_fill_service import height_method
+from src.app.services.height_fill_service import height_method, height_snapshot
 from src.app.services.height_median_service import HeightWindow, window_scope
 from src.app.services.height_reference import height_reference, reference_depth, reference_sensors
 from src.app.services.monitoring_v2_service import build_snapshot
@@ -268,6 +268,34 @@ async def read_collection_input(
     """Read all height/context components in the caller's database snapshot."""
     snapshot = await build_snapshot(db, source, now)
     pit = await db.get(PitConfig, source.pit_id)
+    if get_settings().EDGE_V2_SECTION_PROFILES_ENABLED:
+        # This is a private collection view, never a replacement for the public
+        # section gauge. Preserve its existing height source and metre settings;
+        # calibrated area percentages are not a height measurement.
+        observation, state, reasons, raw, value, filter_state = await height_snapshot(
+            db, source, snapshot.deviceStatus, pit, now, collection_only=True
+        )
+        summary = snapshot.summary.model_copy(
+            update={
+                "inputSource": "HEIGHT_SECTIONS",
+                "simulated": bool(observation and observation.simulated),
+                "rawLoadPercent": raw,
+                "loadPercent": value,
+                "filterState": filter_state,
+            }
+        )
+        snapshot = snapshot.model_copy(
+            update={
+                "fillObservation": observation,
+                "dataState": state,
+                "reasonCodes": reasons,
+                "measuredAt": observation.observed_to if observation else None,
+                "summary": summary,
+            }
+        )
+        snapshot.snapshotId = digest(
+            snapshot.model_dump(mode="json", exclude={"serverTime", "snapshotId"})
+        )
     scope = collection_scope(source, pit)
     depth = reference_depth(height_reference(source.pit_id), pit.total_depth_cm if pit else None)
     observation = snapshot.fillObservation
