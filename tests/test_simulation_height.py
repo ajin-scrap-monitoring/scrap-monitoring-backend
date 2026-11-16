@@ -338,7 +338,7 @@ async def test_simulation_status_failure_stale_boot_and_reference_change_invalid
     assert all(p.average is None and not p.simulated for p in page.profiles)
 
 
-async def test_simulation_collection_log_is_explicitly_labelled(
+async def test_simulation_collection_log_uses_result_text_and_structured_provenance(
     client, test_db_session, simulation_context
 ):
     db = test_db_session
@@ -347,9 +347,8 @@ async def test_simulation_collection_log_is_explicitly_labelled(
         _, snapshot = await frame(client, db, simulation_context, second, 95)
     assert snapshot.operations.effectiveState == "CRITICAL"
     log = await db.scalar(select(AlertLog))
-    assert (
-        log.message.startswith("[시뮬레이션]") and log.channel == "LOG" and log.status == "RECORDED"
-    )
+    assert "시뮬레이션" not in log.message and "라이다" not in log.message
+    assert "수거 필요" in log.message and log.channel == "LOG" and log.status == "RECORDED"
     await login(client)
     alerts = (await client.get("/api/v2/monitoring/alerts?pit_id=pit-demo")).json()
     assert alerts["items"][0]["simulated"]
