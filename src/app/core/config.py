@@ -1,6 +1,7 @@
 """Core configuration and lifecycle settings."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -77,6 +78,8 @@ class Settings(BaseSettings):
     EDGE_V2_SIMULATION_HEIGHT_REFERENCES: list[SimulationHeightReference] = Field(
         default_factory=list, repr=False
     )
+    # Optional private replacement document, reloaded without changing process environment.
+    EDGE_V2_HEIGHT_REFERENCE_FILE: Path | None = Field(default=None, repr=False)
     # Height ratios are a separate opt-in input; edge capabilities and bodies stay unchanged.
     EDGE_V2_HEIGHT_FILL_ENABLED: bool = False
     # Height-only filtering can be enabled without activating collection decisions.

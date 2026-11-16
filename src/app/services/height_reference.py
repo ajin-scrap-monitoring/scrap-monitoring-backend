@@ -1,13 +1,38 @@
 """Select explicit height contexts; simulator clocks and geometry stay separately labelled."""
 
+from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any
 
 from src.app.core.config import get_settings
+from src.app.core.height_reference_file import configured_references
 from src.app.schemas.lidar_height import HeightReference, SimulationHeightReference
 
 HeightContext = HeightReference | SimulationHeightReference
 SIMULATION_METHOD = "SIMULATION_HEIGHT_SECTION_V1:"
 SIMULATION_ANGLE_METHOD = "SIMULATION_SENSOR_ANGLE_V1:"
+_references: ContextVar[tuple[HeightContext, ...] | None] = ContextVar(
+    "height_reference_operation", default=None
+)
+
+
+def consistent_height_references[**P, R](
+    function: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    """Pin one reference generation across awaits and nested projection/read operations."""
+
+    @wraps(function)
+    async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        if _references.get() is not None:
+            return await function(*args, **kwargs)
+        token = _references.set(configured_references(get_settings()))
+        try:
+            return await function(*args, **kwargs)
+        finally:
+            _references.reset(token)
+
+    return wrapped
 
 
 def reference_payload(reference: HeightContext) -> dict[str, Any]:
@@ -30,11 +55,9 @@ def simulation_method(reference: SimulationHeightReference) -> str:
 
 
 def height_reference(pit_id: str) -> HeightContext | None:
-    settings = get_settings()
-    references: list[HeightContext] = [
-        *settings.EDGE_V2_HEIGHT_REFERENCES,
-        *settings.EDGE_V2_SIMULATION_HEIGHT_REFERENCES,
-    ]
+    references = _references.get()
+    if references is None:
+        references = configured_references(get_settings())
     return next((r for r in references if r.pit_id == pit_id), None)
 
 

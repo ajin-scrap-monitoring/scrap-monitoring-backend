@@ -22,11 +22,13 @@ from src.app.services.alert_lifecycle_service import (
 )
 from src.app.services.collection_detection_service import process_collection_source
 from src.app.services.edge_v2_service import utc
+from src.app.services.height_reference import consistent_height_references
 from src.app.services.monitoring_v2_service import build_snapshot
 
 logger = logging.getLogger(__name__)
 
 
+@consistent_height_references
 async def process_source(db: AsyncSession, source: MonitoringSource, now: datetime) -> None:
     """Commit cursor, hysteresis and notification together; replay is a no-op."""
     row = await db.scalar(

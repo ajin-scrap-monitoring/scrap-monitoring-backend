@@ -29,7 +29,11 @@ from src.app.schemas.monitoring_v2 import (
 )
 from src.app.services.edge_v2_projection import latest_message
 from src.app.services.edge_v2_service import device_status, digest, utc
-from src.app.services.height_reference import clock_allowed, height_reference
+from src.app.services.height_reference import (
+    clock_allowed,
+    consistent_height_references,
+    height_reference,
+)
 from src.app.services.lidar_height import height_profile
 from src.app.services.simulation_height import simulation_profile
 
@@ -84,6 +88,7 @@ def monitoring_source(pit_id: str) -> MonitoringSource:
     raise HTTPException(404, "MONITORING_SOURCE_NOT_CONFIGURED")
 
 
+@consistent_height_references
 async def monitoring_snapshot(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> MonitoringSnapshotV2:
@@ -132,6 +137,7 @@ async def postgres_snapshot(
         return await build_snapshot(reading, source, now)
 
 
+@consistent_height_references
 async def build_snapshot(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> MonitoringSnapshotV2:
@@ -323,6 +329,7 @@ async def lidar_profile_snapshot(
         return await lidar_profiles(reading, source, now)
 
 
+@consistent_height_references
 async def lidar_profiles(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> LidarProfilePageV2:
@@ -339,6 +346,7 @@ async def lidar_profiles(
     return page
 
 
+@consistent_height_references
 async def raw_lidar_profiles(
     db: AsyncSession, source: MonitoringSource, now: datetime | None = None
 ) -> LidarProfilePageV2:
