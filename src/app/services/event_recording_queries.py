@@ -326,6 +326,16 @@ def event_table(
                     _json_boolean(db, event.payload, "currentValid", True),
                 ),
             )
+            changed = or_(
+                changed,
+                and_(
+                    _json_boolean(db, event.payload, "measurementEpisodeEvent", True),
+                    or_(
+                        _json_boolean(db, event.payload, "currentValid", True),
+                        _json_boolean(db, event.payload, "currentValid", False),
+                    ),
+                ),
+            )
             filters = [
                 event.site_id == source.site_id,
                 event.edge_id == source.edge_id,

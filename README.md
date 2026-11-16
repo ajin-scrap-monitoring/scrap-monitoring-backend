@@ -111,6 +111,7 @@ docker compose down
 * [docs/ADMIN_ACCESS.md](docs/ADMIN_ACCESS.md): 관리자 설정 API의 로그인·역할·CSRF 검사와 프론트엔드 요청 방법
 * [docs/OPERATIONS_RECIPIENTS.md](docs/OPERATIONS_RECIPIENTS.md): 운영 경고 수신 선택·독립 수신자 캐시·적용 경계
 * [docs/DEVICE_ERROR_EPISODES.md](docs/DEVICE_ERROR_EPISODES.md): 장치 전체 상태의 같은 원인 반복과 진단 이력 구분
+* [docs/MEASUREMENT_ERROR_EPISODES.md](docs/MEASUREMENT_ERROR_EPISODES.md): 측정 입력의 반복 오류 구간과 10초 복구 확인
 * [docs/SERVER_CAPACITY_ALERTS.md](docs/SERVER_CAPACITY_ALERTS.md): 비공개 TXT 기반 서버 관리자 용량 경고·전달 상태
 * [docs/CI_EXECUTION.md](docs/CI_EXECUTION.md): PR 전체 검사·main 수동 실행·배포 전 검증 근거
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정

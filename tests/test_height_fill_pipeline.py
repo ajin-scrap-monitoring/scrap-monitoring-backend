@@ -183,8 +183,9 @@ async def test_height_spike_history_and_wire_provenance(client, test_db_session,
     )
     assert (sample.validSamples, sample.invalidSamples) == (8, 4)
     assert await db.scalar(select(func.count()).select_from(AlertLog)) == 0
-    # Current alert starts add one bounded pointer per source, not one row per frame.
-    assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 6
+    # Current alert starts and measurement episodes add bounded pointers per source,
+    # not one row per frame.
+    assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 7
     active_starts = await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "active_alert_starts"))
     assert active_starts is not None and active_starts.payload["entries"] == {}
     height_window = await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "height_window"))
