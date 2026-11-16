@@ -17,6 +17,7 @@ from src.app.core.config import get_settings
 from src.app.models.media_job import EventExportAlias, MediaClipJob
 from src.app.services.event_export_service import CONTEXT_KEY, export_identifier
 from src.app.services.media_client import media_client
+from src.app.services.media_job_service import MediaJobWorker
 
 __all__ = ["extractor"]
 
@@ -67,7 +68,7 @@ async def shared_thumbnails(extractor, monkeypatch):
 async def existing(client, db, data):
     headers = await login(client, "admin")
     event, body, response = await start(client, db, headers)
-    assert response.status_code == 202, response.text
+    assert response.status_code == 200, response.text
     clip_id = response.json()["clipId"]
     ready(data["clips"][clip_id])
     assert (await client.get(f"{API}/{event}/exports")).json()["status"] == "ready"
@@ -85,7 +86,10 @@ async def test_submillisecond_event_uses_same_normalization_as_export(
     event = await alert(test_db_session, BASE.replace(microsecond=123456))
     created = await client.post(f"{API}/{event}/exports", json=payload(), headers=headers)
     assert created.status_code == 202, created.text
-    clip = created.json()["clipId"]
+    assert created.json()["clipId"] is None
+    await MediaJobWorker().run_once(test_db_session)
+    status = await client.get(created.json()["statusPath"])
+    clip = status.json()["clipId"]
     ready(data["clips"][clip])
     assert (await client.get(f"{API}/{event}/exports")).json()["status"] == "ready"
     data["requests"].clear()

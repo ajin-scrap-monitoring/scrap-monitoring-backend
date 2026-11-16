@@ -37,6 +37,9 @@ async def extractor(monkeypatch):
     }.items():
         monkeypatch.setattr(settings, key, value)
     monkeypatch.setattr(media_job_worker, "lock", asyncio.Lock())
+    import src.app.services.event_export_service as exports
+
+    monkeypatch.setattr(exports, "export_admission_lock", asyncio.Lock())
     data = {"requests": [], "clips": {}, "lost": False, "mismatch": None, "error": None}
 
     async def handle(request):
@@ -112,8 +115,14 @@ def payload(**kwargs):
 
 async def start(client, db, headers):
     event_id, body = await alert(db), payload()
-    r = await client.post(f"{API}/{event_id}/exports", json=body, headers=headers)
-    return event_id, body, r
+    receipt = await client.post(f"{API}/{event_id}/exports", json=body, headers=headers)
+    assert receipt.status_code == 202, receipt.text
+    assert receipt.json()["status"] == "pending" and receipt.json()["clipId"] is None
+    # Acceptance does not dispatch. Execute a recoverable worker sweep explicitly,
+    # then return the actual status GET response for the existing media scenarios.
+    await MediaJobWorker().run_once(db)
+    status = await client.get(receipt.json()["statusPath"])
+    return event_id, body, status
 
 
 async def test_permissions_validation_and_absent_event(client, test_db_session, extractor):
@@ -141,9 +150,9 @@ async def test_permissions_validation_and_absent_event(client, test_db_session, 
 async def test_viewer_duplicate_and_exact_context(client, test_db_session, extractor):
     headers = await login(client, "operator")
     event, body, first = await start(client, test_db_session, headers)
-    assert first.status_code == 202, first.text
+    assert first.status_code == 200, first.text
     result = first.json()
-    assert first.headers["location"] == result["statusPath"]
+    assert result["statusPath"].endswith(body["requestId"])
     assert first.headers["cache-control"] == "no-store" and result["downloadPath"] is None
     again = await client.post(f"{API}/{event}/exports", json=body, headers=headers)
     assert again.status_code == 200 and again.json()["clipId"] == result["clipId"]
@@ -162,6 +171,8 @@ async def test_exact_collection_window(client, test_db_session, extractor):
         f"{API}/{event}/exports", json=payload(beforeSeconds=100, afterSeconds=50), headers=headers
     )
     assert r.status_code == 202, r.text
+    assert extractor["requests"] == []
+    await MediaJobWorker().run_once(test_db_session)
     sent = json.loads(extractor["requests"][0].content)
     assert sent["start_at"] == "2026-10-14T03:00:00.000Z"
     assert sent["end_at"] == "2026-10-14T03:02:00.000Z"
@@ -220,7 +231,7 @@ async def test_lost_response_worker_recovery_get_never_posts(client, test_db_ses
     headers = await login(client)
     extractor["lost"] = True
     event, body, r = await start(client, test_db_session, headers)
-    assert r.status_code == 202
+    assert r.status_code == 200
     assert r.json()["requestId"] == body["requestId"]
     assert r.json()["status"] == "pending"
     assert r.json()["errorCode"] == "MEDIA_TIMEOUT"
@@ -276,10 +287,17 @@ async def test_failed_retry_lost_response_keeps_intent(client, test_db_session, 
     assert retry.status_code == 202
     assert retry.json()["status"] == "pending"
     assert retry.json()["statusPath"] == r.json()["statusPath"]
-    assert (await client.get(r.json()["statusPath"])).json()["status"] == "processing"
+    # GET cannot dispatch the newly queued retry.
+    assert (await client.get(r.json()["statusPath"])).json()["status"] == "pending"
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
     assert job.snapshot[CONTEXT_KEY]["retry_failed"] is True
+    job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    await test_db_session.commit()
+    await MediaJobWorker().run_once(test_db_session)
+    await test_db_session.refresh(job)
+    assert job.snapshot[CONTEXT_KEY]["retry_failed"] is True
+    assert job.next_attempt_at is not None and clip["attempt_count"] == 2
     job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     await test_db_session.commit()
     await MediaJobWorker().run_once(test_db_session)
@@ -294,7 +312,7 @@ async def test_transient_delivery_failure_returns_durable_pending_receipt(
     headers = await login(client)
     extractor["error"] = (503, "STORAGE_UNAVAILABLE")
     _, body, response = await start(client, test_db_session, headers)
-    assert response.status_code == 202
+    assert response.status_code == 200
     receipt = response.json()
     assert receipt["requestId"] == body["requestId"] and receipt["status"] == "pending"
     assert receipt["errorCode"] == "STORAGE_UNAVAILABLE"
@@ -314,13 +332,15 @@ async def test_transient_delivery_failure_returns_durable_pending_receipt(
     assert len(extractor["clips"]) == 1
 
 
-async def test_permanent_delivery_failure_does_not_return_acceptance(
+async def test_permanent_delivery_failure_is_reported_after_acceptance(
     client, test_db_session, extractor
 ):
     headers = await login(client)
     extractor["error"] = (404, "RECORDING_NOT_FOUND_IN_RANGE")
     _, _, response = await start(client, test_db_session, headers)
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["status"] == "blocked"
+    assert response.json()["errorCode"] == "RECORDING_NOT_FOUND_IN_RANGE"
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
     assert job.status == "blocked" and job.next_attempt_at is None
@@ -340,7 +360,7 @@ async def test_mismatched_receipt_is_not_downloadable(client, test_db_session, e
     headers = await login(client)
     extractor["mismatch"] = mismatch
     _, _, r = await start(client, test_db_session, headers)
-    assert r.status_code == 502, r.text
+    assert r.status_code == 200 and r.json()["status"] == "blocked", r.text
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
     assert job.clip_id is None and "clip_id" not in job.snapshot
@@ -371,14 +391,14 @@ async def test_safe_upstream_errors(client, test_db_session, extractor, status, 
     headers = await login(client)
     extractor["error"] = (status, code)
     _, _, r = await start(client, test_db_session, headers)
+    assert r.status_code == 200
+    assert r.json()["errorCode"] == code
+    job = await test_db_session.scalar(select(MediaClipJob))
+    await test_db_session.refresh(job)
     if status == 503:
-        assert r.status_code == 202
-        assert r.json()["status"] == "pending" and r.json()["errorCode"] == code
-        job = await test_db_session.scalar(select(MediaClipJob))
-        await test_db_session.refresh(job)
-        assert job.next_attempt_at is not None
+        assert r.json()["status"] == "pending" and job.next_attempt_at is not None
     else:
-        assert r.status_code == status and r.json()["error"]["code"] == code
+        assert r.json()["status"] == "blocked" and job.next_attempt_at is None
     assert "private-secret" not in r.text
 
 
@@ -418,7 +438,7 @@ async def test_existing_ready_export_survives_missing_source_archive(
     monkeypatch.setattr(daily_recording_service, "list", empty_archive)
     headers = await login(client)
     event, body, response = await start(client, test_db_session, headers)
-    assert response.status_code == 202
+    assert response.status_code == 200
     accepted = response.json()
     ready(extractor["clips"][accepted["clipId"]])
     assert (await client.get(accepted["statusPath"])).json()["status"] == "ready"
@@ -438,6 +458,7 @@ async def test_deleted_export_is_not_revived_and_legacy_delete_keeps_context(
     event, body, response = await start(client, test_db_session, headers)
     item = response.json()
     extractor["clips"][item["clipId"]].update(status="deleted")
+    assert (await client.get(item["statusPath"])).json()["status"] == "deleted"
     response = await client.post(
         f"{API}/{event}/exports", json={**body, "retryFailed": True}, headers=headers
     )
@@ -515,6 +536,8 @@ async def test_other_event_categories_use_recorded_context(
         headers=headers,
     )
     assert response.status_code == 202, response.text
+    assert extractor["requests"] == []
+    await MediaJobWorker().run_once(test_db_session)
     body = json.loads(extractor["requests"][0].content)
     assert body["start_at"] == "2026-10-14T02:59:50.000Z"
     assert body["end_at"] == "2026-10-14T03:00:20.000Z"

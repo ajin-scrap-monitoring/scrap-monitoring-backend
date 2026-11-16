@@ -39,7 +39,7 @@ async def test_ready_range_with_zero_gaps_recovers_without_hiding_real_loss(
 ):
     headers = await login(client)
     event, _, created = await start(client, test_db_session, headers)
-    assert created.status_code == 202
+    assert created.status_code == 200
     clip = extractor["clips"][created.json()["clipId"]]
     ready(clip)
     gap = with_gaps(clip, positive=positive)

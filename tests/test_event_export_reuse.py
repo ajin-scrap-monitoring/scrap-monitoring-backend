@@ -100,11 +100,15 @@ async def test_alias_replay_is_not_rebound_to_new_file(client, test_db_session, 
     await client.post(f"{API}/{event}/exports", json=alias, headers=headers)
     clip = extractor["clips"][first.json()["clipId"]]
     clip.update(status=status)
+    assert (await client.get(first.json()["statusPath"])).json()["status"] == status
     old = await client.post(f"{API}/{event}/exports", json=alias, headers=headers)
     assert old.status_code == 200 and old.json()["status"] == status
     assert old.json()["downloadPath"] is None
     new = await client.post(f"{API}/{event}/exports", json=payload(), headers=headers)
-    assert new.status_code == 202 and new.json()["clipId"] != old.json()["clipId"]
+    assert new.status_code == 202 and new.json()["clipId"] is None
+    await MediaJobWorker().run_once(test_db_session)
+    new_status = await client.get(new.json()["statusPath"])
+    assert new_status.json()["clipId"] != old.json()["clipId"]
     replay = await client.post(f"{API}/{event}/exports", json=alias, headers=headers)
     assert replay.json()["requestId"] == first.json()["requestId"]
     assert replay.json()["status"] == status and len(extractor["clips"]) == 2
@@ -116,7 +120,7 @@ async def test_lost_create_response_is_recovered_by_lookup_without_post(
     headers = await login(client)
     extractor["lost"] = True
     event, _, first = await start(client, test_db_session, headers)
-    assert first.status_code == 202
+    assert first.status_code == 200
     assert first.json()["status"] == "pending"
     assert first.json()["errorCode"] == "MEDIA_TIMEOUT"
     seen = len(extractor["requests"])
@@ -151,6 +155,9 @@ async def test_concurrent_new_ids_share_one_job(client, test_db_session, test_en
     )
     assert sorted(r.status_code for r in results) == [200] * 5 + [202]
     assert len({r.json()["requestId"] for r in results}) == 1
+    assert extractor["requests"] == []
+    async with factory() as db:
+        await MediaJobWorker().run_once(db)
     assert len(extractor["clips"]) == 1
 
 
@@ -210,15 +217,14 @@ async def test_refresh_failure_does_not_create_replacement(client, test_db_sessi
     headers = await login(client)
     event, _, _ = await start(client, test_db_session, headers)
     extractor["error"] = (503, "SERVICE_BUSY")
-    for method in ["GET", "POST"]:
-        result = await client.request(
-            method,
-            f"{API}/{event}/exports",
-            **({"json": payload(), "headers": headers} if method == "POST" else {}),
-        )
-        assert result.status_code == 503 and "private-secret" not in result.text
+    result = await client.get(f"{API}/{event}/exports")
+    assert result.status_code == 503 and "private-secret" not in result.text
+    seen = len(extractor["requests"])
+    result = await client.post(f"{API}/{event}/exports", json=payload(), headers=headers)
+    assert result.status_code == 200 and "private-secret" not in result.text
+    assert len(extractor["requests"]) == seen  # POST reuses durable metadata without I/O.
     assert len(extractor["clips"]) == 1
-    assert await test_db_session.scalar(select(func.count()).select_from(EventExportAlias)) == 1
+    assert await test_db_session.scalar(select(func.count()).select_from(EventExportAlias)) == 2
 
 
 async def test_alias_failed_retry_and_worker_preserve_binding(client, test_db_session, extractor):
@@ -241,6 +247,11 @@ async def test_alias_failed_retry_and_worker_preserve_binding(client, test_db_se
     assert retry.json()["statusPath"] == first.json()["statusPath"]
     job = await test_db_session.scalar(select(MediaClipJob))
     await test_db_session.refresh(job)
+    job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    await test_db_session.commit()
+    await MediaJobWorker().run_once(test_db_session)
+    await test_db_session.refresh(job)
+    assert job.snapshot["_rangeExport"]["retry_failed"] is True
     job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     await test_db_session.commit()
     await MediaJobWorker().run_once(test_db_session)
