@@ -6,12 +6,14 @@ import sys
 
 from alembic.script import ScriptDirectory
 
+from src.app.db.legacy_index_prepare import prepare_legacy_index
 from src.app.db.migration import (
     current_revisions,
     migration_config,
     require_current_schema,
     upgrade_schema,
 )
+from src.app.db.migrations.legacy_index_v1 import PREVIOUS
 from src.app.db.raw_retention_prepare import PRE_RETENTION_REVISION, prepare_retention_indexes
 from src.app.db.schema_guard import SchemaStateError
 from src.app.db.session import close_db, get_engine
@@ -31,6 +33,14 @@ async def run(operation: str, adopt_legacy: bool = False) -> None:
                 if not revisions or set(revisions) <= prior:
                     await connection.run_sync(upgrade_schema, adopt_legacy, PRE_RETENTION_REVISION)
             await prepare_retention_indexes(get_engine())
+            # Commit through version 8 before the new concurrent index build.
+            # Do not replay completed earlier migrations on an existing database.
+            through_previous = {rev.revision for rev in scripts.iterate_revisions(PREVIOUS, "base")}
+            async with get_engine().begin() as connection:
+                revisions = await connection.run_sync(current_revisions)
+                if not revisions or set(revisions) <= through_previous:
+                    await connection.run_sync(upgrade_schema, adopt_legacy, PREVIOUS)
+            await prepare_legacy_index(get_engine())
             async with get_engine().begin() as connection:
                 await connection.run_sync(upgrade_schema, adopt_legacy)
                 await connection.run_sync(require_current_schema)

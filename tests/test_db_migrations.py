@@ -39,7 +39,7 @@ async def test_empty_database_upgrade_matches_models_and_is_repeatable(engine):
     async with engine.begin() as connection:
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
+        assert await connection.run_sync(current_revisions) == ("0009_legacy_history_index",)
         assert await connection.run_sync(application_tables) == set(Base.metadata.tables)
         await connection.run_sync(upgrade_schema)
 
@@ -84,7 +84,7 @@ async def test_settings_history_upgrade_preserves_existing_rows_without_backfill
         }
         await connection.run_sync(upgrade_schema)
         await connection.run_sync(require_current_schema)
-        assert await connection.run_sync(current_revisions) == ("0008_operations_recipient",)
+        assert await connection.run_sync(current_revisions) == ("0009_legacy_history_index",)
         for table in old_tables:
             assert (
                 await connection.execute(
@@ -428,7 +428,7 @@ async def test_unknown_revision_or_missing_table_blocks_startup(engine):
 async def test_baseline_downgrade_refuses_to_drop_data(engine):
     factory = await legacy_db(engine)
     async with engine.begin() as connection:
-        await connection.run_sync(upgrade_schema, True)
+        await connection.run_sync(upgrade_schema, True, "0008_operations_recipient")
 
         def downgrade(conn):
             config = migration_config()
@@ -473,7 +473,7 @@ async def test_cli_new_database_upgrade_status_and_check(tmp_path):
     assert (await cli(url, "check"))[0] == 1
     assert (await cli(url, "upgrade"))[0] == 0
     assert (await cli(url, "check"))[0] == 0
-    assert "0008_operations_recipient" in (await cli(url, "current"))[1]
+    assert "0009_legacy_history_index" in (await cli(url, "current"))[1]
     assert (await cli(url, "upgrade"))[0] == 0
 
 
@@ -514,12 +514,11 @@ async def test_operations_upgrade_preserves_recipients_and_guards_opt_in_rollbac
             )
         )
         before = (await connection.execute(text("SELECT * FROM notification_recipients"))).one()
-        await connection.run_sync(upgrade_schema)
-        await connection.run_sync(require_current_schema)
+        await connection.run_sync(upgrade_schema, False, "0008_operations_recipient")
         row = (await connection.execute(text("SELECT * FROM notification_recipients"))).one()
         assert tuple(row[:-1]) == tuple(before)
         assert row[-1] == 0
-        await connection.run_sync(upgrade_schema)
+        await connection.run_sync(upgrade_schema, False, "0008_operations_recipient")
         await connection.execute(
             text("UPDATE notification_recipients SET operations_email_enabled=true")
         )

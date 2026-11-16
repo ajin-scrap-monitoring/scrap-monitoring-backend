@@ -450,7 +450,8 @@ async def test_postgresql_existing_data_migration_allows_ingestion_writer(
         if not task.done():
             task.cancel()
         event.remove(test_engine.sync_engine, "before_cursor_execute", capture)
-    assert len(ddl) == 2
+    assert len([sql for sql in ddl if "raw_" in sql]) == 2
+    assert len([sql for sql in ddl if "legacy_history_partial" in sql]) == 1
     await test_db_session.refresh(row)
     assert row.payload["data"] == [1, 2, 3]
     assert (
