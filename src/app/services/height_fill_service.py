@@ -16,6 +16,7 @@ from src.app.schemas.monitoring_v2 import DashboardDataState, MonitoringSource
 from src.app.services.edge_v2_service import digest, utc
 from src.app.services.height_reference import (
     clock_allowed,
+    consistent_height_references,
     height_reference,
     reference_depth,
     reference_payload,
@@ -41,6 +42,7 @@ def height_method(source: MonitoringSource, depth_cm: float | None) -> str | Non
     )
 
 
+@consistent_height_references
 async def project_height_fill(
     db: AsyncSession, measurement: Measurement, receipt: EdgeV2Message, row: EdgeV2Filter
 ) -> None:

@@ -20,6 +20,7 @@ from src.app.models.edge_v2_projection import (
 from src.app.schemas.edge_v2 import Assessment, Envelope, Measurement, StatusReport
 from src.app.schemas.fill_observation import FillObservation
 from src.app.services.edge_v2_service import utc
+from src.app.services.height_reference import consistent_height_references
 from src.app.services.observation_window import observation_slots
 
 
@@ -92,6 +93,7 @@ async def latest_message(
     )
 
 
+@consistent_height_references
 async def project(
     db: AsyncSession,
     payload: Envelope,

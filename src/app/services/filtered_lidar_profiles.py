@@ -21,7 +21,11 @@ from src.app.schemas.monitoring_v2 import (
 from src.app.services.edge_v2_projection import latest_message
 from src.app.services.edge_v2_service import device_status, utc
 from src.app.services.height_median_service import project_height_window, read_height_window
-from src.app.services.height_reference import clock_allowed, height_reference
+from src.app.services.height_reference import (
+    clock_allowed,
+    consistent_height_references,
+    height_reference,
+)
 from src.app.services.simulation_height import edge_distance, floor_section, inside
 
 WINDOW = "filtered_profile_window"
@@ -307,6 +311,7 @@ async def raw_filtered_profiles(
     return page, assessment
 
 
+@consistent_height_references
 async def filtered_lidar_profiles(
     db: AsyncSession, source: MonitoringSource, now: datetime
 ) -> LidarProfilePageV2:
@@ -322,6 +327,7 @@ async def filtered_lidar_profiles(
     )
 
 
+@consistent_height_references
 async def project_filtered_profiles(
     db: AsyncSession, assessment: Assessment, receipt: EdgeV2Message
 ) -> None:
