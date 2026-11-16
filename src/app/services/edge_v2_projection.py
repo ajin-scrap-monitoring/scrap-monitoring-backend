@@ -21,6 +21,7 @@ from src.app.schemas.edge_v2 import Assessment, Envelope, Measurement, StatusRep
 from src.app.schemas.fill_observation import FillObservation
 from src.app.services.edge_v2_service import utc
 from src.app.services.height_reference import consistent_height_references
+from src.app.services.measurement_error_episodes import mark_measurement_episode
 from src.app.services.observation_window import observation_slots
 
 
@@ -466,28 +467,37 @@ async def project_input(
             # clock. Subsequent fresh scans need no second five-sample warmup.
             above_since = previous.get("above_since")
         above_since = above_since or (observed.isoformat() if observed else None)
+    transition = None
     if previous.get("input_valid") is not None and previous["input_valid"] != valid:
-        db.add(
-            EdgeV2Transition(
-                site_id=assessment.site_id,
-                edge_id=assessment.edge_id,
-                occurred_at=assessment.generated_at,
-                kind="MEASUREMENT_VALIDITY_CHANGED",
-                payload={
-                    "previousValid": previous["input_valid"],
-                    "pitId": assignment.pit_id if assignment else None,
-                    "simulated": assessment.simulated,
-                    "currentValid": valid,
-                    "assessmentId": assessment.assessment_id
-                    if assessment.source == "EDGE_STATE"
-                    else None,
-                    "observationId": assessment.observation_id,
-                    "inputSource": assessment.source,
-                    "messageId": assessment.message_id,
-                    "reasonCodes": assessment.reason_codes,
-                },
-            )
+        transition = EdgeV2Transition(
+            site_id=assessment.site_id,
+            edge_id=assessment.edge_id,
+            occurred_at=assessment.generated_at,
+            kind="MEASUREMENT_VALIDITY_CHANGED",
+            payload={
+                "previousValid": previous["input_valid"],
+                "pitId": assignment.pit_id if assignment else None,
+                "simulated": assessment.simulated,
+                "currentValid": valid,
+                "assessmentId": assessment.assessment_id
+                if assessment.source == "EDGE_STATE"
+                else None,
+                "observationId": assessment.observation_id,
+                "inputSource": assessment.source,
+                "messageId": assessment.message_id,
+                "reasonCodes": assessment.reason_codes,
+            },
         )
+        db.add(transition)
+    await mark_measurement_episode(
+        db,
+        assessment,
+        valid,
+        scope,
+        previous.get("input_valid"),
+        assignment.pit_id if assignment else None,
+        transition,
+    )
     row.payload = {
         "scope": scope,
         "samples": samples,

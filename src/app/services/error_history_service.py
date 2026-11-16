@@ -59,11 +59,19 @@ def error_transition_event(row: EdgeV2Transition) -> Event | None:
 
     elif kind == "MEASUREMENT_VALIDITY_CHANGED":
         previous, current = data.get("previousValid"), data.get("currentValid")
-        if not isinstance(previous, bool) or not isinstance(current, bool) or previous == current:
+        episode = data.get("measurementEpisodeEvent") is True
+        if not isinstance(current, bool) or (
+            not episode and (not isinstance(previous, bool) or previous == current)
+        ):
             return None
         if current:
             state, severity, title = "RECOVERED", "info", "측정 입력 복구"
             detail = "유효한 측정 입력이 다시 확인되었습니다. 필터 준비 완료를 의미하지 않습니다."
+            if episode:
+                detail = (
+                    "새 유효 관측이 10초 동안 연속 확인되었습니다. "
+                    "필터 준비 완료를 의미하지 않습니다."
+                )
         elif preparing:
             state, severity, title = "PREPARING", "info", "측정 입력 준비"
             detail = "측정 입력을 준비 중이라는 상태 변화가 기록되었습니다."

@@ -444,7 +444,14 @@ async def test_compact_retention_preserves_extended_event_or_latest_state(
             latest = await db.get(EdgeV2Latest, (body["site_id"], body["edge_id"], "state"))
             assert latest.message_id == newer["message_id"]
             assert latest.payload == newer
-            assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 1
+            # A second bounded pointer tracks operator measurement episodes;
+            # it never retains another section profile or assessment body.
+            assert await db.scalar(select(func.count()).select_from(EdgeV2Latest)) == 2
+            episode = await db.get(
+                EdgeV2Latest, (body["site_id"], body["edge_id"], "measurement_error_episodes")
+            )
+            assert episode.payload["baseline"] is False
+            assert episode.payload["causes"] == []
 
 
 async def test_invalid_extended_body_is_not_acknowledged_or_stored(client, test_engine):
