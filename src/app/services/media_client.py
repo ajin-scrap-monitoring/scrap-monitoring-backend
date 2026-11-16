@@ -73,9 +73,9 @@ class MediaClient:
             base_url = settings.MEDIA_DAILY_SERVICE_URL or (
                 base_url.rstrip("/")[:-2] + "v2" if base_url else None
             )
-        elif settings.MEDIA_API_TOKEN and not tokenless:
+        elif settings.MEDIA_AUTH_MODE == "bearer" and settings.MEDIA_API_TOKEN and not tokenless:
             headers["Authorization"] = f"Bearer {settings.MEDIA_API_TOKEN.get_secret_value()}"
-        if not base_url or (not daily and not tokenless and not settings.MEDIA_API_TOKEN):
+        if not base_url or (not daily and not tokenless and not settings.media_v1_configured):
             raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
         if self._client is None:
             self._client = httpx.AsyncClient(

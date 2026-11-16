@@ -44,7 +44,9 @@ async def extractor(monkeypatch):
 
     async def handle(request):
         data["requests"].append(request)
-        assert request.headers["authorization"] == "Bearer synthetic-media-token"
+        assert request.headers.get("authorization") == data.get(
+            "expectedAuthorization", "Bearer synthetic-media-token"
+        )
         assert "cookie" not in request.headers
         if data["error"]:
             status, code = data["error"]

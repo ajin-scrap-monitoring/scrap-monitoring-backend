@@ -7,6 +7,12 @@ upstream camera_media {
     server ${MEDIA_PROXY_UPSTREAM};
 }
 
+# Unknown modes retain the authenticated branch; the entrypoint rejects invalid settings.
+map "${MEDIA_AUTH_MODE}" $media_authorization {
+    default "Bearer ${MEDIA_API_TOKEN}";
+    internal "";
+}
+
 server {
     listen 8080;
     server_tokens off;
@@ -42,7 +48,7 @@ server {
         auth_request /_media_auth;
         rewrite ^/media/(.*)$ /api/v1/$1 break;
         proxy_pass http://camera_media;
-        proxy_set_header Authorization "Bearer ${MEDIA_API_TOKEN}";
+        proxy_set_header Authorization $media_authorization;
         proxy_set_header Cookie "";
         proxy_set_header Range $http_range;
         proxy_set_header If-Range $http_if_range;

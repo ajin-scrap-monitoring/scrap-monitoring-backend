@@ -45,6 +45,7 @@ class FakeMedia:
         self.event_id = "evt-alt-1"
         self.error_status = None
         self.error_code = "STORAGE_UNAVAILABLE"
+        self.expected_authorization = "Bearer synthetic-media-token"
 
     def receipt(self):
         return {
@@ -85,7 +86,7 @@ class FakeMedia:
 
     async def handle(self, request):
         self.requests.append(request)
-        assert request.headers["authorization"] == "Bearer synthetic-media-token"
+        assert request.headers.get("authorization") == self.expected_authorization
         assert request.url.host == "media.test"
         if self.error_status:
             return httpx.Response(
@@ -372,6 +373,61 @@ def test_media_settings_validate_pairs_and_hide_secret():
     ):
         with pytest.raises(ValidationError):
             Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize("token", [None, "synthetic-unused-token"])
+def test_explicit_internal_media_settings_allow_missing_token(token):
+    settings = Settings(
+        _env_file=None,
+        MEDIA_SERVICE_URL="http://media.test/api/v1",
+        MEDIA_API_TOKEN=token,
+        MEDIA_AUTH_MODE="internal",
+    )
+    assert settings.media_v1_configured
+    assert Settings(_env_file=None).MEDIA_AUTH_MODE == "bearer"
+    assert not Settings(_env_file=None, MEDIA_AUTH_MODE="internal").media_v1_configured
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"MEDIA_AUTH_MODE": "none"},
+        {"MEDIA_AUTH_MODE": "internal", "MEDIA_API_TOKEN": "orphan-token"},
+        {"MEDIA_AUTH_MODE": "internal", "MEDIA_SERVICE_URL": "https://media.test/api/v1?key=x"},
+        {"MEDIA_AUTH_MODE": "internal", "MEDIA_SERVICE_URL": "file:///api/v1"},
+        {
+            "MEDIA_AUTH_MODE": "internal",
+            "MEDIA_SERVICE_URL": "http://user:secret@media.test/api/v1",
+        },
+    ],
+)
+def test_internal_media_mode_retains_strict_configuration_validation(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize("legacy_token", [False, True])
+async def test_internal_policy_keeps_session_admin_and_csrf_checks(
+    client, fake_media, monkeypatch, legacy_token
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "MEDIA_AUTH_MODE", "internal")
+    if not legacy_token:
+        monkeypatch.setattr(settings, "MEDIA_API_TOKEN", None)
+    fake_media.expected_authorization = None
+    path = "/api/v1/media/cameras/camera-main/recording-policy"
+    assert (await client.get(path)).status_code == 401
+    assert not fake_media.requests
+    viewer = await login(client, "operator")
+    assert (await client.get(path)).json() == fake_media.policy
+    assert (await client.put(path, json=fake_media.policy, headers=viewer)).status_code == 403
+    admin = await login(client)
+    assert (await client.put(path, json=fake_media.policy)).status_code == 403
+    assert (await client.put(path, json=fake_media.policy, headers=admin)).status_code == 200
+    assert [r.method for r in fake_media.requests] == ["GET", "PUT"]
+    assert all(
+        "authorization" not in r.headers and "cookie" not in r.headers for r in fake_media.requests
+    )
 
 
 async def test_alert_and_worker_lifecycle_use_persisted_jobs(

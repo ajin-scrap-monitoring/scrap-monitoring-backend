@@ -283,7 +283,7 @@ async def replay_event_recording(
         days = await _archive_days(event.windowFrom, event.windowTo or now, now)
     result = resolve_event_replay(event, now, days)
     settings = get_settings()
-    if settings.MEDIA_SERVICE_URL and settings.MEDIA_API_TOKEN:
+    if settings.media_v1_configured:
         if event.windowState not in ("CLOSED", "POINT") or event.windowTo is None:
             result.downloadReasonCode = "EVENT_WINDOW_NOT_CLOSED"
         elif not 0 < (event.windowTo - event.windowFrom).total_seconds() <= 3600:

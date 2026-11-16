@@ -272,6 +272,8 @@ class Settings(BaseSettings):
     # Camera media v1 control API; credentials never appear in browser responses.
     MEDIA_SERVICE_URL: str | None = None
     MEDIA_API_TOKEN: SecretStr | None = None
+    # Internal mode is an explicit deployment choice; browser authentication stays required.
+    MEDIA_AUTH_MODE: Literal["bearer", "internal"] = "bearer"
     # Optional independent v2 JSON endpoint; the camera contract needs no bearer token.
     MEDIA_DAILY_SERVICE_URL: str | None = None
     MEDIA_CAMERA_ID: str = Field(
@@ -307,7 +309,9 @@ class Settings(BaseSettings):
             self.MEDIA_SERVICE_URL = None
         if self.MEDIA_API_TOKEN and not self.MEDIA_API_TOKEN.get_secret_value():
             self.MEDIA_API_TOKEN = None
-        if bool(self.MEDIA_SERVICE_URL) != bool(self.MEDIA_API_TOKEN):
+        if self.MEDIA_API_TOKEN and not self.MEDIA_SERVICE_URL:
+            raise ValueError("MEDIA_SERVICE_URL and MEDIA_API_TOKEN must be configured together")
+        if self.MEDIA_SERVICE_URL and self.MEDIA_AUTH_MODE == "bearer" and not self.MEDIA_API_TOKEN:
             raise ValueError("MEDIA_SERVICE_URL and MEDIA_API_TOKEN must be configured together")
         if self.MEDIA_SERVICE_URL:
             parsed = urlsplit(self.MEDIA_SERVICE_URL)
@@ -323,9 +327,16 @@ class Settings(BaseSettings):
             ):
                 raise ValueError("MEDIA_SERVICE_URL must be an HTTP(S) base URL ending in /api/v1")
             token = self.MEDIA_API_TOKEN.get_secret_value() if self.MEDIA_API_TOKEN else ""
-            if not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
+            if self.MEDIA_API_TOKEN and not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
                 raise ValueError("MEDIA_API_TOKEN must use the Bearer token character set")
         return self
+
+    @property
+    def media_v1_configured(self) -> bool:
+        """Require credentials unless the operator explicitly selected an internal connection."""
+        return bool(
+            self.MEDIA_SERVICE_URL and (self.MEDIA_AUTH_MODE == "internal" or self.MEDIA_API_TOKEN)
+        )
 
     @field_validator("CORS_ORIGINS")
     @classmethod

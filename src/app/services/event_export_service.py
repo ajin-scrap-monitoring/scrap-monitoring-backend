@@ -289,7 +289,7 @@ async def request_export(
     db: AsyncSession, owner: str, event_id: str, payload: EventExportRequest
 ) -> tuple[int, EventExportResponse]:
     settings = get_settings()
-    if not settings.MEDIA_SERVICE_URL or not settings.MEDIA_API_TOKEN:
+    if not settings.media_v1_configured:
         raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
     async with export_admission_lock:
         job = await bound_export(db, owner, payload.requestId)

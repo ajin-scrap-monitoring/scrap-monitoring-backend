@@ -127,6 +127,27 @@ async def test_acceptance_survives_new_worker_without_media_call_in_post(
     assert sum(r.method == "POST" for r in extractor["requests"]) == 1
 
 
+async def test_internal_media_export_without_token_keeps_durable_immediate_acceptance(
+    client, test_db_session, extractor, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "MEDIA_AUTH_MODE", "internal")
+    monkeypatch.setattr(get_settings(), "MEDIA_API_TOKEN", None)
+    extractor["expectedAuthorization"] = None
+    headers = await login(client)
+    event, body = await alert(test_db_session), payload()
+    response = await client.post(f"{API}/{event}/exports", json=body, headers=headers)
+    assert response.status_code == 202 and extractor["requests"] == []
+    persisted = await test_db_session.scalar(select(MediaClipJob))
+    assert persisted.attempts == 0 and persisted.next_attempt_at is not None
+    await MediaJobWorker().run_once(test_db_session)
+    assert sum(r.method == "POST" for r in extractor["requests"]) == 1
+    assert all("authorization" not in r.headers for r in extractor["requests"])
+    replay = await client.post(f"{API}/{event}/exports", json=body, headers=headers)
+    assert replay.status_code == 200
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 1
+    assert await test_db_session.scalar(select(func.count()).select_from(EventExportAlias)) == 1
+
+
 @pytest.mark.parametrize(
     "error", [(409, "RETRY_NOT_ALLOWED"), (404, "RECORDING_NOT_FOUND_IN_RANGE")]
 )

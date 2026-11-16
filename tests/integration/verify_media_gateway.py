@@ -159,9 +159,17 @@ asyncio.run(run())
     created = await client.post(path, json=body, headers=csrf)
     assert created.status_code == 202, created.text
     assert created.json()["downloadPath"] is None
-    result = await client.get(created.headers["location"])
-    assert result.status_code == 200, result.text
-    item = result.json()
+    # Durable acceptance is immediate; only the worker prepares the synthetic file.
+    for _ in range(40):
+        result = await client.get(created.headers["location"])
+        assert result.status_code == 200, result.text
+        item = result.json()
+        if item["status"] == "ready":
+            break
+        assert item["status"] in ("pending", "processing"), item
+        await asyncio.sleep(0.25)
+    else:
+        raise AssertionError("Synthetic export worker did not finish within the probe budget")
     assert item["status"] == "ready" and item["coverage"] == "complete"
     assert item["gaps"] == []
     assert item["sizeBytes"] == len(CONTENT)
@@ -397,6 +405,8 @@ async def probe(base_url: str, backend: str) -> None:
         assert (await client.post(content)).status_code == 405
         assert (await client.get("/media/clips")).status_code == 404
         assert "synthetic-media-token" not in str(video.headers)
+        overridden = await client.get(content, headers={"Authorization": "Bearer browser-input"})
+        assert overridden.status_code == 200 and overridden.content == CONTENT
         daily_api = "/api/v2/recordings/daily"
         daily = f"/media/daily-recordings/{CLIP_ID}"
         csrf = {"X-CSRF-Token": session.json()["csrfToken"]}
@@ -468,7 +478,9 @@ def main() -> None:
     parser.add_argument(
         "--image", default=IMAGE, help="Backend image built from the current source"
     )
+    parser.add_argument("--auth-mode", choices=("bearer", "internal"), default="bearer")
     args = parser.parse_args()
+    token = "synthetic-media-token" if args.auth_mode == "bearer" else ""
     prefix = f"media-probe-{uuid4().hex[:8]}"
     network = f"{prefix}-network"
     containers: list[str] = []
@@ -494,7 +506,9 @@ def main() -> None:
             "-e",
             "MEDIA_SERVICE_URL=http://media:8889/api/v1",
             "-e",
-            "MEDIA_API_TOKEN=synthetic-media-token",
+            "MEDIA_API_TOKEN=" + token,
+            "-e",
+            "MEDIA_AUTH_MODE=" + args.auth_mode,
             "-e",
             "EDGE_V2_DEVICES="
             + json.dumps(
@@ -521,6 +535,8 @@ def main() -> None:
             "media",
             "--user",
             "1000:1000",
+            "-e",
+            "MEDIA_AUTH_MODE=" + args.auth_mode,
             "-v",
             f"{ROOT / 'tests/integration/fake_media_server.py'}:/probe.py:ro",
             "python:3.13-slim",
@@ -545,9 +561,11 @@ def main() -> None:
             "-e",
             "MEDIA_PROXY_UPSTREAM=media:8889",
             "-e",
-            "MEDIA_API_TOKEN=synthetic-media-token",
+            "MEDIA_API_TOKEN=" + token,
             "-e",
-            "NGINX_ENVSUBST_FILTER=^(MEDIA_PROXY_UPSTREAM|MEDIA_API_TOKEN)$",
+            "MEDIA_AUTH_MODE=" + args.auth_mode,
+            "-e",
+            "NGINX_ENVSUBST_FILTER=^(MEDIA_PROXY_UPSTREAM|MEDIA_API_TOKEN|MEDIA_AUTH_MODE)$",
             "-e",
             "NGINX_ENVSUBST_OUTPUT_DIR=/tmp",
             "-v",
@@ -555,7 +573,15 @@ def main() -> None:
             "-v",
             f"{ROOT / 'deploy/media-gateway.conf.template'}:"
             "/etc/nginx/templates/default.conf.template:ro",
+            "-v",
+            f"{ROOT / 'deploy/media-gateway-entrypoint.sh'}:/opt/media-gateway-entrypoint.sh:ro",
+            "--entrypoint",
+            "/bin/sh",
             "nginx:1.28-alpine",
+            "/opt/media-gateway-entrypoint.sh",
+            "nginx",
+            "-g",
+            "daemon off;",
         )
         containers.append(gateway)
         address = docker("port", gateway, "8080/tcp").splitlines()[0]

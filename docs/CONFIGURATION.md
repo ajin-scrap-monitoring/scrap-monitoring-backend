@@ -129,7 +129,8 @@ EDGE_V2_MONITORING_SOURCES=[{"pit_id":"pit-example","site_id":"site-example","ed
 | `WHEP_SESSION_TTL_SECONDS` | WHEP 세션 보관 시간(초) | 선택 | `1800` | `1800` |
 | `WHEP_MOCK_FALLBACK` | WHEP 연결 실패 시 mock SDP 허용 | 선택 | `true` | `true` |
 | `MEDIA_SERVICE_URL` | 미디어 v1 JSON API 기본 주소 | v1 미디어 연동 시 필요 | 없음 | `http://media.example.test:8080/api/v1` |
-| `MEDIA_API_TOKEN` | 미디어 v1 서비스 인증 토큰 | v1 주소와 함께 필요 | 없음 | `<비공개 Bearer 토큰>` |
+| `MEDIA_API_TOKEN` | 미디어 v1 서비스 인증 토큰 | bearer 모드의 v1 주소와 함께 필요 | 없음 | `<비공개 Bearer 토큰>` |
+| `MEDIA_AUTH_MODE` | 미디어 v1 내부 연결 인증 방식 | 선택 | `bearer` | `bearer` 또는 `internal`. 내부 모드는 [네트워크 경계 확인](MEDIA_INTEGRATION.md#내부-미디어-연결-선택) 후 명시적으로 선택 |
 | `MEDIA_DAILY_SERVICE_URL` | 독립 미디어 v2 JSON API 기본 주소 | 선택 | 없음 | `http://media.example.test:8080/api/v2` |
 | `MEDIA_CAMERA_ID` | 기본 카메라 식별자 | 선택 | `camera-main` | `camera-example` (1~128자, 영숫자 시작) |
 | `MEDIA_PIT_ID` | 카메라의 피트 식별자 | 선택 | `pit-01` | `pit-example` (1~50자) |
