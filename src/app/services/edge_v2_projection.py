@@ -371,15 +371,16 @@ async def project_input(
             )
             samples = [samples[index] for index in selected]
             filter_state = "WARMING"
-            if len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS:
-                # Height bins have already been filtered in cm. Derive the ratio once;
-                # a second percentage median would add another smoothing delay.
-                filtered = (
-                    height_filtered_percent
-                    if assessment.source == "HEIGHT_SECTIONS"
-                    else float(median(s["value"] for s in samples))
-                )
+            # Height bins have already been filtered in cm. Derive the ratio once;
+            # a second percentage median would add another smoothing delay.
+            # Its own prepared-window check also covers one missing recent slot.
+            # Keep observation continuity checks for alert confirmation.
+            if assessment.source == "HEIGHT_SECTIONS":
+                filtered = height_filtered_percent
                 filter_state = "READY" if filtered is not None else "WARMING"
+            elif len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS:
+                filtered = float(median(s["value"] for s in samples))
+                filter_state = "READY"
     else:
         samples = []
         anchor = None
@@ -389,8 +390,20 @@ async def project_input(
             previous.get("scope") == scope
             and previous.get("state") == "READY"
             and samples
-            and len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS
+            and (
+                len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS
+                or (
+                    assessment.source == "HEIGHT_SECTIONS"
+                    and last_observed is not None
+                    and observed is not None
+                    and timedelta(0)
+                    < observed - datetime.fromisoformat(last_observed)
+                    <= timedelta(seconds=1.5)
+                )
+            )
         ):
+            # A missing observation still restarts the existing confirmation
+            # clock. Subsequent fresh scans need no second five-sample warmup.
             above_since = previous.get("above_since")
         above_since = above_since or (observed.isoformat() if observed else None)
     if previous.get("input_valid") is not None and previous["input_valid"] != valid:

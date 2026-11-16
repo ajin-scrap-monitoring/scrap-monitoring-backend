@@ -35,6 +35,9 @@ class SensorWindow(BaseModel):
     basis: Literal["SPATIAL_BINS", "RECEIVED_POINTS"] = "SPATIAL_BINS"
     frames: list[HeightFrame] = Field(default_factory=list, max_length=31)
     slot_anchor_at: UtcTime | None = None
+    # Initial preparation still needs a full window. Only a previously prepared
+    # window may use one fewer actual observation after a single missing slot.
+    full_window_seen: bool = False
 
 
 class HeightWindow(BaseModel):
@@ -99,9 +102,10 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
         if at == frames[-1].at and heights == frames[-1].heights:
             return previous
         return SensorWindow(positions=positions, basis=profile.coverageBasis)
-    if frames and at - frames[-1].at > timedelta(seconds=1.5):
+    if frames and at - frames[-1].at >= timedelta(seconds=size):
         frames = []
         anchor = None
+    prepared = bool(frames) and (previous.full_window_seen or len(frames) == size)
     candidates = [*frames, HeightFrame(at=at, heights=heights, maximum_cm=profile.maximum)]
     selected, anchor = observation_slots([frame.at for frame in candidates], at, size, anchor)
     return SensorWindow(
@@ -109,6 +113,14 @@ def advance(profile: LidarProfileV2, previous: SensorWindow) -> SensorWindow:
         basis=profile.coverageBasis,
         frames=[candidates[index] for index in selected],
         slot_anchor_at=anchor,
+        full_window_seen=prepared or len(selected) == size,
+    )
+
+
+def prepared_window(history: SensorWindow, size: int) -> bool:
+    """Use actual observations only; tolerate at most one missing slot after warmup."""
+    return len(history.frames) == size or (
+        history.full_window_seen and len(history.frames) == size - 1
     )
 
 
@@ -131,7 +143,7 @@ def filtered_page(
         positions = [s["positionRatio"] for s in profile.samples]
         ready = (
             history is not None
-            and len(history.frames) == size
+            and prepared_window(history, size)
             and history.frames[-1].at == profile.measuredAt
             and history.positions == positions
             and history.basis == "SPATIAL_BINS"
@@ -157,6 +169,10 @@ def filtered_page(
             profile.coverageRatio = len(values) / len(profile.samples)
         if reference and depth and profile.coverageRatio >= reference.minimum_coverage and values:
             profile.sectionFillPercent = fmean(values) / depth * 100
+            if history and len(history.frames) < size:
+                profile.reasonCodes = list(
+                    dict.fromkeys([*profile.reasonCodes, "HEIGHT_TEMPORAL_SINGLE_SLOT_MISSING"])
+                )
         if (
             profile.calibrationState in ("VERIFIED", "SIMULATION")
             and profile.sectionFillPercent is None
@@ -190,13 +206,17 @@ def filter_scan_mean(
         and profile.average is not None
         and history is not None
         and history.basis == "RECEIVED_POINTS"
-        and len(history.frames) == size
+        and prepared_window(history, size)
         and history.frames[-1].at == profile.measuredAt
         and all(len(f.heights) == 1 and f.heights[0] is not None for f in history.frames)
         and depth
     ):
         profile.filteredAverage = float(median(cast(float, f.heights[0]) for f in history.frames))
         profile.sectionFillPercent = profile.filteredAverage / depth * 100
+        if len(history.frames) < size:
+            profile.reasonCodes = list(
+                dict.fromkeys([*profile.reasonCodes, "HEIGHT_TEMPORAL_SINGLE_SLOT_MISSING"])
+            )
     elif profile.calibrationState in ("VERIFIED", "SIMULATION"):
         # Only a matching, valid but incomplete window is safe to describe as warming.
         # Missing current values or unmatched history must not authorize a UI hold.

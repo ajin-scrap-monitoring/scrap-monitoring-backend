@@ -132,6 +132,13 @@ def test_scan_mean_window_accepts_changing_received_points_and_does_not_count_re
     assert len(advance(changed, continued).frames) == 3
     assert len(advance(later, continued).frames) == 2  # Repeated scan does not advance.
     later.measuredAt = START + timedelta(seconds=5)
+    sparse = advance(later, continued)
+    assert [f.at for f in sparse.frames] == [
+        START + timedelta(seconds=1),
+        START + timedelta(seconds=5),
+    ]
+    assert not sparse.full_window_seen  # Keeping recent evidence cannot finish initial warmup.
+    later.measuredAt = START + timedelta(seconds=6)
     assert len(advance(later, continued).frames) == 1
 
 
