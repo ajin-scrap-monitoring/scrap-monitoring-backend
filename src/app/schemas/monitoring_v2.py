@@ -89,6 +89,7 @@ class LidarProfileSampleV2(TypedDict):
     valid: bool
     angleMdeg: NotRequired[int]
     sourceIndex: NotRequired[int]
+    binSource: NotRequired[Literal["OBSERVED", "INTERPOLATED", "UNAVAILABLE", "MASKED"]]
 
 
 class LidarProfileV2(RequiredResponseFields):
@@ -104,7 +105,17 @@ class LidarProfileV2(RequiredResponseFields):
     measuredAt: datetime | None = None
     configRevision: str | None = None
     calibrationVersion: str | None = None
-    sampleSource: Literal["MEASUREMENT", "FILTERED_POINT_CLOUD"] = "MEASUREMENT"
+    # Legacy clients accept omission but reject unknown enum values. Section input
+    # uses its own optional provenance field instead of mislabelling its source.
+    sampleSource: Literal["MEASUREMENT", "FILTERED_POINT_CLOUD"] | None = Field(
+        default="MEASUREMENT", exclude_if=lambda value: value is None
+    )
+    sectionSource: Literal["EDGE_SECTION_PROFILE"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    sectionJudgmentState: Literal["AVAILABLE", "LIMITED", "UNAVAILABLE"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     processingVersion: str | None = None
     sourceScanId: str | None = None
     unit: Literal["cm"] = "cm"
@@ -138,6 +149,11 @@ class LidarProfilePageV2(BaseModel):
     # Equal weighting of two representative sections, not a validated pit volume estimate.
     meanSectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
     meanSectionReasonCodes: list[str] = Field(default_factory=list)
+    # Optional current fusion result; meanSectionFillPercent keeps the selected
+    # five-second display input. LIMITED raw values never approve an alert.
+    rawMeanSectionFillPercent: DisplayPercent | None = Field(
+        default=None, ge=0, le=100, exclude_if=lambda value: value is None
+    )
 
 
 class StateEventV2(BaseModel):

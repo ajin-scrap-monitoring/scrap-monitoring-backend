@@ -49,8 +49,15 @@ def test_profile_samples_have_named_required_and_optional_fields_without_changin
         "valid",
         "angleMdeg",
         "sourceIndex",
+        "binSource",
     }
     assert sample["properties"]["angleMdeg"]["type"] == "integer"
+    assert set(sample["properties"]["binSource"]["enum"]) == {
+        "OBSERVED",
+        "INTERPOLATED",
+        "UNAVAILABLE",
+        "MASKED",
+    }
     adapter = TypeAdapter(LidarProfileSampleV2)
     points = [
         {"positionRatio": 0.5, "height": 10.0, "valid": True},
@@ -69,6 +76,7 @@ def test_profile_samples_have_named_required_and_optional_fields_without_changin
         {"height": 10, "valid": True},
         {"positionRatio": 1.5, "height": 10, "valid": True},
         {"positionRatio": 0.5, "height": -1, "valid": True},
+        {"positionRatio": 0.5, "height": 10, "valid": True, "binSource": "CONFLICT"},
     ]:
         with pytest.raises(ValidationError):
             adapter.validate_python(invalid)
