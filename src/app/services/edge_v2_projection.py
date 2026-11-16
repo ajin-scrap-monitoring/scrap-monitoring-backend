@@ -174,6 +174,7 @@ async def project(
                 "operationalCurrent": after_state,
                 "operationalReasonCodes": after_reasons,
             }
+        transition = None
         if old_status is not None and old_status != payload.overall_state:
             assigned_pit = next(
                 (
@@ -183,22 +184,24 @@ async def project(
                 ),
                 None,
             )
-            db.add(
-                EdgeV2Transition(
-                    site_id=payload.site_id,
-                    edge_id=payload.edge_id,
-                    occurred_at=payload.generated_at,
-                    kind="DEVICE_STATE_CHANGED",
-                    payload={
-                        **operational,
-                        "previous": old_status,
-                        "pitId": assigned_pit,
-                        "current": payload.overall_state,
-                        "messageId": payload.message_id,
-                        "reasonCodes": payload.reason_codes,
-                    },
-                )
+            transition = EdgeV2Transition(
+                site_id=payload.site_id,
+                edge_id=payload.edge_id,
+                occurred_at=payload.generated_at,
+                kind="DEVICE_STATE_CHANGED",
+                payload={
+                    **operational,
+                    "previous": old_status,
+                    "pitId": assigned_pit,
+                    "current": payload.overall_state,
+                    "messageId": payload.message_id,
+                    "reasonCodes": payload.reason_codes,
+                },
             )
+            db.add(transition)
+        from src.app.services.device_error_episodes import mark_device_episode
+
+        await mark_device_episode(db, payload, transition)
         if not same_instance or payload.overall_state not in ("HEALTHY", "DEGRADED"):
             filter_row.payload = {}
         if get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
