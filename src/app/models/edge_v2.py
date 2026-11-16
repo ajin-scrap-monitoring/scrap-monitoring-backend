@@ -3,7 +3,17 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Index, String, UniqueConstraint, false
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Index,
+    String,
+    UniqueConstraint,
+    false,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.app.db.base import Base
@@ -31,7 +41,14 @@ class EdgeV2Message(Base):
         Index("ix_edge_v2_latest", "site_id", "edge_id", "message_type", "generated_at"),
         Index("ix_edge_v2_receipt", "site_id", "edge_id", "message_type", "received_at"),
         Index(
-            "ix_v2_legacy_history", "site_id", "edge_id", "message_type", "compact", "generated_at"
+            "ix_v2_legacy_history",
+            "site_id",
+            "edge_id",
+            "message_type",
+            "compact",
+            "generated_at",
+            postgresql_where=text("compact IS FALSE"),
+            sqlite_where=text("compact IS FALSE"),
         ),
         Index(
             "ix_v2_status_sequence",
