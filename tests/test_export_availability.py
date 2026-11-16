@@ -117,3 +117,20 @@ async def test_unavailable_details_still_require_authentication(
     identifier = await cycle(test_db_session, end=BASE + timedelta(seconds=60))
     assert (await client.get(f"{API}/{identifier}")).status_code == 401
     assert export_enabled["requests"] == []
+
+
+async def test_internal_media_without_token_preserves_export_hint(
+    client, test_db_session, export_enabled, monkeypatch
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "MEDIA_AUTH_MODE", "internal")
+    monkeypatch.setattr(settings, "MEDIA_API_TOKEN", None)
+    end = BASE + timedelta(seconds=60)
+    identifier = await cycle(test_db_session, end=end)
+    export_enabled["days"] = [day([(BASE, end, 0, 60)])]
+    await login(client)
+    response = await client.get(f"{API}/{identifier}")
+    assert response.status_code == 200
+    assert response.json()["exportPath"] == f"{API}/{identifier}/exports"
+    assert response.json()["downloadReasonCode"] == "EVENT_EXPORT_NOT_REQUESTED"
+    assert await test_db_session.scalar(select(func.count()).select_from(MediaClipJob)) == 0

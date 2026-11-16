@@ -1,6 +1,7 @@
 """Synthetic byte responses for the Docker gateway probe; no real video or credentials."""
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -9,6 +10,9 @@ from uuid import NAMESPACE_URL, uuid5
 CONTENT = b"synthetic-mp4-content-for-range-verification"
 DAILY_ID = "550e8400-e29b-41d4-a716-446655440000"
 SEGMENT_ID = "synthetic-segment-01"
+V1_AUTHORIZATION = (
+    None if os.environ.get("MEDIA_AUTH_MODE") == "internal" else "Bearer synthetic-media-token"
+)
 
 
 def measured_media():
@@ -72,7 +76,8 @@ def daily_recording(export_state="not_requested", deleted=False):
         "export_state": export_state,
         "download_path": prefix + "/content" if export_state == "ready" and not deleted else None,
         "size_bytes": len(CONTENT) if export_state == "ready" else None,
-        "expires_at": "2026-11-14T15:00:00.000Z",
+        # Keep this transport fixture available when the probe is run on a later date.
+        "expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
         "export_expires_at": None,
         "error": None,
     }
@@ -167,9 +172,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.thumbnail_request():
             return
         if self.path == "/api/v1/clips":
-            if self.headers.get(
-                "Authorization"
-            ) != "Bearer synthetic-media-token" or self.headers.get("Cookie"):
+            if self.headers.get("Authorization") != V1_AUTHORIZATION or self.headers.get("Cookie"):
                 self.send_error(401)
                 return
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -252,11 +255,19 @@ class Handler(BaseHTTPRequestHandler):
         item = daily_recording(
             "ready" if type(self).daily_exported else "not_requested", type(self).daily_deleted
         )
+        metadata = {k: v for k, v in item.items() if k not in ("gaps", "available_intervals")}
+        metadata["revision"] = 1
         if path.endswith("daily-recording-policy"):
             self.daily_json(200, {"enabled": True, "retention_days": 30})
             return
         if path.endswith("/daily-recordings"):
             self.daily_json(200, {"items": [item], "next_cursor": None})
+            return
+        if path.endswith("/daily-recordings/summary"):
+            self.daily_json(200, {"items": [metadata], "next_cursor": None})
+            return
+        if path == prefix + "/summary":
+            self.daily_json(200, metadata)
             return
         if path == prefix:
             self.daily_json(200, item)
@@ -328,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/v2/"):
             self.daily_get(parsed.path, parse_qs(parsed.query))
             return
-        if self.headers.get("Authorization") != "Bearer synthetic-media-token" and not (
+        if self.headers.get("Authorization") != V1_AUTHORIZATION and not (
             self.headers.get("Authorization") is None
             and parsed.path.rsplit("/", 1)[-1] in self.range_clips
         ):
