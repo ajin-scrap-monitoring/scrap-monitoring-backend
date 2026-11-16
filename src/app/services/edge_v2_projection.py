@@ -206,7 +206,10 @@ async def project(
         await mark_device_episode(db, payload, transition)
         if not same_instance or payload.overall_state not in ("HEALTHY", "DEGRADED"):
             filter_row.payload = {}
-        if get_settings().EDGE_V2_HEIGHT_FILL_ENABLED:
+        if (
+            get_settings().EDGE_V2_HEIGHT_FILL_ENABLED
+            or get_settings().EDGE_V2_SECTION_PROFILES_ENABLED
+        ):
             from src.app.services.height_reference import device_clock_allowed
 
             observed_now = utc(receipt.received_at)
@@ -227,14 +230,25 @@ async def project(
                 and active_scope[0] != payload.config_revision
             ):
                 filter_row.payload = {}
-    elif isinstance(payload, Measurement) and (
-        get_settings().EDGE_V2_HEIGHT_FILL_ENABLED or get_settings().EDGE_V2_HEIGHT_MEDIAN_ENABLED
+    elif (
+        isinstance(payload, Measurement)
+        and (
+            get_settings().EDGE_V2_HEIGHT_FILL_ENABLED
+            or get_settings().EDGE_V2_HEIGHT_MEDIAN_ENABLED
+        )
+        and not get_settings().EDGE_V2_SECTION_PROFILES_ENABLED
     ):
         from src.app.services.height_fill_service import project_height_fill
 
         await db.flush()
         await project_height_fill(db, payload, receipt, filter_row)
     elif isinstance(payload, Assessment):
+        if get_settings().EDGE_V2_SECTION_PROFILES_ENABLED:
+            from src.app.services.section_profile_service import project_section_input
+
+            await db.flush()
+            await project_section_input(db, payload, receipt, filter_row)
+            return
         if get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
             from src.app.services.filtered_lidar_profiles import project_filtered_profiles
 
@@ -277,6 +291,8 @@ async def project_input(
     row: EdgeV2Filter,
     *,
     height_filtered_percent: float | None = None,
+    section_mode: bool = False,
+    retain_section_history: bool = False,
 ) -> None:
     from src.app.services.edge_v2_service import device_status
 
@@ -287,6 +303,7 @@ async def project_input(
     observed = assessment.observed_to
     valid = (
         value is not None
+        and (not section_mode or assessment.data_state == "AVAILABLE")
         and observed is not None
         and observed <= now
         and (
@@ -339,6 +356,9 @@ async def project_input(
             )
         )
     samples = list(previous.get("samples", [])) if previous.get("scope") == scope else []
+    prepared = bool(
+        section_mode and previous.get("scope") == scope and previous.get("full_window_seen")
+    )
     anchor_text = previous.get("slot_anchor_at") if previous.get("scope") == scope else None
     anchor = datetime.fromisoformat(anchor_text) if anchor_text else None
     filtered: float | None = None
@@ -351,12 +371,17 @@ async def project_input(
             valid = False
             samples = []
             anchor = None
+            prepared = False
         else:
-            if last_observed and observed - datetime.fromisoformat(last_observed) > timedelta(
-                seconds=1.5
+            if last_observed and (
+                observed - datetime.fromisoformat(last_observed)
+                >= timedelta(seconds=settings.EDGE_V2_MEDIAN_WINDOW_SECONDS)
+                if section_mode
+                else observed - datetime.fromisoformat(last_observed) > timedelta(seconds=1.5)
             ):
                 samples = []
                 anchor = None
+                prepared = False
             second = int(timestamp)
             samples.append(
                 {
@@ -380,20 +405,44 @@ async def project_input(
             if assessment.source == "HEIGHT_SECTIONS":
                 filtered = height_filtered_percent
                 filter_state = "READY" if filtered is not None else "WARMING"
-            elif len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS:
+            elif len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS or (
+                section_mode
+                and prepared
+                and len(samples) >= settings.EDGE_V2_MEDIAN_WINDOW_SECONDS - 1
+            ):
                 filtered = float(median(s["value"] for s in samples))
                 filter_state = "READY"
+                prepared = prepared or len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS
     else:
-        samples = []
-        anchor = None
+        if not (section_mode and retain_section_history and previous.get("scope") == scope):
+            samples = []
+            anchor = None
+            prepared = False
+        elif observed is not None:
+            samples = [
+                s
+                for s in samples
+                if 0 <= observed.timestamp() - s["at"] < settings.EDGE_V2_MEDIAN_WINDOW_SECONDS
+            ]
+            if not samples:
+                anchor = None
+                prepared = False
     above_since = None
     if filtered is not None and filtered >= threshold:
         if (
             previous.get("scope") == scope
             and previous.get("state") == "READY"
+            and (
+                not section_mode
+                or last_observed is not None
+                and observed is not None
+                and observed - datetime.fromisoformat(last_observed) <= timedelta(seconds=1.5)
+            )
             and samples
             and (
                 len(samples) == settings.EDGE_V2_MEDIAN_WINDOW_SECONDS
+                or section_mode
+                and prepared
                 or (
                     assessment.source == "HEIGHT_SECTIONS"
                     and last_observed is not None
@@ -444,6 +493,8 @@ async def project_input(
         "inputSource": assessment.source,
         "methodVersion": assessment.method_version,
     }
+    if section_mode:
+        row.payload = {**row.payload, "full_window_seen": prepared}
     reason = (
         reasons
         if filtered is not None

@@ -62,6 +62,7 @@ HOST/PORT만 변경하여 컨테이너 리스너가 바뀐다고 가정하지 �
 | `EDGE_V2_HEIGHT_REFERENCES` | 실측 검증 좌표·바닥·구간 기준 목록 | 해당 높이 모드에 필요 | `[]` | [실측 구조와 단위](LIDAR_HEIGHT_PROFILES.md), schema의 `HeightReference` |
 | `EDGE_V2_SIMULATION_HEIGHT_REFERENCES` | 시뮬레이션 전용 좌표 기준 목록 | 시뮬레이션 높이 모드에 필요 | `[]` | [합성 구조](SIMULATION_HEIGHT_API.md), schema의 `SimulationHeightReference` |
 | `EDGE_V2_HEIGHT_REFERENCE_FILE` | 실행 중 교체할 비공개 높이 기준 JSON 경로 | 선택 | 미설정 | [권한·마운트·검사·교체 절차](HEIGHT_REFERENCE_UPDATES.md). 기존 시작 기준 보존, 파일 오류 시 이전 값 대체 금지 |
+| `EDGE_V2_SECTION_PROFILES_ENABLED` | Edge 독립 단면 곡선과 종합 비율을 동일 입력으로 연결 | 선택 | `false` | [출처·5초 중앙값·검증·활성화 조건](EDGE_SECTION_PROFILES.md). 기존 높이/필터 경로보다 우선 |
 | `EDGE_V2_HEIGHT_FILL_ENABLED` | 높이 단면 기반 적재율을 판정 입력으로 사용 | 선택 | `false` | `true` |
 | `EDGE_V2_HEIGHT_MEDIAN_ENABLED` | 높이 시간 필터 활성화 | 선택 | `false` | `true` |
 | `EDGE_V2_FILTERED_PROFILES_ENABLED` | 엣지가 제공한 필터 점의 높이 프로필 표시 | 선택 | `false` | `true` |

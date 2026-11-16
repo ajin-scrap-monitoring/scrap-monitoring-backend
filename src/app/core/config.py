@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     EDGE_V2_HEIGHT_MEDIAN_ENABLED: bool = False
     # Graph-only point-cloud input; fill/collection decisions keep their existing source.
     EDGE_V2_FILTERED_PROFILES_ENABLED: bool = False
+    # Explicit independent-section input; overrides legacy height/graph paths when enabled.
+    EDGE_V2_SECTION_PROFILES_ENABLED: bool = False
     # Detection is an estimate, separate from a worker-confirmed collection completion.
     EDGE_V2_COLLECTION_DETECTION_ENABLED: bool = False
     # Operator-facing settings use metres; computation and height APIs continue to use cm.
@@ -141,6 +143,20 @@ class Settings(BaseSettings):
         ]
         if self.APP_ENV == "production" and self.EDGE_V2_SIMULATION_HEIGHT_REFERENCES:
             raise ValueError("Simulation height references are forbidden in production")
+        if self.EDGE_V2_SECTION_PROFILES_ENABLED and (
+            not references
+            or not self.EDGE_V2_COMPACT_STORAGE_ENABLED
+            or self.EDGE_V2_COLLECTION_DETECTION_ENABLED
+            or any(
+                not isinstance(reference, SimulationHeightReference)
+                or reference.coordinate_source != "EDGE_WORLD"
+                for reference in references
+            )
+        ):
+            raise ValueError(
+                "Section profiles require compact edge-world simulation references and "
+                "disabled height collection detection"
+            )
         if self.EDGE_V2_FILTERED_PROFILES_ENABLED and (
             not references
             or not self.EDGE_V2_COMPACT_STORAGE_ENABLED

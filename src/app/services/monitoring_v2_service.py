@@ -221,7 +221,18 @@ async def build_snapshot(
                 reasons.append("FILTER_UNAVAILABLE")
     operations: OperationStatus | None = None
     fill_observation = None
-    if settings.EDGE_V2_HEIGHT_FILL_ENABLED:
+    projected_fill = (
+        settings.EDGE_V2_HEIGHT_FILL_ENABLED or settings.EDGE_V2_SECTION_PROFILES_ENABLED
+    )
+    if settings.EDGE_V2_SECTION_PROFILES_ENABLED:
+        from src.app.services.section_profile_service import section_snapshot
+
+        frame, state, reasons, raw_percent, percent, filter_state = await section_snapshot(
+            db, source, now, device, config
+        )
+        fill_observation = frame.observation
+        measured_at = fill_observation.observed_to if fill_observation else None
+    elif settings.EDGE_V2_HEIGHT_FILL_ENABLED:
         from src.app.services.height_fill_service import height_snapshot
 
         (
@@ -239,13 +250,13 @@ async def build_snapshot(
             row = None
         evaluated = row is not None and (
             fill_observation is not None and row.message_id == fill_observation.message_id
-            if settings.EDGE_V2_HEIGHT_FILL_ENABLED
+            if projected_fill
             else assessment is not None and row.message_id == assessment.message_id
         )
         evaluation_source: Literal["CURRENT_OBSERVATION", "RECENT_PERSISTED"] | None = (
             "CURRENT_OBSERVATION" if evaluated and state == "FRESH" else None
         )
-        observation = fill_observation if settings.EDGE_V2_HEIGHT_FILL_ENABLED else assessment
+        observation = fill_observation if projected_fill else assessment
         if not evaluated and state == "FRESH" and percent is not None and row and observation:
             pending = measured_at is not None and await recent_operation_matches(
                 db,
@@ -254,7 +265,10 @@ async def build_snapshot(
                 observation.generated_at,
                 measured_at,
                 observation.config_revision,
-                "lidar_measurement" if settings.EDGE_V2_HEIGHT_FILL_ENABLED else "edge_assessment",
+                "lidar_measurement"
+                if settings.EDGE_V2_HEIGHT_FILL_ENABLED
+                and not settings.EDGE_V2_SECTION_PROFILES_ENABLED
+                else "edge_assessment",
                 config,
                 now,
             )
@@ -290,7 +304,12 @@ async def build_snapshot(
         dataState=state,
         reasonCodes=list(dict.fromkeys(reasons)),
         summary=MonitoringSummaryV2(
-            inputSource="HEIGHT_SECTIONS" if settings.EDGE_V2_HEIGHT_FILL_ENABLED else "EDGE_STATE",
+            inputSource=fill_observation.source
+            if fill_observation
+            else "HEIGHT_SECTIONS"
+            if settings.EDGE_V2_HEIGHT_FILL_ENABLED
+            and not settings.EDGE_V2_SECTION_PROFILES_ENABLED
+            else "EDGE_STATE",
             simulated=bool(fill_observation and fill_observation.simulated),
             loadPercent=percent,
             rawLoadPercent=raw_percent,
@@ -336,6 +355,12 @@ async def lidar_profiles(
     from src.app.services.height_median_service import height_median_enabled, read_height_window
 
     when = now or datetime.now(UTC)
+    if get_settings().EDGE_V2_SECTION_PROFILES_ENABLED:
+        from src.app.services.section_profile_service import section_snapshot
+
+        frame, _, reasons, _, _, _ = await section_snapshot(db, source, when)
+        frame.page.meanSectionReasonCodes = reasons
+        return frame.page
     if get_settings().EDGE_V2_FILTERED_PROFILES_ENABLED:
         from src.app.services.filtered_lidar_profiles import filtered_lidar_profiles
 
