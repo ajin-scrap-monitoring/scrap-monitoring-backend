@@ -1,6 +1,6 @@
 """Scoped, paginated notification links and immutable collection assessment revisions."""
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.models.edge_v2 import EdgeV2Message
@@ -104,8 +104,31 @@ async def alerts(
     offset: int,
     username: str,
 ) -> V2AlertPage:
+    # Creation evidence already stores simulation provenance independently of
+    # display text. Correlate within the original source/pit and keep page size.
+    evidence = (
+        select(EdgeV2Transition.payload)
+        .where(
+            EdgeV2Transition.kind == "ALERT_CREATED",
+            EdgeV2Transition.site_id == source.site_id,
+            EdgeV2Transition.edge_id == source.edge_id,
+            EdgeV2Transition.payload["pitId"].as_string() == source.pit_id,
+            cast(EdgeV2Transition.payload["alertId"].as_string(), String)
+            == cast(AlertLog.id, String),
+        )
+        .order_by(EdgeV2Transition.occurred_at, EdgeV2Transition.id)
+        .limit(1)
+        .correlate(AlertLog)
+        .scalar_subquery()
+    )
     query = (
-        select(AlertLog, EdgeV2AlertLink, NotificationRead.read_at, EdgeV2Message.message_type)
+        select(
+            AlertLog,
+            EdgeV2AlertLink,
+            NotificationRead.read_at,
+            EdgeV2Message.message_type,
+            evidence,
+        )
         .join(EdgeV2AlertLink, EdgeV2AlertLink.alert_id == AlertLog.id)
         .outerjoin(
             EdgeV2Message,
@@ -130,7 +153,7 @@ async def alerts(
     )
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = (await db.execute(query.order_by(AlertLog.id.desc()).offset(offset).limit(limit))).all()
-    lifecycles = await alert_lifecycles(db, source.pit_id, [log.id for log, _, _, _ in rows])
+    lifecycles = await alert_lifecycles(db, source.pit_id, [log.id for log, _, _, _, _ in rows])
     return V2AlertPage(
         items=[
             V2Alert(
@@ -140,13 +163,15 @@ async def alerts(
                 assessmentId=link.assessment_id if kind != "lidar_measurement" else None,
                 observationId=link.assessment_id if kind == "lidar_measurement" else None,
                 inputSource="HEIGHT_SECTIONS" if kind == "lidar_measurement" else "EDGE_STATE",
-                simulated=bool(log.message and log.message.startswith("[시뮬레이션]")),
+                simulated=simulated["simulated"]
+                if isinstance(simulated, dict) and isinstance(simulated.get("simulated"), bool)
+                else bool(log.message and log.message.startswith("[시뮬레이션]")),
                 loadPercent=log.fill_ratio_percent,
                 observedAt=utc(link.observed_at),
                 triggeredAt=utc(log.triggered_at),
                 readAt=utc(read_at) if read_at else None,
             )
-            for log, link, read_at, kind in rows
+            for log, link, read_at, kind, simulated in rows
         ],
         totalItems=total,
         limit=limit,

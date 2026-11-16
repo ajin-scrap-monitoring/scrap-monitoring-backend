@@ -17,6 +17,7 @@ from src.app.models.log import AlertLog
 from src.app.models.notification_read import NotificationRead
 from src.app.schemas.history import EventType, PageMetadata
 from src.app.schemas.notification import Notification, NotificationPage, NotificationSeverity
+from src.app.services.event_text import event_detail
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def _notification(log: AlertLog, read_at: datetime | None) -> Notification:
         type=cast(EventType, log.event_type or "collection_required"),
         severity=cast(NotificationSeverity, log.severity or "warning"),
         title=_format_notification_title(log),
-        detail=log.message,
+        detail=event_detail(log.message),
         occurredAt=_ensure_utc(log.triggered_at),
         readAt=_ensure_utc(read_at) if read_at else None,
     )

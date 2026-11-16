@@ -24,6 +24,7 @@ from src.app.schemas.monitoring import LoadSample
 from src.app.services.alert_lifecycle_service import alert_lifecycles
 from src.app.services.collection_ended_service import collection_ended_events
 from src.app.services.error_history_service import error_history_events
+from src.app.services.event_text import event_detail
 from src.app.services.history_recording_links import recording_event_links
 
 
@@ -156,7 +157,7 @@ class HistoryService:
                         category="alert",
                         severity="error",
                         title="수거 필요",
-                        detail=a.message,
+                        detail=event_detail(a.message),
                         occurredAt=_ensure_utc(a.triggered_at),
                         valuePercent=round(a.fill_ratio_percent, 1),
                     )
@@ -274,7 +275,7 @@ class HistoryService:
                         if lifecycle.state == "ACTIVE"
                         else "unknown",
                         title="수거 필요",
-                        detail=a.message,
+                        detail=event_detail(a.message),
                         occurredAt=_ensure_utc(a.triggered_at),
                         resolvedAt=lifecycle.resolvedAt,
                         resolutionObservedAt=lifecycle.resolutionObservedAt,

@@ -309,10 +309,10 @@ async def test_no_valid_current_height_sensor_failure_staleness_and_reference_ch
     assert snapshot.summary.loadPercent == pytest.approx(60, abs=0.04)
 
 
-async def test_received_point_fill_retains_collection_confirmation_and_simulation_label(
+async def test_received_point_fill_retains_collection_confirmation_and_structured_provenance(
     client, test_db_session, angle_context
 ):
-    await legacy.test_simulation_collection_log_is_explicitly_labelled(
+    await legacy.test_simulation_collection_log_uses_result_text_and_structured_provenance(
         client, test_db_session, angle_context
     )
 
