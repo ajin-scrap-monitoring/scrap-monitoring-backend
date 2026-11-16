@@ -23,6 +23,8 @@ from src.app.services.event_export_service import (
     CONTEXT_KEY,
     EXPORT_CATEGORY,
     export_context,
+    export_update,
+    preserve_export_retry,
     range_request,
     validate_range_snapshot,
 )
@@ -151,6 +153,8 @@ def schedule_clip_refresh(job: MediaClipJob, error_code: str | None = None) -> N
 async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
     """Dispatch or poll one persisted job, recording failures before returning."""
     job.attempts += 1
+    attempt = job.attempts
+    extraction = None
     try:
         snapshot: ClipReceipt
         event_at = requested_event_time(job)
@@ -182,23 +186,41 @@ async def process_job(job: MediaClipJob, db: AsyncSession) -> int:
                     event_at=event_at,
                 )
             )
-        apply_snapshot(job, snapshot)
-        if extraction is not None and extraction.retry_failed:
-            context = export_context(job).model_copy(update={"retry_failed": False})
-            job.snapshot = {**(job.snapshot or {}), CONTEXT_KEY: context.model_dump(mode="json")}
-        await db.commit()
+        async with export_update(db, job, attempt):
+            apply_snapshot(job, snapshot)
+            if extraction is not None and extraction.retry_failed:
+                context = export_context(job).model_copy(update={"retry_failed": False})
+                job.snapshot = {
+                    **(job.snapshot or {}),
+                    CONTEXT_KEY: context.model_dump(mode="json"),
+                }
+            preserve_export_retry(job)
+            await db.commit()
         return status_code
     except MediaServiceError as exc:
-        job.error_code = exc.code
-        if exc.retryable:
-            job.next_attempt_at = datetime.now(UTC) + timedelta(
-                seconds=min(30, 2 ** min(job.attempts - 1, 5))
-            )
-        else:
-            # Keep local delivery failures distinct from remote encoding failure.
-            job.next_attempt_at = None
-            job.status = "blocked"
-        await db.commit()
+        async with export_update(db, job, attempt):
+            job.error_code = exc.code
+            if exc.retryable:
+                job.next_attempt_at = datetime.now(UTC) + timedelta(
+                    seconds=min(30, 2 ** min(job.attempts - 1, 5))
+                )
+            else:
+                # Keep local delivery failures distinct from remote encoding failure.
+                job.next_attempt_at = None
+                job.status = "blocked"
+            # A retry accepted during a GET must survive a late response. A
+            # retryable POST failure instead retains the existing backoff above.
+            if extraction is not None and extraction.retry_failed and not exc.retryable:
+                # The explicit attempt reached a permanent failure. A later GET
+                # must not revive its intent or automatically POST it again.
+                context = export_context(job).model_copy(update={"retry_failed": False})
+                job.snapshot = {
+                    **(job.snapshot or {}),
+                    CONTEXT_KEY: context.model_dump(mode="json"),
+                }
+            elif extraction is not None and not extraction.retry_failed:
+                preserve_export_retry(job)
+            await db.commit()
         raise
 
 

@@ -1,5 +1,8 @@
 """Persist a user's event window before requesting an idempotent archive extraction."""
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -18,6 +21,31 @@ from src.app.services.media_client import MediaServiceError, media_client
 
 EXPORT_CATEGORY = "event_export"
 CONTEXT_KEY = "_rangeExport"
+# Admission never waits for the worker's lock held during upstream I/O. All
+# export snapshot writes below hold this separate lock only for local DB work.
+export_admission_lock = asyncio.Lock()
+
+
+@asynccontextmanager
+async def export_update(
+    db: AsyncSession, job: MediaClipJob, attempt: int | None = None
+) -> AsyncIterator[None]:
+    if job.category != EXPORT_CATEGORY:
+        yield
+        return
+    async with export_admission_lock:
+        # A retry can be accepted while a worker or a GET awaits media. Merge the
+        # response with the latest durable intent, not its pre-I/O ORM snapshot.
+        await db.refresh(job)
+        if attempt is not None:
+            job.attempts = max(job.attempts, attempt)
+        yield
+
+
+def preserve_export_retry(job: MediaClipJob) -> None:
+    if job.category == EXPORT_CATEGORY and export_context(job).retry_failed:
+        job.status = "pending"
+        job.next_attempt_at = datetime.now(UTC)
 
 
 class ExportContext(BaseModel):
@@ -173,7 +201,7 @@ def export_response(job: MediaClipJob) -> EventExportResponse:
                 else "EVENT_EXPORT_FAILED"
             )
         if (
-            snapshot.status == "ready"
+            job.status == snapshot.status == "ready"
             and snapshot.content_path
             and snapshot.expires_at
             and snapshot.expires_at > datetime.now(UTC)
@@ -235,8 +263,11 @@ async def refresh_export(db: AsyncSession, job: MediaClipJob) -> None:
 
     export_context(job)
     if job.clip_id:
-        apply_snapshot(job, await media_client.get_clip(UUID(job.clip_id)))
-        await db.commit()
+        snapshot = await media_client.get_clip(UUID(job.clip_id))
+        async with export_update(db, job):
+            apply_snapshot(job, snapshot)
+            preserve_export_retry(job)
+            await db.commit()
 
 
 async def lookup_export(
@@ -257,14 +288,12 @@ async def lookup_export(
 async def request_export(
     db: AsyncSession, owner: str, event_id: str, payload: EventExportRequest
 ) -> tuple[int, EventExportResponse]:
-    from src.app.services.media_job_service import media_job_worker, process_job
-
     settings = get_settings()
     if not settings.MEDIA_SERVICE_URL or not settings.MEDIA_API_TOKEN:
         raise MediaServiceError(503, "MEDIA_NOT_CONFIGURED")
-    async with media_job_worker.lock:
+    async with export_admission_lock:
         job = await bound_export(db, owner, payload.requestId)
-        reused = False
+        queued = False
         if job is None:
             if payload.retryFailed:
                 raise HTTPException(404, "EVENT_EXPORT_NOT_FOUND")
@@ -287,11 +316,10 @@ async def request_export(
                     continue
                 if candidate.status not in ("pending", "collecting", "processing", "ready"):
                     continue
-                await refresh_export(db, candidate)
                 if candidate.status in ("pending", "collecting", "processing") or (
                     candidate.status == "ready" and export_response(candidate).downloadPath
                 ):
-                    job, reused = candidate, True
+                    job = candidate
                     break
             context = ExportContext(
                 owner=owner,
@@ -316,6 +344,7 @@ async def request_export(
                     snapshot={CONTEXT_KEY: context.model_dump(mode="json")},
                 )
                 db.add(job)
+                queued = True
                 await db.flush()
             # Commit the alias before dispatch, including when a response may be lost.
             db.add(EventExportAlias(owner=owner, request_id=str(payload.requestId), job_id=job.id))
@@ -331,36 +360,29 @@ async def request_export(
                 payload.afterSeconds,
             ):
                 raise HTTPException(409, "EVENT_EXPORT_REQUEST_CONFLICT")
-        if payload.retryFailed:
-            # Persist retry intent as well: a lost retry response must reuse this key.
+        if payload.retryFailed and job.status in ("failed", "blocked"):
+            # Persist and schedule the explicit retry before acknowledging it. A
+            # duplicate while pending reuses this intent instead of resetting it.
             context = export_context(job).model_copy(update={"retry_failed": True})
             job.snapshot = {**(job.snapshot or {}), CONTEXT_KEY: context.model_dump(mode="json")}
+            job.status = "pending"
+            queued = True
+            job.error_code = None
+            job.next_attempt_at = datetime.now(UTC)
             await db.commit()
-        if reused:
-            return 200, export_response(job)
-        try:
-            code = await process_job(job, db)
-        except MediaServiceError as exc:
-            if not exc.retryable or job.next_attempt_at is None:
-                raise
-            # The request binding and retryable job are already committed. A lost
-            # media response must not turn durable acceptance into an HTTP failure.
-            if job.status in ("failed", "blocked"):
-                job.status = "pending"
-                await db.commit()
-            return 202, export_response(job)
-        return code, export_response(job)
+        # No upstream call (including a refresh for reuse) belongs in admission.
+        # The existing durable worker discovers these jobs after a restart too.
+        accepted = queued or (job.status == "pending" and export_context(job).retry_failed)
+        return (202 if accepted else 200), export_response(job)
 
 
 async def read_export(
     db: AsyncSession, owner: str, event_id: str, request_id: UUID
 ) -> EventExportResponse:
-    from src.app.services.media_job_service import apply_snapshot, media_job_worker
+    from src.app.services.media_job_service import media_job_worker
 
     async with media_job_worker.lock:
         job = await find_export(db, owner, request_id, event_id)
         # A status read may refresh an accepted clip, but never creates/retries one.
-        if job.clip_id:
-            apply_snapshot(job, await media_client.get_clip(UUID(job.clip_id)))
-            await db.commit()
+        await refresh_export(db, job)
         return export_response(job)
