@@ -54,6 +54,25 @@ Release asset은 `env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.sc
 변경·삭제하지 않고 수정이 필요하면 새 버전으로 제공한다. 게시 전 중단된 draft 복구는 유지관리자가 상태를
 확인한 뒤 처리하며, 자동화는 기존 Release를 덮어쓰지 않는다.
 
+### 최종 커밋의 main CI 확인
+
+현재 `ci.yml`은 main 대상 PR과 수동 `workflow_dispatch`에서 실행된다. PR에서는 Ruff와 mypy를
+검사하며, 전체 테스트·PostgreSQL·이미지·배포·정기 백업 검증은 수동 실행에 포함된다.
+PR 검사 통과나 실제 main CodeQL 성공만으로 Release의 동일 SHA main CI 조건을 대신하지 않는다.
+
+최종 변경을 병합한 뒤 main SHA를 기록하고 다음 순서로 확인한다.
+
+```bash
+gh workflow run ci.yml --ref main
+gh run list --workflow ci.yml --branch main --commit <verified-main-commit> \
+  --json databaseId,headSha,status,conclusion,url
+```
+
+수동 실행이 기록한 `headSha`가 선택한 최종 커밋인지 확인하고 해당 실행이 실제로 완료·성공해야
+tag를 만든다. 실행 중 main이 바뀌면 자동으로 새 커밋을 게시 대상으로 선택하지 않는다.
+문서 변경도 SHA를 바꾸므로 마지막 변경 전의 CI 성공을 재사용하지 않는다. 이 검증은 GitHub의
+격리된 합성 환경을 사용하며 기존 서버의 백업 다운로드·복원이나 migration을 실행하지 않는다.
+
 ## 실행 기준
 
 - **Backend 단일 인스턴스·Uvicorn worker 1개**, Python3.13. 중복 작업자 실행을 전제로 한 구성이 아니다.
@@ -71,15 +90,19 @@ Release asset은 `env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.sc
 ## 이미지 갱신과 DB migration
 
 1. 선택한 digest와 호스트 아키텍처를 확인하고 현재 이미지·설정·secret mount·볼륨 참조와 복원 기준을 보관한다.
-2. 기존 DB를 백업하고 선택한 이미지의 schema 요구사항을 확인한다. 기존 계정·피트·알림·발송/이벤트 이력을 보존한다.
-3. 앱 시작 전에 같은 이미지의 관리용 일회성 컨테이너에서 **관리 계정**으로 실행한다.
+2. 현재 백업의 마지막 성공 시각·실제 완료본·보관 위치와 복구 가능 근거를 확인하고 선택한 이미지의
+   schema 요구사항을 확인한다. 성공 로그만으로 현재 완료본의 존재를 보장하지 않는다. 백업이
+   종료·오래됨·확인 불가이면 이를 배포 준비 결과에 명시하고, 새 백업 실행과 부하는 별도로 검토한다.
+   기존 계정·피트·알림·발송/이벤트 이력과 승인된 데이터 정리 결과를 현재 기준선으로 보존한다.
+3. 앱 시작 전에 같은 이미지의 관리용 일회성 컨테이너에서 **관리 계정**으로 현재 버전과 구조를 확인한다.
 
    ```bash
    python -m src.app.cli.db current
-   python -m src.app.cli.db upgrade
    python -m src.app.cli.db check
    ```
 
+   필요한 schema 변경이 있을 때만 `python -m src.app.cli.db upgrade`를 별도로 계획하고 적용한 뒤
+   다시 `check`한다. 이미 요구 버전과 구조가 일치하면 완료한 migration·인덱스 준비를 반복하지 않는다.
    기존 migration이 없는 DB는 원본 백업과 [DB_MIGRATIONS.md](DB_MIGRATIONS.md)의
    `--adopt-legacy` 검사 절차를 먼저 따른다. 일반 이미지 갱신에 이를 매번 적용하지 않는다.
 4. migration/복원 후 PostgreSQL 템플릿의 runtime grants를 적용하고 앱은 **앱 역할 계정**으로 실행한다.
@@ -90,3 +113,16 @@ Release asset은 `env.example`, `CONFIGURATION.md`, `RELEASING.md`, `settings.sc
    비호환 schema는 검증한 백업/복원 계획을 따른다. DB를 지우거나 무조건 downgrade하여 해결하지 않는다.
 
 이 명령은 이미지 내부 도구의 역할을 설명한다. 어떤 서버·Compose·볼륨·계정으로 실행할지는 배포 Repository가 정한다.
+
+### 독립 운영 감시와 복귀 범위
+
+웹 앱 이미지 교체와 독립 CLI 서비스의 이미지 교체는 별도다. [서버 디스크 감시](SERVER_CAPACITY_ALERTS.md)와
+[미디어 정리 상태 감시](MEDIA_CAPACITY_ALERTS.md)의 현재 이미지·설정·상태 파일·읽기 전용 Gmail 인증
+마운트를 각각 기록한다. 기존 상태 파일을 초기화하거나 두 서비스가 같은 파일을 쓰게 하지 않는다.
+미디어 감시 갱신이 필요하면 별도 서비스 정의와 동일한 제한·마운트·단일 실행 조건을 보존한다.
+
+복귀는 현재 DB와 호환되는 직전 이미지·설정으로 계획한다. 공식 이전 릴리스라는 이유만으로
+스키마가 다른 이미지를 선택하거나 옛 백업으로 최근 데이터·승인된 삭제 결과·갱신된 인증을
+되돌리지 않는다. 새 기능의 코드 포함, 설정 활성화, 실제 수신, 메일 제공자 접수와 수신함 도착은
+각각 구분해 기록한다. 자연스러운 미디어 정리·공간 회수의 관측을 만들려고 임계값을 낮추거나
+강제 삭제·추가 시험 메일을 실행하지 않는다.
