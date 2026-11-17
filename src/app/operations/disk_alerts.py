@@ -175,7 +175,7 @@ def load_config(path: Path) -> DiskAlertConfig:
     return DiskAlertConfig.model_validate(data)
 
 
-def write_state(path: Path, state: MonitorState) -> None:
+def write_state(path: Path, state: BaseModel) -> None:
     # The dedicated state directory must already exist; never create arbitrary paths.
     if path.is_symlink() or path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
         raise ValueError("Private state directory required")
