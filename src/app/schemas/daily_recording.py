@@ -80,6 +80,9 @@ class DailyRecordingState(BaseModel):
     export_expires_at: AwareDatetime | None
     error: DailyError | None
     deleted_at: AwareDatetime | None = None
+    deletion_reason: Literal["capacity_pressure"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     cleanup_state: Literal["pending", "failed", "complete"] | None = None
     cleanup_completed_at: AwareDatetime | None = None
     cleanup_error: DailyError | None = None

@@ -65,7 +65,12 @@ class MediaClient:
         daily: bool = False,
         timeout_seconds: float | None = None,
         tokenless: bool = False,
+        max_bytes: int | None = None,
     ) -> httpx.Response:
+        if max_bytes is None:
+            max_bytes = MEDIA_JSON_MAX_BYTES
+        if not 1 <= max_bytes <= MEDIA_JSON_MAX_BYTES:
+            raise ValueError("JSON limit cannot exceed the global cap")
         settings = get_settings()
         base_url = settings.MEDIA_SERVICE_URL
         headers = {}
@@ -99,11 +104,11 @@ class MediaClient:
                     else timeout_seconds,
                 ) as upstream:
                     length = upstream.headers.get("content-length")
-                    if length and length.isdecimal() and int(length) > MEDIA_JSON_MAX_BYTES:
+                    if length and length.isdecimal() and int(length) > max_bytes:
                         raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
                     body = bytearray()
                     async for chunk in upstream.aiter_bytes(chunk_size=MEDIA_JSON_CHUNK_BYTES):
-                        if len(body) + len(chunk) > MEDIA_JSON_MAX_BYTES:
+                        if len(body) + len(chunk) > max_bytes:
                             raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
                         body.extend(chunk)
                     # HTTPX already decoded Content-Encoding while streaming. Do not

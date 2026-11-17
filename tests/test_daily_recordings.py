@@ -359,3 +359,32 @@ async def test_equal_capture_timestamps_keep_playback_mapping(client, camera):
     assert actual["playback_end_seconds"] == 20
     interval["end_at"] = "2026-10-13T14:59:59Z"
     assert (await client.get(f"{BASE}/{RID}")).status_code == 502
+
+
+async def test_capacity_deletion_reason_survives_full_and_lightweight_routes(client, camera):
+    await login(client)
+    camera.item.update(
+        status="deleted",
+        deletion_reason="capacity_pressure",
+        deleted_at="2026-10-14T15:00:01Z",
+        playback_path=None,
+        download_path=None,
+    )
+    for path in (f"{BASE}/{RID}", f"{BASE}/{RID}/summary"):
+        response = await client.get(path)
+        assert response.status_code == 200
+        value = response.json()
+        assert value["deletion_reason"] == "capacity_pressure" and value["status"] == "deleted"
+        assert value["has_gaps"] is True
+        if path.endswith("/summary"):
+            assert "gaps" not in value and "available_intervals" not in value
+    response = await client.get(
+        f"{BASE}/summary", params={"from_date": "2026-10-01", "to_date": "2026-10-15"}
+    )
+    assert response.status_code == 200
+    assert response.json()["items"][0]["deletion_reason"] == "capacity_pressure"
+    camera.error = (410, "DAILY_RECORDING_DELETED")
+    for path in (f"{BASE}/{RID}", f"{BASE}/{RID}/summary"):
+        response = await client.get(path)
+        assert response.status_code == 410
+        assert response.json()["error"]["code"] == "DAILY_RECORDING_DELETED"
