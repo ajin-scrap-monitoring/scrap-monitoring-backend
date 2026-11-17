@@ -139,7 +139,8 @@ EDGE_V2_MONITORING_SOURCES=[{"pit_id":"pit-example","site_id":"site-example","ed
 | `MEDIA_V2_EVENT_CLIPS_ENABLED` | 새 v2 이벤트의 자동 클립 요청 | 선택 | `false` | `false` |
 | `MEDIA_V2_EVENT_CLIP_MAX_DELAY_SECONDS` | 자동 클립 요청의 최대 이벤트 나이(초) | 선택 | `30` | `30` (1~300) |
 
-v1 URL/토큰은 둘 다 설정하거나 생략한다. URL에는 사용자정보·query·fragment를 넣지 않고 지정한
+기본 `bearer` 모드의 v1 URL/토큰은 둘 다 설정하거나 생략한다. 명시적인 `internal` 모드는
+네트워크 경계를 확인한 뒤 v1 URL만 설정할 수 있다. URL에는 사용자정보·query·fragment를 넣지 않고 지정한
 `/api/v1` 또는 `/api/v2`로 끝나야 한다. v2 주소를 생략하면 기존 미디어 클라이언트의 v1 호스트 기반
 v2 주소 선택을 따른다. 미디어 영상 바이트는 Backend가 직접 전달하지 않으며 브라우저 게이트웨이가 담당한다.
 WHEP와 MJPEG/HLS 게이트웨이는 서로 다른 영상 방식이다. [미디어 계약](MEDIA_INTEGRATION.md)을 따른다.
