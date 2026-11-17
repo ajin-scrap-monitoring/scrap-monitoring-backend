@@ -76,10 +76,10 @@
 ## MP4 다운로드 흐름
 
 1. 지난 날짜가 closed이고 `export_allowed=true`이면 POST exports를 호출한다. 본문은 필요 없다.
-2. 최초·진행 중은 202, 이미 준비됐으면 200이며 `Location`은 백엔드 상세 경로다. 요청이 중복돼도 미디어 서비스의 같은 날짜 작업을 사용한다.
-3. 상세를 약 2초 간격으로 조회하되 긴 작업은 간격을 늘린다.
+2. 백엔드는 단일 날짜 요약으로 카메라 소유 관계를 검사한 뒤 미디어의 `POST /api/v2/daily-recordings/{recording_id}/exports/summary`를 호출한다. 전체 상세·누락 배열을 읽지 않으며 GET 요약으로 POST의 실제 파일 검사를 대체하지 않는다. 응답은 `DailyRecordingMetadata`이고 `gaps`·`available_intervals`·배열 개수는 포함하지 않는다.
+3. `export_state=ready`는 200, 그 외 검사를 통과한 상태는 202이며 `Location`은 백엔드 단일 날짜 `/summary` 경로다. 202만으로 진행 중이라고 판단하지 말고 `not_requested`·`processing`·`failed`와 `error`를 구분한다. 필요할 때 이 요약을 약 2초 간격으로 조회하되 긴 대기는 간격을 늘린다. 성공 응답은 `Cache-Control: no-store`다.
 4. `export_state=ready`와 `download_path`가 있으면 해당 게이트웨이 경로로 다운로드한다.
-5. 실패하면 error.code를 표시한다. 원인을 해결한 후 같은 날짜 ID로 준비를 재요청한다. MP4 캐시만 만료된 경우도 다시 준비할 수 있다.
+5. 실패하면 error.code를 표시한다. exports POST는 호환용 상태 확인이며 새 파일 생성·재인코딩·재시도 작업을 시작하지 않는다. 반복 요청이나 만료된 파일에 대한 요청을 새 준비 작업의 성공으로 표시하지 않는다. 캐시 누락·손상은 `503 CATALOG_SUMMARY_UNAVAILABLE`이며 전체 이력 조회로 우회하지 않는다.
 
 MP4는 확보된 구간만 포함하는 무음 영상이다. 부분 저장 여부와 실제 길이를 함께 표시한다. 전체 파일을 FastAPI 메모리에 읽거나 응답하지 않는다. 날짜가 마감되기 전에는 하루 다운로드를 제공하지 않는다.
 
