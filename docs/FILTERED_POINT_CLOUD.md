@@ -61,8 +61,9 @@ compact 모드는 최신 원문과 불변 해시를, 일반 모드는 원문을 
 - 기존 `samples`·cm 높이·positionRatio 구조를 유지한다. `sampleSource`는
   `MEASUREMENT` 또는 `FILTERED_POINT_CLOUD`이며, 필터 경로에서는
   `processingVersion`·`sourceScanId`도 제공한다.
-- A/B를 sensor_id로 구분하고 각 anchor 시각을 measuredAt에 사용한다. 선택 각도와 원본
-  index를 유지하며 각도순으로 표시한다. 무효점은null과valid=false인 빈 구간이다.
+- A/B를 sensor_id로 구분하고 각 anchor 시각을 measuredAt에 사용한다. 원래 선택 각도와
+  index를 보존한 각도순 표본은 모니터링 프로필의 `view=source`로 조회한다.
+  무효점은null과valid=false로 보존한다. 기본 그래프 응답의 공간 정리는 아래를 따른다.
 - XYZ를cm로 변환하고 명시된 바닥 Z를 빼서 높이를 구한다. 같은 설치 R/t를 재적용하지
   않는다. 기존 피트 경계·벽 여유·높이 범위를 벗어난 점은 표시하지 않고 빈 구간으로 남긴다.
 - 설정 revision·좌표계·설치 보정·적용 필터/window·센서/시계 상태·생성 및 anchor 시각을
@@ -77,6 +78,36 @@ compact 모드는 최신 원문과 불변 해시를, 일반 모드는 원문을 
 배포 시 설정의 기하·보정이 기존 기준과 일치하는지 확인한 뒤 기준을 명시적으로 갱신한다.
 revision 검사를 생략하거나 시뮬레이션 DEFAULT를 현장 검증 완료로 바꾸지 않는다.
 점별 필터가 투영 좌표의 왕복이나 실제 표면 겹침까지 없애 준다고 보장하지 않는다.
+
+## A→B 공간 그래프와 원래 표본
+
+`GET /api/v2/monitoring/profiles?pit_id=...`의 기본 `view=spatial`은 계산이 끝난
+필터 점 프로필만 별도로 복사해 표시한다. `view=source`는 기존 각도순 표본과
+원본 index 대응을 그대로 반환한다. 두 view 모두 로그인·no-store를 유지한다.
+잘못된 view는422다. Edge 원문 조회 API·저장된 XYZ·설치 변환은 변경하지 않는다.
+
+- 필터 점의 공간 positionRatio를 고정200구간으로 나누고 각 구간의 현재 유효 높이
+  중앙값 하나를 구간 중심에 표시한다. 위치는 A→B로 엄격히 증가하고 같은 x를 반복하지 않는다.
+- 이는 정규화된 표시 격자이며 물리 설치 정밀도나 Edge 단면 bin을 새로 정의하지 않는다.
+  시간 중앙값을 다시 적용하거나 이전 스캔을 가져오지 않는다.
+- 직접 유효 관측이 없는 구간은height=null/valid=false다. 위치가 알려진 무효점이 있는
+  구간도 비워 둔다. 이웃 값을 보간하거나 선형으로 메우지 않는다.
+- 원본 positionRatio가null인 점은 공간 위치를 추정하지 않는다. 다른 각도의 실제 관측이
+  있는 공간 구간까지 무효라고 확대하지 않으며, 원래 각도순 끊김은source view에 보존한다.
+  공간 그래프의 빈 구간과 각도 표본의 무효점은 서로 다른 범위다.
+- 표시 표본은 여러 원본 점의 대표값이므로angleMdeg/sourceIndex를 임의로 붙이지 않는다.
+  `sampleSource=FILTERED_POINT_CLOUD`, anchor·처리 버전·보정·제한 사유는 유지한다.
+- 표시값의 `valuePolicy=SPATIAL_BIN_MEDIAN`, `displayBinCount=200`,
+  `displayCoverageRatio`는 유효 표시 구간 비율, `displayUnpositionedCount`는 공간 위치가
+  없는 원본 표본 수다. 이 수를 손실 프레임 수로 해석하지 않는다. source view에는 새 표시 필드를 생략한다.
+- `average`·`minimum`·`maximum`·`filteredAverage`·`sectionFillPercent`와 페이지 종합 비율은
+  기존 스캔·시간 창의 통계를 그대로 유지한다. `coverageBasis=RECEIVED_POINTS`와
+  `coverageRatio`도 원본 수신점 기준이다. 표시 구간 비율과 혼동하지 않는다.
+- 단면 입력이나 기존 공간/시간 중앙값 프로필은 재가공하지 않는다. Q21 flag도 켜지 않는다.
+
+공간 정리는 HTTP 그래프 응답의 마지막 단계다. 적재율·SSE·이력·수거·경보 판단이나
+필터 창 저장으로 되돌려 넣지 않는다. 프론트의 기존 positionRatio/height/null 계약을 유지하되,
+각도/index 진단이 필요한 소비자는source view를 사용한다.
 
 ## 활성화 순서
 

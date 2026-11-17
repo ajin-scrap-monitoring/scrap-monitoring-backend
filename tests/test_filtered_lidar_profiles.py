@@ -365,6 +365,48 @@ async def test_flag_off_keeps_raw_graph_and_creates_no_filtered_window(
     assert await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "filtered_profile_window")) is None
 
 
+async def test_spatial_response_does_not_change_scan_statistics_windows_or_fill(
+    client, test_db_session, cloud_context
+):
+    db = test_db_session
+    await prepare(client, db)
+    await login(client)
+    for second in range(5):
+        await frame(client, db, cloud_context, second)
+    source = monitoring_source("pit-demo")
+    before = await build_snapshot(db, source, cloud_context["now"])
+    window = await db.get(EdgeV2Latest, ("site-demo", "edge-demo", "filtered_profile_window"))
+    saved_window = copy.deepcopy(window.payload)
+    url = "/api/v2/monitoring/profiles?pit_id=pit-demo"
+    original = (await client.get(url + "&view=source")).json()
+    spatial = (await client.get(url)).json()
+    for raw, display in zip(original["profiles"], spatial["profiles"], strict=True):
+        assert len(display["samples"]) == 200
+        assert raw["samples"] != display["samples"]
+        for field in (
+            "average",
+            "minimum",
+            "maximum",
+            "filteredAverage",
+            "sectionFillPercent",
+            "summaryValuePolicy",
+            "coverageBasis",
+            "coverageRatio",
+            "reasonCodes",
+            "measuredAt",
+            "sourceScanId",
+            "processingVersion",
+        ):
+            assert raw[field] == display[field]
+    assert original["meanSectionFillPercent"] == spatial["meanSectionFillPercent"]
+    # HTTP dependency cleanup expires ORM rows on PostgreSQL; read explicitly
+    # before comparing the persisted window instead of triggering implicit I/O.
+    await db.refresh(window)
+    assert window.payload == saved_window
+    after = await build_snapshot(db, source, cloud_context["now"])
+    assert after.model_dump() == before.model_dump()
+
+
 def test_angle_order_is_preserved_with_original_index_correspondence(world_context):
     def change(c, a, r, s):
         a["filtered_point_clouds"][0]["angles_mdeg"] = [20000, 10000]

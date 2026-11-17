@@ -47,6 +47,7 @@ from src.app.services.monitoring_v2_service import (
     monitoring_source,
 )
 from src.app.services.session_service import SESSION_COOKIE_NAME
+from src.app.services.spatial_profile_display import spatial_profile_display
 
 router = APIRouter(
     prefix="/api/v2/monitoring",
@@ -133,10 +134,15 @@ async def get_measurement_layout(
 
 @router.get("/profiles", response_model=LidarProfilePageV2)
 async def profiles(
-    response: Response, session: CurrentSession, source: Source, db: Database
+    response: Response,
+    session: CurrentSession,
+    source: Source,
+    db: Database,
+    view: Literal["spatial", "source"] = "spatial",
 ) -> LidarProfilePageV2:
     response.headers["Cache-Control"] = "no-store"
-    return await lidar_profile_snapshot(db, source)
+    page = await lidar_profile_snapshot(db, source)
+    return spatial_profile_display(page) if view == "spatial" else page
 
 
 @router.get("/state-events", response_model=StateEventPageV2)
