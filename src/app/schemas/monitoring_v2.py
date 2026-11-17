@@ -128,10 +128,17 @@ class LidarProfileV2(RequiredResponseFields):
     average: float | None = None
     minimum: float | None = None
     maximum: float | None = None
-    # Angle samples stay current; only the representative scan mean is filtered in time.
+    # Source angle samples stay current; only the scan mean is filtered in time.
+    # A derived spatial display does not replace this representative statistic.
     filteredAverage: float | None = None
     summaryValuePolicy: Literal["PROFILE_MEAN", "SCAN_MEAN_TEMPORAL_MEDIAN"] = "PROFILE_MEAN"
     samples: list[LidarProfileSampleV2] = Field(default_factory=list)
+    # Presentation metadata is independent of received-point statistics and windows.
+    displayBinCount: int | None = Field(default=None, ge=2, le=200, exclude_if=lambda v: v is None)
+    displayCoverageRatio: float | None = Field(
+        default=None, ge=0, le=1, exclude_if=lambda v: v is None
+    )
+    displayUnpositionedCount: int | None = Field(default=None, ge=0, exclude_if=lambda v: v is None)
     reasonCodes: list[str] = Field(default_factory=lambda: ["HEIGHT_REFERENCE_UNVERIFIED"])
     coverageRatio: float = Field(default=0, ge=0, le=1)
     sectionFillPercent: DisplayPercent | None = Field(default=None, ge=0, le=100)
