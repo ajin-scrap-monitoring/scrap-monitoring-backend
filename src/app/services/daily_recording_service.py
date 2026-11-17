@@ -157,17 +157,24 @@ class DailyRecordingService:
             previous = interval.end_at
         return page
 
-    async def export(self, recording_id: UUID) -> tuple[int, DailyRecording]:
-        await self.detail(recording_id)
+    async def export(self, recording_id: UUID) -> tuple[int, DailyRecordingMetadata]:
+        # Ownership must be checked without reading the large evidence arrays.
+        # The POST still performs exportability and actual MP4-file checks upstream.
+        await self.metadata(recording_id)
         response = await self.client._request(
             "POST",
-            f"daily-recordings/{recording_id}/exports",
+            f"daily-recordings/{recording_id}/exports/summary",
             (200, 202),
             daily=True,
         )
-        item = self.client._parse(response, DailyRecording)
+        item = self.client._parse(response, DailyRecordingMetadata)
         if item.recording_id != recording_id:
             raise MediaServiceError(502, "MEDIA_IDENTITY_MISMATCH")
+        if response.status_code != (200 if item.export_state == "ready" else 202):
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
+        # Do not silently accept a full-history response from the lightweight POST.
+        if {"gaps", "available_intervals", "segments"}.intersection(response.json()):
+            raise MediaServiceError(502, "MEDIA_BAD_RESPONSE")
         return response.status_code, public_recording(item)
 
     async def media_info(self, recording_id: UUID) -> DailyMediaInfo:

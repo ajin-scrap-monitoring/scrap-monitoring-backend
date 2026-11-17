@@ -176,8 +176,8 @@ async def get_daily_thumbnail_by_date(
 
 @router.post(
     "/{recording_id}/exports",
-    response_model=DailyRecording,
-    responses={202: {"model": DailyRecording}, **error_responses(403)},
+    response_model=DailyRecordingMetadata,
+    responses={202: {"model": DailyRecordingMetadata}, **error_responses(403)},
     dependencies=[Depends(require_daily_csrf)],
 )
 async def prepare_daily_download(recording_id: UUID) -> JSONResponse:
@@ -186,7 +186,7 @@ async def prepare_daily_download(recording_id: UUID) -> JSONResponse:
         status_code=code,
         content=item.model_dump(mode="json"),
         headers={
-            "Location": f"/api/v2/recordings/daily/{recording_id}",
+            "Location": f"/api/v2/recordings/daily/{recording_id}/summary",
             "Cache-Control": "no-store",
         },
     )

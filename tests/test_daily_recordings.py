@@ -91,12 +91,18 @@ class Camera:
             return httpx.Response(204)
         if request.method == "POST":
             assert not request.content
+            assert request.url.path.endswith("/exports/summary")
             if not self.item["export_allowed"]:
                 return httpx.Response(409, json={"error": {"code": "DAY_NOT_CLOSED"}})
             ready = self.item["export_state"] == "ready"
             if not ready:
                 self.item["export_state"] = "processing"
-            return httpx.Response(200 if ready else 202, json=self.item)
+            return httpx.Response(
+                200 if ready else 202,
+                json={
+                    k: v for k, v in self.item.items() if k not in ("gaps", "available_intervals")
+                },
+            )
         if request.url.path.endswith("/summary"):
             summary = {
                 k: v for k, v in self.item.items() if k not in ("gaps", "available_intervals")
@@ -176,7 +182,7 @@ async def test_viewer_export_csrf_and_partial_day_lifecycle(client, camera):
     camera.item.update(status="closed", coverage="partial", export_allowed=True)
     response = await client.post(path, headers=headers)
     assert response.status_code == 202
-    assert response.headers["location"] == f"{BASE}/{RID}"
+    assert response.headers["location"] == f"{BASE}/{RID}/summary"
     assert response.json()["export_state"] == "processing"
     assert response.json()["download_path"] is None
     # Polling remains separate from the request; retries reuse the same date ID.

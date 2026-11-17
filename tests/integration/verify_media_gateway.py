@@ -416,6 +416,8 @@ async def probe(base_url: str, backend: str) -> None:
         assert (await client.post(f"{daily_api}/{CLIP_ID}/exports")).status_code == 403
         prepared = await client.post(f"{daily_api}/{CLIP_ID}/exports", headers=csrf)
         assert prepared.status_code == 202, prepared.text
+        assert prepared.headers["location"] == f"{daily_api}/{CLIP_ID}/summary"
+        assert "gaps" not in prepared.json() and "available_intervals" not in prepared.json()
         detail = await client.get(prepared.headers["location"])
         assert detail.json()["export_state"] == "ready"
         manifest = await client.get(daily + "/hls/index.m3u8")

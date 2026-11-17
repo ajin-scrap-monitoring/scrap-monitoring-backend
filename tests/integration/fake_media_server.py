@@ -226,12 +226,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") or self.headers.get("Cookie"):
             self.send_error(400)
             return
-        if self.path != f"/api/v2/daily-recordings/{DAILY_ID}/exports":
+        export_path = f"/api/v2/daily-recordings/{DAILY_ID}/exports"
+        if self.path not in (export_path, export_path + "/summary"):
             self.send_error(404)
             return
         ready = type(self).daily_exported
         type(self).daily_exported = True
-        self.daily_json(200 if ready else 202, daily_recording("ready" if ready else "processing"))
+        item = daily_recording("ready" if ready else "processing")
+        if self.path.endswith("/summary"):
+            item = {k: v for k, v in item.items() if k not in ("gaps", "available_intervals")}
+            item["revision"] = 1
+        self.daily_json(200 if ready else 202, item)
 
     def do_DELETE(self):
         if self.headers.get("Authorization") or self.headers.get("Cookie"):

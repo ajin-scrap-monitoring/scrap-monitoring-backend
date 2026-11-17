@@ -128,6 +128,7 @@ class MediaClient:
                 "DAILY_SNAPSHOT_CHANGED",
                 "DAILY_RESPONSE_TOO_LARGE",
                 "CATALOG_METADATA_ERROR",
+                "CATALOG_SUMMARY_UNAVAILABLE",
                 "DAY_NOT_CLOSED",
                 "DAY_FINALIZING",
                 "NO_RECORDING_DATA",
