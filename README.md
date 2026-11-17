@@ -48,6 +48,23 @@ uv run uvicorn src.app.main:app --host 0.0.0.0 --port 8000
 | `DEFAULT_CRITICAL_THRESHOLD` | `85.0` | 스크랩 수거 요청 기본 임계율 (%) |
 | `ALERT_COOLDOWN_SECONDS` | `1800` | 알림 엔진 쿨다운 시간 (초, 기본 30분) |
 
+### 비공개 인증 파일과 이메일 설정
+
+Google/Gmail 인증 파일은 저장소·이미지·Release asset에 넣지 않고 비공개 경로에서
+읽기 전용으로 연결합니다. 파일 형식·등록·교체 절차는
+[비공개 인증자료 설정](docs/PRIVATE_CREDENTIAL_SETUP.md), `gmail.send` 권한·0400/0600 권한·
+`GMAIL_*` 설정과 토큰 만료·재승인은 [Gmail 발송 안내](docs/GMAIL_EMAIL_DELIVERY.md)를 따릅니다.
+공개 예시를 실제 인증값이나 메일 주소로 바꾸어 커밋하지 않습니다.
+
+용량 경고 메일은 업무 알림과 분리된 두 운영 점검 작업입니다.
+
+* [서버 용량 경고](docs/SERVER_CAPACITY_ALERTS.md): 비공개 TXT의 수신자·활성화·75/90% 초기 기준·점검 주기 설정.
+* [미디어 용량 정리 상태 경고](docs/MEDIA_CAPACITY_ALERTS.md): 미디어의95% 긴급·정리 불가/정체·상태 조회 불가 통보.
+  기존 TXT와 Gmail 인증을 재사용하고 별도의 상태 파일을 유지합니다. 미디어 정리 정책은 미디어 서비스에서 관리합니다.
+
+형식 예시·코드 제공과 실제 서비스 설치·발송 활성화는 별도입니다. 각 문서의 실행 조건과 상태 보존 절차를
+확인하며, 메일 제공자 접수와 실제 수신함 도착도 구분합니다.
+
 ## 개발 및 검증
 
 ```bash
@@ -114,6 +131,7 @@ docker compose down
 * [docs/MEASUREMENT_ERROR_EPISODES.md](docs/MEASUREMENT_ERROR_EPISODES.md): 측정 입력의 반복 오류 구간과 10초 복구 확인
 * [docs/MINIMAL_RECEIPTS.md](docs/MINIMAL_RECEIPTS.md): 영구 중복 방지를 유지하는 최소 접수 저장과 배치 미리보기
 * [docs/SERVER_CAPACITY_ALERTS.md](docs/SERVER_CAPACITY_ALERTS.md): 비공개 TXT 기반 서버 관리자 용량 경고·전달 상태
+* [docs/MEDIA_CAPACITY_ALERTS.md](docs/MEDIA_CAPACITY_ALERTS.md): 독립 미디어 용량 긴급·정리 불가·조회 불가 경고와 상태 보존
 * [docs/CI_EXECUTION.md](docs/CI_EXECUTION.md): PR 전체 검사·main 수동 실행·배포 전 검증 근거
 * [docs/AUTH_STORAGE.md](docs/AUTH_STORAGE.md): 로그인 계정·세션 DB 저장, 최초 비밀번호 설정과 재설정
 
