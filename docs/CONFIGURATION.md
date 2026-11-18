@@ -73,6 +73,7 @@ HOST/PORT만 변경하여 컨테이너 리스너가 바뀐다고 가정하지 �
 | `EDGE_V2_COLLECTION_CONFIRM_SECONDS` | 감소 후 안정 확인 시간(초) | 선택 | `10` | `10` (1~300) |
 | `EDGE_V2_COLLECTION_SETTLE_SECONDS` | 현장 수거 활동 종료 대기(초) | 선택 | `300` | `300` (1~1800) |
 | `EDGE_V2_COLLECTION_SIMULATION_SETTLE_SECONDS` | 명시적 시뮬레이션의 종료 대기(초) | 선택 | `20` | `20` (1~1800) |
+| `EDGE_V2_COLLECTION_COOLDOWN_SECONDS` | 종료 후 새 수거 감지 억제 시간(초) | 선택 | `600` | `600` (0~86400, 0은 억제 안 함) |
 | `EDGE_V2_COLLECTION_HEIGHT_BASIS` | 수거 감지 높이 기준 | 선택 | `UPPER` | `UPPER` 또는 `REPRESENTATIVE` |
 
 JSON A (토큰 자리는 실행 전에 비공개 값으로 교체):
