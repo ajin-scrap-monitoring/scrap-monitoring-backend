@@ -22,7 +22,7 @@ from src.app.services.monitoring_v2_service import build_snapshot
 
 TRACKER_KIND = "collection_tracker"
 MAX_GAP_SECONDS = 3
-DETECTION_VERSION = "UPPER_RISING_BASELINE_V3"
+DETECTION_VERSION = "DUAL_HEIGHT_SETTLE_COOLDOWN_V4"
 
 
 def collection_profile(source: MonitoringSource) -> Literal["FIELD", "SIMULATION"]:
@@ -100,6 +100,7 @@ def collection_scope(source: MonitoringSource, pit: PitConfig | None) -> str | N
             settings.EDGE_V2_COLLECTION_CONFIRM_SECONDS,
             settings.EDGE_V2_COLLECTION_BASELINE_SECONDS,
             collection_settle_seconds(source),
+            settings.EDGE_V2_COLLECTION_COOLDOWN_SECONDS,
         ]
     )
 
@@ -112,6 +113,7 @@ def invalidate(state: CollectionTracker) -> None:
     state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
     state.reference_candidate_cm = state.reference_candidate_since = None
     state.reference_peak_cm = None
+    state.representative_anchor_cm = state.representative_candidate_since = None
     if state.phase != "COLLECTING":
         state.phase = "BASELINING"
         state.baseline_cm = None
@@ -150,6 +152,8 @@ def advance(
     height_cm: float,
     observed: datetime,
     settle_seconds: int | None = None,
+    *,
+    representative_cm: float | None = None,
 ) -> list[tuple[str, dict[str, object]]]:
     settings = get_settings()
     assert settings.EDGE_V2_COLLECTION_DROP_METERS is not None
@@ -169,6 +173,19 @@ def advance(
         if state.phase != "COLLECTING"
         else None
     )
+    if (
+        state.phase != "COLLECTING"
+        and state.last_settled_at is not None
+        and observed - utc(state.last_settled_at)
+        < timedelta(seconds=settings.EDGE_V2_COLLECTION_COOLDOWN_SECONDS)
+    ):
+        # Keep receiving and preparing current data without starting a new episode.
+        # Following the current level avoids rediscovering a drop accumulated while blocked.
+        state.baseline_cm, state.phase = height_cm, "IDLE"
+        state.candidate_since = None
+        state.reference_candidate_cm = state.reference_candidate_since = None
+        state.reference_peak_cm = None
+        return events
     if state.phase == "BASELINING":
         if stable_seconds >= settings.EDGE_V2_COLLECTION_BASELINE_SECONDS:
             state.baseline_cm, state.phase = stable_height, "IDLE"
@@ -195,13 +212,32 @@ def advance(
                 state.progress_candidate_since = None
         else:
             state.progress_candidate_since = None
+        # The upper envelope can pause while the rest of the measured surface keeps
+        # falling. Use the existing noise band/confirmation duration for a second,
+        # independent decline check; no new field-calibrated tolerance is inferred.
+        representative = height_cm if representative_cm is None else representative_cm
+        if state.representative_anchor_cm is None:
+            state.representative_anchor_cm = representative
+        if representative > state.representative_anchor_cm:
+            state.representative_anchor_cm = representative
+        if state.representative_anchor_cm - representative >= band:
+            state.representative_candidate_since = state.representative_candidate_since or observed
+            if observed - state.representative_candidate_since >= timedelta(
+                seconds=settings.EDGE_V2_COLLECTION_CONFIRM_SECONDS
+            ):
+                state.representative_anchor_cm, state.quiet_since = representative, observed
+                state.representative_candidate_since = None
+        else:
+            state.representative_candidate_since = None
         wait = (
             settle_seconds
             if settle_seconds is not None
             else settings.EDGE_V2_COLLECTION_SETTLE_SECONDS
         )
-        if state.progress_candidate_since is None and observed - state.quiet_since >= timedelta(
-            seconds=wait
+        if (
+            state.progress_candidate_since is None
+            and state.representative_candidate_since is None
+            and observed - state.quiet_since >= timedelta(seconds=wait)
         ):
             events.append(
                 (
@@ -219,6 +255,9 @@ def advance(
             state.quiet_since = state.progress_anchor_cm = state.progress_candidate_since = None
             state.reference_candidate_cm = state.reference_candidate_since = None
             state.reference_peak_cm = None
+            state.representative_anchor_cm = state.representative_candidate_since = None
+            state.last_settled_at = observed
+            state.cooldown_initialized = True
         return events
     if supported_height is not None:
         state.baseline_cm = max(state.baseline_cm, supported_height)
@@ -240,6 +279,10 @@ def advance(
         # Quiet time for ending the episode starts after detection, never before it.
         state.quiet_since, state.progress_anchor_cm = observed, height_cm
         state.progress_candidate_since = None
+        state.representative_anchor_cm = (
+            height_cm if representative_cm is None else representative_cm
+        )
+        state.representative_candidate_since = None
         state.reference_candidate_cm = state.reference_candidate_since = None
         state.reference_peak_cm = None
         state.stable_since, state.stable_min_cm, state.stable_max_cm = (
@@ -361,6 +404,7 @@ async def process_collection_source(
         and observation.simulated == (collection_profile(source) == "SIMULATION")
     )
     state = CollectionTracker.model_validate(row.payload) if row else None
+    previous_end = state.last_settled_at if state and state.pit_id == source.pit_id else None
     if state and (state.pit_id != source.pit_id or state.scope_token != scope):
         state = None
     if not valid:
@@ -387,11 +431,38 @@ async def process_collection_source(
             scope_token=scope,
             observed_at=observed,
             simulated=observation.simulated,
+            last_settled_at=previous_end,
         )
     elif observed - utc(state.observed_at) > timedelta(seconds=MAX_GAP_SECONDS):
         invalidate(state)
     assert height_cm is not None
-    events = advance(state, height_cm, observed, collection_settle_seconds(source))
+    if not state.cooldown_initialized:
+        # Seed legacy/missing trackers once from persisted ends, including older
+        # criteria scopes. A restart or settings change must not bypass cooldown.
+        ended = await db.scalar(
+            select(EdgeV2Transition.occurred_at)
+            .where(
+                EdgeV2Transition.site_id == source.site_id,
+                EdgeV2Transition.edge_id == source.edge_id,
+                EdgeV2Transition.kind == "COLLECTION_SETTLED",
+                EdgeV2Transition.payload["pitId"].as_string() == source.pit_id,
+                EdgeV2Transition.occurred_at <= now,
+            )
+            .order_by(EdgeV2Transition.occurred_at.desc())
+            .limit(1)
+        )
+        if ended is not None and (
+            state.last_settled_at is None or utc(ended) > utc(state.last_settled_at)
+        ):
+            state.last_settled_at = utc(ended)
+        state.cooldown_initialized = True
+    events = advance(
+        state,
+        height_cm,
+        observed,
+        collection_settle_seconds(source),
+        representative_cm=snapshot.summary.loadPercent * depth / 100.0,
+    )
     for kind, detail in events:
         db.add(
             EdgeV2Transition(
@@ -412,6 +483,8 @@ async def process_collection_source(
                     "detectionProfile": collection_profile(source),
                     "settleSeconds": collection_settle_seconds(source),
                     "endPolicy": "NO_FURTHER_DROP",
+                    "meanDeclineGuard": True,
+                    "cooldownSeconds": settings.EDGE_V2_COLLECTION_COOLDOWN_SECONDS,
                 },
             )
         )

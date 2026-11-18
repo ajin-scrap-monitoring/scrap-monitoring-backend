@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     # Physical work may pause between grabs; fast timing requires explicit simulation geometry.
     EDGE_V2_COLLECTION_SETTLE_SECONDS: int = Field(default=300, ge=1, le=1800)
     EDGE_V2_COLLECTION_SIMULATION_SETTLE_SECONDS: int = Field(default=20, ge=1, le=1800)
+    # New automatic episodes wait after an end; this is separate from alert mail cooldown.
+    EDGE_V2_COLLECTION_COOLDOWN_SECONDS: int = Field(default=600, ge=0, le=86400)
     EDGE_V2_COLLECTION_HEIGHT_BASIS: Literal["UPPER", "REPRESENTATIVE"] = "UPPER"
 
     @field_validator("EDGE_V2_MEDIAN_WINDOW_SECONDS")

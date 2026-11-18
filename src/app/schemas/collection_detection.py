@@ -28,6 +28,11 @@ class CollectionTracker(BaseModel):
     reference_candidate_cm: float | None = None
     reference_candidate_since: datetime | None = None
     reference_peak_cm: float | None = None
+    # A separate representative-height guard must not replace the upper start signal.
+    representative_anchor_cm: float | None = None
+    representative_candidate_since: datetime | None = None
+    last_settled_at: datetime | None = None
+    cooldown_initialized: bool = False
 
 
 class DetectionSummary(BaseModel):
