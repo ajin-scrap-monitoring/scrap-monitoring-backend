@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.app import __version__
 from src.app.api.errors import request_validation_error_response
 from src.app.api.router import root_api_router
 from src.app.api.v1.media_control import media_error_response
@@ -68,7 +69,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Ajin Scrap Monitoring Backend API",
         description="Monitoring API, Persistence, Real-time Hub, and Alert Engine",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
