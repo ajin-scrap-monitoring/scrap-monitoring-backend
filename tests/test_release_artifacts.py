@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import tomllib
 
 import pytest
 
@@ -124,3 +125,13 @@ def test_every_app_setting_has_a_documented_contract():
     rows = set(re.findall(r"^\| `([A-Z][A-Z0-9_]*)` \|", text, re.MULTILINE))
     assert set(Settings.model_fields) <= rows
     assert "필수" in text and "코드 기본값" in text and "형식 예시" in text
+
+
+def test_application_version_matches_release_metadata():
+    from src.app import __version__
+    from src.app.main import create_app
+
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    app = create_app()
+    assert __version__ == version
+    assert app.openapi()["info"]["version"] == version
